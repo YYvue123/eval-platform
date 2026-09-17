@@ -14,10 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permission
 from app.config import settings
 from app.database import get_db
-from app.models import Dataset, DatasetItem, DatasetLog, DatasetVersion, DataTag, User
+from app.models import Dataset, DatasetItem, DatasetLog, DatasetVersion, DataTag, EvalTask, User
 from app.services.audit import get_client_ip, log_audit
-from app.services.dataset_parser import parse_bytes
-from app.services.quality_checker import check_items
+from app.services.dataset_parser import parse_bytes, preview_raw
 from app.services.serializers import dataset_brief, item_out
 from app.utils.jsonutil import dumps, loads
 
@@ -53,6 +52,45 @@ class TagCreate(BaseModel):
     description: str = ""
 
 
+class TagUpdate(BaseModel):
+    name: str | None = None
+    tag_type: str | None = None
+    parent_id: int | None = None
+    description: str | None = None
+    status: str | None = None
+
+
+class AuditBody(BaseModel):
+    action: str
+    comment: str = ""
+
+
+class ItemPatch(BaseModel):
+    input_content: str | None = None
+    reference_answer: str | None = None
+    expected_output: str | None = None
+    task_requirement: str | None = None
+    difficulty_level: str | None = None
+    data_label: str | None = None
+    status: str | None = None
+
+
+async def _dataset_task_count(db: AsyncSession, dataset_id: int) -> int:
+    return (await db.scalar(select(func.count()).select_from(EvalTask).where(EvalTask.dataset_id == dataset_id))) or 0
+
+
+def _tag_out(t: DataTag) -> dict:
+    return {
+        "id": t.id,
+        "name": t.name,
+        "tag_type": t.tag_type,
+        "parent_id": t.parent_id,
+        "description": t.description,
+        "use_count": t.use_count,
+        "status": t.status,
+    }
+
+
 async def _creator_map(db: AsyncSession, ids: list[int]) -> dict[int, str]:
     ids = [i for i in ids if i]
     if not ids:
@@ -84,7 +122,7 @@ async def list_datasets(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("dataset:list")),
 ):
-    q = select(Dataset)
+    q = select(Dataset).where(Dataset.status != "deleted")
     if search:
         q = q.where(or_(Dataset.name.contains(search), Dataset.description.contains(search)))
     if status:
@@ -133,7 +171,35 @@ async def list_tags(
     _: User = Depends(require_permission("dataset:list")),
 ):
     rows = (await db.execute(select(DataTag).order_by(DataTag.id.desc()))).scalars().all()
-    return [{"id": t.id, "name": t.name, "tag_type": t.tag_type, "parent_id": t.parent_id, "description": t.description, "status": t.status} for t in rows]
+    return [_tag_out(t) for t in rows]
+
+
+@router.put("/tags/{tag_id}")
+async def update_tag(
+    tag_id: int,
+    body: TagUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("dataset:edit")),
+):
+    t = await db.get(DataTag, tag_id)
+    if not t:
+        raise HTTPException(404, "标签不存在")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(t, k, v)
+    return _tag_out(t)
+
+
+@router.delete("/tags/{tag_id}")
+async def delete_tag(
+    tag_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("dataset:edit")),
+):
+    t = await db.get(DataTag, tag_id)
+    if not t:
+        raise HTTPException(404, "标签不存在")
+    t.status = "disabled"
+    return {"ok": True}
 
 
 @router.post("/tags")
@@ -145,7 +211,7 @@ async def create_tag(
     t = DataTag(name=body.name, tag_type=body.tag_type, parent_id=body.parent_id, description=body.description, creator_id=current.id)
     db.add(t)
     await db.flush()
-    return {"id": t.id, "name": t.name, "tag_type": t.tag_type}
+    return _tag_out(t)
 
 
 @router.get("/{dataset_id}")
@@ -199,9 +265,11 @@ async def update_dataset(
     current: User = Depends(require_permission("dataset:edit")),
 ):
     d = await db.get(Dataset, dataset_id)
-    if not d:
+    if not d or d.status == "deleted":
         raise HTTPException(404, "数据集不存在")
     data = body.model_dump(exclude_unset=True)
+    if "status" in data and data["status"] not in {"draft", "disabled", "archived", "pending"}:
+        raise HTTPException(400, "不允许直接修改为该状态")
     if "tags" in data:
         d.tags = dumps(data.pop("tags") or [])
     for k, v in data.items():
@@ -219,15 +287,49 @@ async def delete_dataset(
     current: User = Depends(require_permission("dataset:delete")),
 ):
     d = await db.get(Dataset, dataset_id)
-    if not d:
+    if not d or d.status == "deleted":
         raise HTTPException(404, "数据集不存在")
-    if d.status == "published":
-        raise HTTPException(400, "已发布数据集请先停用或归档后再删除")
-    await db.execute(DatasetItem.__table__.delete().where(DatasetItem.dataset_id == dataset_id))
-    await db.execute(DatasetVersion.__table__.delete().where(DatasetVersion.dataset_id == dataset_id))
-    await db.delete(d)
+    used = await _dataset_task_count(db, dataset_id)
+    d.status = "deleted"
+    await _add_log(db, d.id, None, "delete", f"逻辑删除，历史任务占用 {used} 个", current)
     await log_audit(db, "dataset", "delete", user_id=current.id, username=current.username, target_id=dataset_id, ip=get_client_ip(request))
-    return {"ok": True}
+    return {"ok": True, "logical": True, "task_count": used}
+
+
+def _parse_mapping(raw: str) -> dict | None:
+    if not raw or not raw.strip():
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, "字段映射不是合法 JSON") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(400, "字段映射必须是对象")
+    return {str(k): v for k, v in data.items() if v}
+
+
+@router.post("/{dataset_id}/preview")
+async def preview_import(
+    dataset_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("dataset:edit")),
+):
+    d = await db.get(Dataset, dataset_id)
+    if not d or d.status == "deleted":
+        raise HTTPException(404, "数据集不存在")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "空文件禁止导入")
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(400, "文件超过 50MB 限制")
+    try:
+        preview = preview_raw(file.filename or "data.json", raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    checksum = hashlib.sha256(raw).hexdigest()
+    existed = await db.scalar(select(DatasetVersion.id).where(DatasetVersion.checksum == checksum))
+    return {**preview, "checksum": checksum, "duplicate_checksum": bool(existed)}
 
 
 @router.post("/{dataset_id}/import")
@@ -236,17 +338,21 @@ async def import_dataset(
     request: Request,
     file: UploadFile = File(...),
     version_desc: str = Form(""),
+    field_mapping: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_permission("dataset:edit")),
 ):
     d = await db.get(Dataset, dataset_id)
-    if not d:
+    if not d or d.status == "deleted":
         raise HTTPException(404, "数据集不存在")
     raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "空文件禁止导入")
     if len(raw) > 50 * 1024 * 1024:
         raise HTTPException(400, "文件超过 50MB 限制")
+    mapping = _parse_mapping(field_mapping)
     try:
-        rows = parse_bytes(file.filename or "data.json", raw)
+        rows = parse_bytes(file.filename or "data.json", raw, mapping)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not rows:
@@ -264,6 +370,7 @@ async def import_dataset(
         dataset_id=d.id,
         version_code=version_code,
         version_desc=version_desc or f"导入 {file.filename}",
+        change_content=dumps(mapping or {}),
         file_path=str(stored),
         data_count=len(rows),
         checksum=checksum,
@@ -288,7 +395,8 @@ async def import_dataset(
     d.current_version_id = ver.id
     d.data_count = len(rows)
     d.data_format = (Path(file.filename or "").suffix or "").lstrip(".") or d.data_format
-    d.status = "draft"
+    if d.status in {"published", "pending"}:
+        d.status = "draft"
     d.quality_status = "unchecked"
     await _add_log(db, d.id, ver.id, "import", f"导入 {len(rows)} 条", current)
     await log_audit(db, "dataset", "import", user_id=current.id, username=current.username, target_id=d.id, ip=get_client_ip(request))
@@ -318,7 +426,7 @@ async def list_items(
     vid = version_id or d.current_version_id
     if not vid:
         return {"items": [], "total": 0}
-    q = select(DatasetItem).where(DatasetItem.version_id == vid)
+    q = select(DatasetItem).where(DatasetItem.version_id == vid, DatasetItem.status != "deleted")
     if search:
         q = q.where(or_(DatasetItem.input_content.contains(search), DatasetItem.reference_answer.contains(search)))
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
@@ -338,7 +446,9 @@ async def export_dataset(
     if not d:
         raise HTTPException(404, "数据集不存在")
     vid = version_id or d.current_version_id
-    rows = (await db.execute(select(DatasetItem).where(DatasetItem.version_id == vid).order_by(DatasetItem.item_no))).scalars().all()
+    rows = (await db.execute(
+        select(DatasetItem).where(DatasetItem.version_id == vid, DatasetItem.status != "deleted").order_by(DatasetItem.item_no)
+    )).scalars().all()
     await _add_log(db, d.id, vid, "export", f"导出 {fmt}", current)
     if fmt == "csv":
         buf = io.StringIO()
@@ -349,6 +459,22 @@ async def export_dataset(
         data = buf.getvalue().encode("utf-8-sig")
         media = "text/csv"
         filename = f"{d.name}.csv"
+    elif fmt == "txt":
+        data = "\n".join(f"{r.item_no}\t{r.input_content}\t{r.reference_answer}" for r in rows).encode("utf-8")
+        media = "text/plain"
+        filename = f"{d.name}.txt"
+    elif fmt in {"xlsx", "xls", "excel"}:
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["item_no", "input", "reference", "label"])
+        for r in rows:
+            ws.append([r.item_no, r.input_content, r.reference_answer, r.data_label])
+        bio = io.BytesIO()
+        wb.save(bio)
+        data = bio.getvalue()
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"{d.name}.xlsx"
     else:
         lines = [json.dumps({"input": r.input_content, "reference": r.reference_answer, "label": r.data_label}, ensure_ascii=False) for r in rows]
         data = ("\n".join(lines) + "\n").encode("utf-8")
@@ -357,19 +483,113 @@ async def export_dataset(
     return StreamingResponse(io.BytesIO(data), media_type=media, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-@router.post("/{dataset_id}/publish")
-async def publish_dataset(
+@router.post("/{dataset_id}/submit")
+async def submit_dataset(
     dataset_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_permission("dataset:edit")),
 ):
     d = await db.get(Dataset, dataset_id)
-    if not d:
+    if not d or d.status == "deleted":
+        raise HTTPException(404, "数据集不存在")
+    if not d.current_version_id:
+        raise HTTPException(400, "请先导入数据")
+    if d.status not in {"draft", "rejected"}:
+        raise HTTPException(400, "仅草稿或已退回的数据集可提交审核")
+    d.status = "pending"
+    d.review_comment = ""
+    await _add_log(db, d.id, d.current_version_id, "submit", "提交审核", current)
+    await log_audit(db, "dataset", "submit", user_id=current.id, username=current.username, target_id=d.id, ip=get_client_ip(request))
+    return dataset_brief(d)
+
+
+@router.post("/{dataset_id}/audit")
+async def audit_dataset(
+    dataset_id: int,
+    body: AuditBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_permission("dataset:audit")),
+):
+    d = await db.get(Dataset, dataset_id)
+    if not d or d.status == "deleted":
+        raise HTTPException(404, "数据集不存在")
+    if d.status != "pending":
+        raise HTTPException(400, "仅待审核数据集可审核")
+    if body.action not in {"approve", "reject"}:
+        raise HTTPException(400, "action 必须是 approve 或 reject")
+    if body.action == "approve":
+        d.status = "published"
+        d.review_comment = body.comment
+        op = "publish"
+        desc = "审核通过并发布"
+    else:
+        d.status = "rejected"
+        d.review_comment = body.comment or "审核退回"
+        op = "reject"
+        desc = f"审核退回：{d.review_comment}"
+    await _add_log(db, d.id, d.current_version_id, op, desc, current)
+    await log_audit(db, "dataset", op, user_id=current.id, username=current.username, target_id=d.id, ip=get_client_ip(request))
+    return dataset_brief(d)
+
+
+@router.post("/{dataset_id}/publish")
+async def publish_dataset(
+    dataset_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_permission("dataset:audit")),
+):
+    d = await db.get(Dataset, dataset_id)
+    if not d or d.status == "deleted":
         raise HTTPException(404, "数据集不存在")
     if not d.current_version_id:
         raise HTTPException(400, "请先导入数据")
     d.status = "published"
+    d.review_comment = ""
     await _add_log(db, d.id, d.current_version_id, "publish", "发布数据集", current)
     await log_audit(db, "dataset", "publish", user_id=current.id, username=current.username, target_id=d.id, ip=get_client_ip(request))
     return dataset_brief(d)
+
+
+@router.post("/{dataset_id}/versions/{version_id}/rollback")
+async def rollback_version(
+    dataset_id: int,
+    version_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_permission("dataset:edit")),
+):
+    d = await db.get(Dataset, dataset_id)
+    if not d or d.status == "deleted":
+        raise HTTPException(404, "数据集不存在")
+    ver = await db.get(DatasetVersion, version_id)
+    if not ver or ver.dataset_id != dataset_id:
+        raise HTTPException(404, "版本不存在")
+    d.current_version = ver.version_code
+    d.current_version_id = ver.id
+    d.data_count = ver.data_count
+    d.quality_status = ver.quality_status
+    if d.status == "published":
+        d.status = "draft"
+    await _add_log(db, d.id, ver.id, "rollback", f"回滚到 {ver.version_code}", current)
+    await log_audit(db, "dataset", "rollback", user_id=current.id, username=current.username, target_id=d.id, ip=get_client_ip(request))
+    return dataset_brief(d)
+
+
+@router.patch("/{dataset_id}/items/{item_id}")
+async def patch_item(
+    dataset_id: int,
+    item_id: int,
+    body: ItemPatch,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_permission("dataset:edit")),
+):
+    item = await db.get(DatasetItem, item_id)
+    if not item or item.dataset_id != dataset_id:
+        raise HTTPException(404, "条目不存在")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(item, k, v)
+    await _add_log(db, dataset_id, item.version_id, "update", f"修正条目 {item.item_no}", current)
+    return item_out(item)

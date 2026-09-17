@@ -21,6 +21,7 @@ const routes = [
       { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue'), meta: { title: '个人中心' } },
       { path: 'users', name: 'Users', component: () => import('@/views/Users.vue'), meta: { permission: 'user:list', title: '用户管理' } },
       { path: 'audit', name: 'AuditLog', component: () => import('@/views/AuditLog.vue'), meta: { permission: 'audit:list', title: '操作审计' } },
+      { path: 'ops', name: 'Ops', component: () => import('@/views/Ops.vue'), meta: { permission: 'ops:view', title: '运行支撑' } },
       { path: 'api-docs', name: 'ApiDocs', component: () => import('@/views/ApiDocs.vue'), meta: { title: '接口文档' } },
       { path: 'datasets', name: 'Datasets', component: () => import('@/views/Datasets.vue'), meta: { permission: 'dataset:list', title: '评测数据' } },
       { path: 'datasets/:id', name: 'DatasetDetail', component: () => import('@/views/DatasetDetail.vue'), meta: { permission: 'dataset:view', title: '数据集详情' } },
@@ -29,9 +30,11 @@ const routes = [
       { path: 'prompts', name: 'Prompts', component: () => import('@/views/Prompts.vue'), meta: { permission: 'prompt:list', title: '提示词工程' } },
       { path: 'resources', name: 'Resources', component: () => import('@/views/Resources.vue'), meta: { permission: 'resource:list', title: '工具底座' } },
       { path: 'tasks', name: 'Tasks', component: () => import('@/views/Tasks.vue'), meta: { permission: 'task:list', title: '任务管理' } },
+      { path: 'task-templates', name: 'TaskTemplates', component: () => import('@/views/TaskTemplates.vue'), meta: { permission: 'task:list', title: '任务模板' } },
       { path: 'tasks/:id', name: 'TaskDetail', component: () => import('@/views/TaskDetail.vue'), meta: { permission: 'task:view', title: '任务详情' } },
       { path: 'leaderboard', name: 'Leaderboard', component: () => import('@/views/Leaderboard.vue'), meta: { permission: 'leaderboard:view', title: '模型榜单' } },
-      { path: 'services', name: 'EvalServices', component: () => import('@/views/EvalServices.vue'), meta: { permission: 'service:list', title: '评测服务' } }
+      { path: 'services', name: 'EvalServices', component: () => import('@/views/EvalServices.vue'), meta: { permission: 'service:list', title: '评测服务' } },
+      { path: 'agents', name: 'Agents', component: () => import('@/views/Agents.vue'), meta: { permission: 'agent:list', title: '编排Agent' } }
     ]
   },
   {

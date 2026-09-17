@@ -1,0 +1,50 @@
+# 编译、规范检查、单测与安全扫描（规格 5.1）。制品为前端 dist + 后端包；本仓库默认 SQLite 单机部署。
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Compile
+        run: python -m compileall -q app tests
+      - name: Unit tests
+        run: python -m unittest tests.test_eval_flow -v
+      - name: Secret scan
+        working-directory: .
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|credentials\.json|id_rsa$'; then
+            echo "tracked secret-like file" >&2
+            exit 1
+          fi
+          python -c "import pathlib; p=pathlib.Path('backend/app/config.py'); t=p.read_text(encoding='utf-8'); assert 'SECRET_KEY' in t"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        run: npm ci
+      - name: Collect permissions
+        run: npm run collect-permissions
+      - name: Build
+        run: npm run build

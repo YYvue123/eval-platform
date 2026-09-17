@@ -7,7 +7,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api import auth, users, dashboard, notifications, roles, audit
-from app.api import datasets, models, prompts, resources, tasks, quality
+from app.api import datasets, models, prompts, resources, tasks, quality, batch, agents, ops
 from app.database import init_db, seed_db
 from app.config import settings
 from app.exceptions import register_exception_handlers
@@ -25,6 +25,7 @@ setup_logging(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    import asyncio
     import logging
     import os
     log = logging.getLogger(__name__)
@@ -33,8 +34,17 @@ async def lifespan(_app: FastAPI):
     os.makedirs(settings.LOG_DIR, exist_ok=True)
     await init_db()
     await seed_db()
+    stop = asyncio.Event()
+    from app.services.health_probe import health_probe_loop
+    probe_task = asyncio.create_task(health_probe_loop(stop))
     log.info("启动完成: UPLOAD_DIR=%s, LOG_DIR=%s", settings.UPLOAD_DIR, settings.LOG_DIR)
     yield
+    stop.set()
+    probe_task.cancel()
+    try:
+        await probe_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -67,10 +77,13 @@ app.include_router(datasets.router, prefix="/api/datasets", tags=["评测数据"
 app.include_router(models.router, prefix="/api/models", tags=["被测模型"])
 app.include_router(prompts.router, prefix="/api/prompts", tags=["提示词工程"])
 app.include_router(resources.router, prefix="/api/resources", tags=["工具底座"])
+app.include_router(batch.router, prefix="/api/batch", tags=["批量评测"])
 app.include_router(quality.router, prefix="/api/quality", tags=["数据质量"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["评测任务"])
 app.include_router(tasks.leaderboard_router, prefix="/api/leaderboard", tags=["模型榜单"])
 app.include_router(tasks.service_router, prefix="/api/services", tags=["评测服务"])
+app.include_router(agents.router, prefix="/api/agents", tags=["编排Agent"])
+app.include_router(ops.router, prefix="/api", tags=["运行支撑"])
 
 
 def custom_openapi():

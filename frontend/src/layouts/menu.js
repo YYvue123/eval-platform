@@ -27,7 +27,9 @@ export const MENU_GROUPS = [
     icon: 'List',
     children: [
       { index: '/tasks', title: '任务管理', icon: 'Finished', permission: 'task:list', match: '/tasks' },
-      { index: '/services', title: '评测服务', icon: 'Ticket', permission: 'service:list' }
+      { index: '/task-templates', title: '任务模板', icon: 'Collection', permission: 'task:list' },
+      { index: '/services', title: '评测服务', icon: 'Ticket', permission: 'service:list' },
+      { index: '/agents', title: '编排Agent', icon: 'Connection', permission: 'agent:list' }
     ]
   },
   {
@@ -48,6 +50,7 @@ export const MENU_GROUPS = [
       { index: '/permissions', title: '权限管理', icon: 'Key', permission: 'role:list' },
       { index: '/notifications', title: '通知管理', icon: 'Bell', permission: 'notification:list' },
       { index: '/audit', title: '操作审计', icon: 'DocumentChecked', permission: 'audit:list' },
+      { index: '/ops', title: '运行支撑', icon: 'Monitor', permission: 'ops:view' },
       { index: '/api-docs', title: '接口文档', icon: 'DocumentCopy', permission: null }
     ]
   }

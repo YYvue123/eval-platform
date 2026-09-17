@@ -52,12 +52,19 @@ export const datasetsApi = {
   create: (data) => request.post('/datasets', data),
   update: (id, data) => request.put(`/datasets/${id}`, data),
   delete: (id) => request.delete(`/datasets/${id}`),
+  preview: (id, formData) => request.post(`/datasets/${id}/preview`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }),
   importFile: (id, formData) => request.post(`/datasets/${id}/import`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }),
   items: (id, params) => request.get(`/datasets/${id}/items`, { params }),
+  patchItem: (id, itemId, data) => request.patch(`/datasets/${id}/items/${itemId}`, data),
   exportFile: (id, params) => request.get(`/datasets/${id}/export`, { params, responseType: 'blob' }),
+  submit: (id) => request.post(`/datasets/${id}/submit`),
+  audit: (id, data) => request.post(`/datasets/${id}/audit`, data),
   publish: (id) => request.post(`/datasets/${id}/publish`),
+  rollback: (id, versionId) => request.post(`/datasets/${id}/versions/${versionId}/rollback`),
   tags: () => request.get('/datasets/tags'),
-  createTag: (data) => request.post('/datasets/tags', data)
+  createTag: (data) => request.post('/datasets/tags', data),
+  updateTag: (id, data) => request.put(`/datasets/tags/${id}`, data),
+  deleteTag: (id) => request.delete(`/datasets/tags/${id}`)
 }
 
 export const modelsApi = {
@@ -67,7 +74,11 @@ export const modelsApi = {
   update: (id, data) => request.put(`/models/${id}`, data),
   delete: (id) => request.delete(`/models/${id}`),
   health: (id) => request.post(`/models/${id}/health`),
-  invoke: (id, data) => request.post(`/models/${id}/invoke`, data)
+  invoke: (id, data) => request.post(`/models/${id}/invoke`, data),
+  createVersion: (id, data) => request.post(`/models/${id}/versions`, data),
+  activateVersion: (id, vid) => request.post(`/models/${id}/versions/${vid}/activate`),
+  addAcl: (id, data) => request.post(`/models/${id}/acl`, data),
+  deleteAcl: (id, aclId) => request.delete(`/models/${id}/acl/${aclId}`)
 }
 
 export const promptsApi = {
@@ -77,7 +88,18 @@ export const promptsApi = {
   update: (id, data) => request.put(`/prompts/${id}`, data),
   delete: (id) => request.delete(`/prompts/${id}`),
   publish: (id) => request.post(`/prompts/${id}/publish`),
-  preview: (id, data) => request.post(`/prompts/${id}/preview`, data)
+  submit: (id) => request.post(`/prompts/${id}/submit`),
+  audit: (id, data) => request.post(`/prompts/${id}/audit`, data),
+  preview: (id, data) => request.post(`/prompts/${id}/preview`, data),
+  generate: (data) => request.post('/prompts/generate', data),
+  optimize: (id) => request.post(`/prompts/${id}/optimize`),
+  copy: (id) => request.post(`/prompts/${id}/copy`),
+  restore: (id, vid) => request.post(`/prompts/${id}/versions/${vid}/restore`),
+  compare: (id, params) => request.get(`/prompts/${id}/compare`, { params }),
+  runTest: (id, data) => request.post(`/prompts/${id}/tests`, data),
+  tests: (id) => request.get(`/prompts/${id}/tests`),
+  stats: (id) => request.get(`/prompts/${id}/stats`),
+  logs: (id) => request.get(`/prompts/${id}/logs`)
 }
 
 export const resourcesApi = {
@@ -85,12 +107,30 @@ export const resourcesApi = {
   get: (id) => request.get(`/resources/${encodeURIComponent(id)}`),
   register: (manifest) => request.post('/resources/register', { manifest }),
   invoke: (data) => request.post('/resources/invoke', data),
-  offline: (id) => request.post(`/resources/${encodeURIComponent(id)}/offline`)
+  offline: (id) => request.post(`/resources/${encodeURIComponent(id)}/offline`),
+  match: (data) => request.post('/resources/match', data),
+  events: (params) => request.get('/resources/events', { params }),
+  health: (id) => request.post(`/resources/${encodeURIComponent(id)}/health`),
+  registry: () => request.get('/resources/registry'),
+  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`)
+}
+
+export const batchApi = {
+  run: (data) => request.post('/batch/run', data),
+  status: (id) => request.get(`/batch/status/${id}`),
+  cancel: (id) => request.delete(`/batch/${id}`),
+  shard: (id, shardId, params) => request.get(`/batch/${id}/shards/${shardId}`, { params }),
+  putResults: (id, shardId, data) => request.put(`/batch/${id}/shards/${shardId}/results`, data)
 }
 
 export const qualityApi = {
   list: (params) => request.get('/quality', { params }),
-  run: (params) => request.post('/quality/run', null, { params })
+  run: (params) => request.post('/quality/run', null, { params }),
+  rules: () => request.get('/quality/rules'),
+  updateRule: (id, data) => request.put(`/quality/rules/${id}`, data),
+  issues: (params) => request.get('/quality/issues', { params }),
+  handleIssue: (id, data) => request.post(`/quality/issues/${id}/handle`, data),
+  download: (id) => request.get(`/quality/${id}/download`, { responseType: 'blob' })
 }
 
 export const tasksApi = {
@@ -99,15 +139,63 @@ export const tasksApi = {
   create: (data) => request.post('/tasks', data),
   results: (id, params) => request.get(`/tasks/${id}/results`, { params }),
   run: (id) => request.post(`/tasks/${id}/run`),
-  cancel: (id) => request.post(`/tasks/${id}/cancel`)
+  cancel: (id) => request.post(`/tasks/${id}/cancel`),
+  catalog: () => request.get('/tasks/catalog'),
+  templates: (params) => request.get('/tasks/templates', { params }),
+  submit: (id) => request.post(`/tasks/${id}/submit`),
+  audit: (id, data) => request.post(`/tasks/${id}/audit`, data),
+  events: (id) => request.get(`/tasks/${id}/events`),
+  subtasks: (id) => request.get(`/tasks/${id}/subtasks`),
+  report: (id, params) => request.get(`/tasks/${id}/report`, { params, responseType: 'blob' }),
+  lineage: (id) => request.get(`/tasks/${id}/lineage`),
+  alerts: () => request.get('/tasks/alerts'),
+  patchAlert: (id, data) => request.put(`/tasks/alerts/${id}`, data)
 }
 
 export const leaderboardApi = {
-  list: (params) => request.get('/leaderboard', { params })
+  list: (params) => request.get('/leaderboard', { params }),
+  refresh: (params) => request.post('/leaderboard/refresh', null, { params }),
+  export: (params) => request.get('/leaderboard/export', { params, responseType: 'blob' }),
+  weights: () => request.get('/leaderboard/weights'),
+  putWeights: (data) => request.put('/leaderboard/weights', data),
+  costs: () => request.get('/leaderboard/costs'),
+  putCost: (id, data) => request.put(`/leaderboard/costs/${id}`, data),
+  radar: (params) => request.get('/leaderboard/radar', { params }),
+  trend: (params) => request.get('/leaderboard/trend', { params })
 }
 
 export const servicesApi = {
   list: (params) => request.get('/services', { params }),
   create: (data) => request.post('/services', data),
-  updateStatus: (id, params) => request.post(`/services/${id}/status`, null, { params })
+  updateStatus: (id, params) => request.post(`/services/${id}/status`, null, { params }),
+  quote: (id, data) => request.post(`/services/${id}/quote`, data),
+  confirm: (id) => request.post(`/services/${id}/confirm`),
+  report: (id, params) => request.get(`/services/${id}/report`, { params, responseType: 'blob' }),
+  shadow: (id, data) => request.post(`/services/${id}/shadow`, data),
+  promote: (id) => request.post(`/services/${id}/promote`),
+  rollback: (id) => request.post(`/services/${id}/rollback`),
+  workspaces: () => request.get('/services/workspaces'),
+  createWorkspace: (data) => request.post('/services/workspaces', data),
+  kanban: () => request.get('/services/kanban')
+}
+
+export const agentsApi = {
+  knowledge: (params) => request.get('/agents/knowledge', { params }),
+  addKnowledge: (data) => request.post('/agents/knowledge', data),
+  sessions: () => request.get('/agents/sessions'),
+  createSession: (data) => request.post('/agents/sessions', data),
+  getSession: (id) => request.get(`/agents/sessions/${id}`),
+  confirm: (id, data) => request.post(`/agents/sessions/${id}/confirm`, data),
+  monitor: (id) => request.get(`/agents/sessions/${id}/monitor`),
+  diagnose: (id) => request.post(`/agents/sessions/${id}/diagnose`),
+  actSuggestion: (id, data) => request.post(`/agents/suggestions/${id}/act`, data)
+}
+
+export const opsApi = {
+  health: () => request.get('/health'),
+  metrics: () => request.get('/metrics', { responseType: 'text' }),
+  status: () => request.get('/ops/status'),
+  backup: () => request.post('/ops/backup'),
+  acceptance: () => request.get('/ops/acceptance'),
+  gcSnapshots: () => request.post('/ops/gc-snapshots')
 }

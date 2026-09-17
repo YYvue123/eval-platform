@@ -17,4 +17,7 @@ class AuditLog(Base):
     target_id: Mapped[int] = mapped_column(Integer, nullable=True)  # 操作对象 ID，如 dataset_id
     detail: Mapped[str] = mapped_column(Text, nullable=True)  # 额外说明，如名称、原因
     ip: Mapped[str] = mapped_column(String(64), nullable=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="")
+    trace_id: Mapped[str] = mapped_column(String(64), default="")
+    parent_trace_id: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

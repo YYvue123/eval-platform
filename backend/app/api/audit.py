@@ -52,6 +52,9 @@ async def list_audit_logs(
                 "target_id": a.target_id,
                 "detail": a.detail or "",
                 "ip": a.ip or "",
+                "tenant_id": getattr(a, "tenant_id", "") or "",
+                "trace_id": getattr(a, "trace_id", "") or "",
+                "parent_trace_id": getattr(a, "parent_trace_id", "") or "",
                 "created_at": a.created_at.isoformat(),
             }
             for a in items

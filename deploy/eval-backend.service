@@ -12,11 +12,13 @@ User=eval
 Group=eval
 WorkingDirectory=/opt/eval-platform/backend
 Environment="PATH=/opt/eval-platform/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="APP_ENV=production"
 ExecStart=/opt/eval-platform/backend/.venv/bin/gunicorn app.main:app \
     --workers 2 \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 127.0.0.1:8000 \
     --timeout 300
+ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5; do curl -sf http://127.0.0.1:8000/api/health && exit 0; sleep 1; done; exit 0'
 Restart=always
 RestartSec=3
 StandardOutput=journal

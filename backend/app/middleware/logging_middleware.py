@@ -6,6 +6,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.services.metrics import observe_http
+from app.services.audit import set_audit_trace
+
 logger = logging.getLogger("app.request")
 
 
@@ -17,6 +20,11 @@ def _safe_header(req: Request, name: str) -> str:
 async def logging_middleware(request: Request, call_next) -> Response:
     """记录请求、响应及异常"""
     request_id = uuid.uuid4().hex[:12]
+    trace_id = request.headers.get("traceparent") or request.headers.get("x-trace-id") or uuid.uuid4().hex
+    request.state.trace_id = trace_id
+    request.state.parent_trace_id = request.headers.get("x-parent-trace-id") or ""
+    request.state.tenant_id = request.headers.get("x-tenant-id") or ""
+    set_audit_trace(request.state.tenant_id, str(trace_id), request.state.parent_trace_id)
     start = time.perf_counter()
     method = request.method
     path = request.url.path
@@ -44,6 +52,7 @@ async def logging_middleware(request: Request, call_next) -> Response:
     try:
         response = await call_next(request)
         status_code = response.status_code
+        response.headers["X-Trace-Id"] = str(getattr(request.state, "trace_id", request_id))
         return response
     except Exception as exc:
         status_code = 500
@@ -58,6 +67,7 @@ async def logging_middleware(request: Request, call_next) -> Response:
         raise
     finally:
         duration_ms = (time.perf_counter() - start) * 1000
+        observe_http(method, path, status_code, duration_ms)
         level = logging.INFO if status_code < 400 else (logging.WARNING if status_code < 500 else logging.ERROR)
         logger.log(
             level,

@@ -32,6 +32,19 @@ class EvalTask(Base):
     batch_id: Mapped[str] = mapped_column(String(64), default="")
     error_message: Mapped[str] = mapped_column(Text, default="")
     report_summary: Mapped[str] = mapped_column(Text, default="")
+    trial_run: Mapped[bool] = mapped_column(default=False)
+    model_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    template_code: Mapped[str] = mapped_column(String(80), default="")
+    priority: Mapped[int] = mapped_column(Integer, default=5)
+    depends_on_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metric_weights_json: Mapped[str] = mapped_column(Text, default="{}")
+    token_quota: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    window_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    window_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    report_path: Mapped[str] = mapped_column(String(500), default="")
+    tool_version: Mapped[str] = mapped_column(String(40), default="")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -54,6 +67,30 @@ class EvalResult(Base):
     metrics_json: Mapped[str] = mapped_column(Text, default="{}")
     error_message: Mapped[str] = mapped_column(Text, default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    finish_reason: Mapped[str] = mapped_column(String(32), default="")
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class EvalLineage(Base):
+    __tablename__ = "eval_lineages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    dataset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dataset_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checksum: Mapped[str] = mapped_column(String(128), default="")
+    snapshot_id: Mapped[str] = mapped_column(String(64), default="")
+    model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    judge_resource_id: Mapped[str] = mapped_column(String(120), default="")
+    tool_version: Mapped[str] = mapped_column(String(40), default="")
+    trace_id: Mapped[str] = mapped_column(String(64), default="")
+    parent_trace_id: Mapped[str] = mapped_column(String(64), default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), default="")
+    channel_type: Mapped[str] = mapped_column(String(32), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -66,8 +103,46 @@ class QualityReport(Base):
     status: Mapped[str] = mapped_column(String(32), default="done")
     score: Mapped[float] = mapped_column(Float, default=0)
     report_json: Mapped[str] = mapped_column(Text, default="{}")
+    report_path: Mapped[str] = mapped_column(String(500), default="")
+    issue_count: Mapped[int] = mapped_column(Integer, default=0)
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class QualityRule(Base):
+    __tablename__ = "quality_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(32), default="completeness")
+    description: Mapped[str] = mapped_column(Text, default="")
+    severity: Mapped[str] = mapped_column(String(20), default="error")
+    enabled: Mapped[bool] = mapped_column(default=True)
+    config_json: Mapped[str] = mapped_column(Text, default="{}")
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class QualityIssue(Base):
+    __tablename__ = "quality_issues"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    report_id: Mapped[int] = mapped_column(Integer, index=True)
+    dataset_id: Mapped[int] = mapped_column(Integer, index=True)
+    version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    item_no: Mapped[int] = mapped_column(Integer, default=0)
+    rule_code: Mapped[str] = mapped_column(String(64), default="")
+    issue_type: Mapped[str] = mapped_column(String(32), default="")
+    severity: Mapped[str] = mapped_column(String(20), default="error")
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    handler: Mapped[str] = mapped_column(String(80), default="")
+    handle_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class EvalServiceRequest(Base):
@@ -80,6 +155,106 @@ class EvalServiceRequest(Base):
     status: Mapped[str] = mapped_column(String(32), default="submitted")
     task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     report_summary: Mapped[str] = mapped_column(Text, default="")
+    quote_mode: Mapped[str] = mapped_column(String(20), default="auto")
+    quote_amount: Mapped[float] = mapped_column(Float, default=0)
+    quote_detail_json: Mapped[str] = mapped_column(Text, default="{}")
+    workspace_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dataset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scene: Mapped[str] = mapped_column(String(80), default="chat")
+    gray_version: Mapped[str] = mapped_column(String(40), default="")
+    production_version: Mapped[str] = mapped_column(String(40), default="v1")
+    shadow_json: Mapped[str] = mapped_column(Text, default="{}")
+    report_path: Mapped[str] = mapped_column(String(500), default="")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EvalWorkspace(Base):
+    __tablename__ = "eval_workspaces"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120))
+    code: Mapped[str] = mapped_column(String(64), unique=True)
+    quota_tokens: Mapped[int] = mapped_column(Integer, default=100000)
+    quota_calls: Mapped[int] = mapped_column(Integer, default=10000)
+    used_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    used_calls: Mapped[int] = mapped_column(Integer, default=0)
+    owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LeaderboardWeight(Base):
+    __tablename__ = "leaderboard_weights"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    board_type: Mapped[str] = mapped_column(String(32), default="overall")
+    dim_key: Mapped[str] = mapped_column(String(80))
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+
+
+class LeaderboardSnapshot(Base):
+    __tablename__ = "leaderboard_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    board_type: Mapped[str] = mapped_column(String(32), index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(20), default="ok")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TaskTemplate(Base):
+    __tablename__ = "task_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(80), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    category: Mapped[str] = mapped_column(String(32), default="scene")
+    scene: Mapped[str] = mapped_column(String(80), default="chat")
+    industry: Mapped[str] = mapped_column(String(50), default="general")
+    task_type: Mapped[str] = mapped_column(String(50), default="capability")
+    judge_resource_id: Mapped[str] = mapped_column(String(120), default="builtin/exact_match")
+    metric_weights_json: Mapped[str] = mapped_column(Text, default="{}")
+    default_prompt: Mapped[str] = mapped_column(Text, default="")
+    rubric: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TaskEvent(Base):
+    __tablename__ = "task_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(Integer, index=True)
+    event_type: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TaskSubtask(Base):
+    __tablename__ = "task_subtasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(Integer, index=True)
+    shard_no: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    item_from: Mapped[int] = mapped_column(Integer, default=0)
+    item_to: Mapped[int] = mapped_column(Integer, default=0)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AlertPolicy(Base):
+    __tablename__ = "alert_policies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True)
+    event_type: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(200))
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

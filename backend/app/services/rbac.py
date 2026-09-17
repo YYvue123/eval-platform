@@ -43,10 +43,12 @@ RESEARCHER_PERMISSIONS = [
     "model:list", "model:view", "model:create", "model:edit", "model:invoke",
     "prompt:list", "prompt:view", "prompt:create", "prompt:edit", "prompt:publish",
     "resource:list", "resource:view", "resource:invoke",
-    "quality:list", "quality:view", "quality:run",
+    "quality:list", "quality:view", "quality:run", "quality:edit",
     "task:list", "task:view", "task:create", "task:edit", "task:run",
     "leaderboard:view",
     "service:list", "service:view", "service:create",
+    "agent:list", "agent:view", "agent:invoke", "agent:confirm",
+    "ops:view",
 ]
 
 VIEWER_PERMISSIONS = [
@@ -60,6 +62,8 @@ VIEWER_PERMISSIONS = [
     "task:list", "task:view",
     "leaderboard:view",
     "service:list", "service:view",
+    "agent:list", "agent:view",
+    "ops:view",
 ]
 
 USER_SELF_PERMISSIONS = ["user:view"]

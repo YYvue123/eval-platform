@@ -28,4 +28,6 @@ OPENAPI_TAGS = [
     {"name": "评测任务", "description": "批量评测执行与结果"},
     {"name": "模型榜单", "description": "按最新成功任务聚合排名"},
     {"name": "评测服务", "description": "评测需求受理与交付"},
+    {"name": "编排Agent", "description": "主/监控/诊断 Agent，关键操作需确认后走工具"},
+    {"name": "运行支撑", "description": "健康检查、指标、备份与血缘"},
 ]

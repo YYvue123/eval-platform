@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
     LOG_MAX_BYTES: int = 10 * 1024 * 1024
     LOG_BACKUP_COUNT: int = 5
+    APP_ENV: str = "dev"
+    MTLS_CERT_FILE: str = ""
+    MTLS_KEY_FILE: str = ""
+    MTLS_CA_FILE: str = ""
+    AUDIT_RETENTION_DAYS: int = 180
+    AUDIT_RETENTION_RESTRICTED_DAYS: int = 365
+    BACKUP_DIR: str = "./backups"
 
 
 settings = Settings()

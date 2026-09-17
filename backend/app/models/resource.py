@@ -23,6 +23,8 @@ class BaseResource(Base):
     health_status: Mapped[str] = mapped_column(String(32), default="unknown")
     call_count: Mapped[int] = mapped_column(Integer, default=0)
     fail_count: Mapped[int] = mapped_column(Integer, default=0)
+    consecutive_fail: Mapped[int] = mapped_column(Integer, default=0)
+    last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -37,4 +39,62 @@ class ResourceCallLog(Base):
     status: Mapped[str] = mapped_column(String(20), default="success")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str] = mapped_column(Text, default="")
+    correlation_id: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ResourceEvent(Base):
+    __tablename__ = "resource_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    resource_id: Mapped[str] = mapped_column(String(120), default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BatchSnapshot(Base):
+    __tablename__ = "batch_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    snapshot_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    dataset_id: Mapped[int] = mapped_column(Integer, index=True)
+    version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checksum: Mapped[str] = mapped_column(String(64), default="")
+    item_count: Mapped[int] = mapped_column(Integer, default=0)
+    file_path: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class BatchJob(Base):
+    __tablename__ = "batch_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    batch_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    snapshot_id: Mapped[str] = mapped_column(String(64), index=True)
+    dataset_id: Mapped[int] = mapped_column(Integer, default=0)
+    version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    shard_size: Mapped[int] = mapped_column(Integer, default=50)
+    shard_count: Mapped[int] = mapped_column(Integer, default=0)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    token_budget: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    failed_details: Mapped[str] = mapped_column(Text, default="[]")
+    error_code: Mapped[str] = mapped_column(String(64), default="")
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BatchShardResult(Base):
+    __tablename__ = "batch_shard_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    shard_id: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="done")
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    results_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -58,6 +58,8 @@
         <el-table-column prop="target_id" label="对象ID" width="88" />
         <el-table-column prop="detail" label="说明" min-width="160" show-overflow-tooltip />
         <el-table-column prop="ip" label="IP" width="120" show-overflow-tooltip />
+        <el-table-column prop="trace_id" label="Trace" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="tenant_id" label="租户" width="100" show-overflow-tooltip />
       </el-table>
       <el-pagination
         v-model:current-page="page"

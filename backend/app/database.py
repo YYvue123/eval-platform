@@ -32,14 +32,40 @@ async def init_db():
         DatasetLog,
         EvalModel,
         ModelCallLog,
+        ModelMeta,
+        ModelVersion,
+        ModelAccessConfig,
+        ModelAcl,
+        ModelHealthSample,
+        ModelCost,
         PromptTemplate,
         PromptVersion,
+        PromptCallLog,
+        PromptTestRun,
         BaseResource,
         ResourceCallLog,
+        ResourceEvent,
+        BatchSnapshot,
+        BatchJob,
+        BatchShardResult,
         EvalTask,
         EvalResult,
+        EvalLineage,
         QualityReport,
+        QualityRule,
+        QualityIssue,
         EvalServiceRequest,
+        TaskTemplate,
+        TaskEvent,
+        TaskSubtask,
+        AlertPolicy,
+        EvalWorkspace,
+        LeaderboardWeight,
+        LeaderboardSnapshot,
+        KnowledgeEntry,
+        AgentSession,
+        AgentMessage,
+        AgentSuggestion,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -52,6 +78,53 @@ async def init_db():
             ("users", "avatar", "ALTER TABLE users ADD COLUMN avatar VARCHAR(255)"),
             ("users", "nickname", "ALTER TABLE users ADD COLUMN nickname VARCHAR(50)"),
             ("users", "created_by", "ALTER TABLE users ADD COLUMN created_by INTEGER"),
+            ("datasets", "review_comment", "ALTER TABLE datasets ADD COLUMN review_comment TEXT DEFAULT ''"),
+            ("eval_tasks", "trial_run", "ALTER TABLE eval_tasks ADD COLUMN trial_run BOOLEAN DEFAULT 0"),
+            ("quality_reports", "report_path", "ALTER TABLE quality_reports ADD COLUMN report_path VARCHAR(500) DEFAULT ''"),
+            ("quality_reports", "issue_count", "ALTER TABLE quality_reports ADD COLUMN issue_count INTEGER DEFAULT 0"),
+            ("eval_models", "current_version_id", "ALTER TABLE eval_models ADD COLUMN current_version_id INTEGER"),
+            ("eval_models", "request_template", "ALTER TABLE eval_models ADD COLUMN request_template TEXT DEFAULT ''"),
+            ("eval_models", "response_mapping", "ALTER TABLE eval_models ADD COLUMN response_mapping TEXT DEFAULT ''"),
+            ("eval_models", "scene_white_list", "ALTER TABLE eval_models ADD COLUMN scene_white_list TEXT DEFAULT '[]'"),
+            ("eval_models", "parallel_limit", "ALTER TABLE eval_models ADD COLUMN parallel_limit INTEGER DEFAULT 4"),
+            ("eval_models", "support_stream", "ALTER TABLE eval_models ADD COLUMN support_stream BOOLEAN DEFAULT 0"),
+            ("eval_models", "probe_interval_sec", "ALTER TABLE eval_models ADD COLUMN probe_interval_sec INTEGER DEFAULT 300"),
+            ("eval_models", "consecutive_fail", "ALTER TABLE eval_models ADD COLUMN consecutive_fail INTEGER DEFAULT 0"),
+            ("eval_models", "circuit_open_until", "ALTER TABLE eval_models ADD COLUMN circuit_open_until DATETIME"),
+            ("eval_tasks", "model_version_id", "ALTER TABLE eval_tasks ADD COLUMN model_version_id INTEGER"),
+            ("prompt_templates", "tags", "ALTER TABLE prompt_templates ADD COLUMN tags TEXT DEFAULT '[]'"),
+            ("prompt_templates", "constraints", "ALTER TABLE prompt_templates ADD COLUMN constraints TEXT DEFAULT ''"),
+            ("prompt_templates", "review_comment", "ALTER TABLE prompt_templates ADD COLUMN review_comment TEXT DEFAULT ''"),
+            ("base_resources", "consecutive_fail", "ALTER TABLE base_resources ADD COLUMN consecutive_fail INTEGER DEFAULT 0"),
+            ("resource_call_logs", "correlation_id", "ALTER TABLE resource_call_logs ADD COLUMN correlation_id VARCHAR(64) DEFAULT ''"),
+            ("eval_tasks", "template_code", "ALTER TABLE eval_tasks ADD COLUMN template_code VARCHAR(80) DEFAULT ''"),
+            ("eval_tasks", "priority", "ALTER TABLE eval_tasks ADD COLUMN priority INTEGER DEFAULT 5"),
+            ("eval_tasks", "depends_on_id", "ALTER TABLE eval_tasks ADD COLUMN depends_on_id INTEGER"),
+            ("eval_tasks", "parent_id", "ALTER TABLE eval_tasks ADD COLUMN parent_id INTEGER"),
+            ("eval_tasks", "metric_weights_json", "ALTER TABLE eval_tasks ADD COLUMN metric_weights_json TEXT DEFAULT '{}'"),
+            ("eval_tasks", "token_quota", "ALTER TABLE eval_tasks ADD COLUMN token_quota INTEGER DEFAULT 0"),
+            ("eval_tasks", "tokens_used", "ALTER TABLE eval_tasks ADD COLUMN tokens_used INTEGER DEFAULT 0"),
+            ("eval_tasks", "window_start", "ALTER TABLE eval_tasks ADD COLUMN window_start DATETIME"),
+            ("eval_tasks", "window_end", "ALTER TABLE eval_tasks ADD COLUMN window_end DATETIME"),
+            ("eval_tasks", "report_path", "ALTER TABLE eval_tasks ADD COLUMN report_path VARCHAR(500) DEFAULT ''"),
+            ("eval_tasks", "tool_version", "ALTER TABLE eval_tasks ADD COLUMN tool_version VARCHAR(40) DEFAULT ''"),
+            ("eval_service_requests", "quote_mode", "ALTER TABLE eval_service_requests ADD COLUMN quote_mode VARCHAR(20) DEFAULT 'auto'"),
+            ("eval_service_requests", "quote_amount", "ALTER TABLE eval_service_requests ADD COLUMN quote_amount FLOAT DEFAULT 0"),
+            ("eval_service_requests", "quote_detail_json", "ALTER TABLE eval_service_requests ADD COLUMN quote_detail_json TEXT DEFAULT '{}'"),
+            ("eval_service_requests", "workspace_id", "ALTER TABLE eval_service_requests ADD COLUMN workspace_id INTEGER"),
+            ("eval_service_requests", "dataset_id", "ALTER TABLE eval_service_requests ADD COLUMN dataset_id INTEGER"),
+            ("eval_service_requests", "model_id", "ALTER TABLE eval_service_requests ADD COLUMN model_id INTEGER"),
+            ("eval_service_requests", "scene", "ALTER TABLE eval_service_requests ADD COLUMN scene VARCHAR(80) DEFAULT 'chat'"),
+            ("eval_service_requests", "gray_version", "ALTER TABLE eval_service_requests ADD COLUMN gray_version VARCHAR(40) DEFAULT ''"),
+            ("eval_service_requests", "report_path", "ALTER TABLE eval_service_requests ADD COLUMN report_path VARCHAR(500) DEFAULT ''"),
+            ("eval_service_requests", "production_version", "ALTER TABLE eval_service_requests ADD COLUMN production_version VARCHAR(40) DEFAULT 'v1'"),
+            ("eval_service_requests", "shadow_json", "ALTER TABLE eval_service_requests ADD COLUMN shadow_json TEXT DEFAULT '{}'"),
+            ("base_resources", "last_heartbeat", "ALTER TABLE base_resources ADD COLUMN last_heartbeat DATETIME"),
+            ("audit_logs", "tenant_id", "ALTER TABLE audit_logs ADD COLUMN tenant_id VARCHAR(64) DEFAULT ''"),
+            ("audit_logs", "trace_id", "ALTER TABLE audit_logs ADD COLUMN trace_id VARCHAR(64) DEFAULT ''"),
+            ("audit_logs", "parent_trace_id", "ALTER TABLE audit_logs ADD COLUMN parent_trace_id VARCHAR(64) DEFAULT ''"),
+            ("eval_results", "finish_reason", "ALTER TABLE eval_results ADD COLUMN finish_reason VARCHAR(32) DEFAULT ''"),
+            ("eval_results", "error_code", "ALTER TABLE eval_results ADD COLUMN error_code VARCHAR(64) DEFAULT ''"),
         ]:
             try:
                 r = await conn.execute(text(f"PRAGMA table_info({table})"))
@@ -163,6 +236,140 @@ async def seed_builtin_resources(db):
     await db.flush()
 
 
+async def seed_quality_rules(db):
+    from sqlalchemy import select
+    from app.models import QualityRule
+    from app.services.quality_checker import DEFAULT_RULES
+    from app.utils.jsonutil import dumps
+
+    for rule in DEFAULT_RULES:
+        exists = await db.scalar(select(QualityRule.id).where(QualityRule.code == rule["code"]))
+        if exists:
+            continue
+        db.add(QualityRule(
+            code=rule["code"],
+            name=rule["name"],
+            category=rule["category"],
+            description=rule["description"],
+            severity=rule["severity"],
+            enabled=rule.get("enabled", True),
+            config_json=dumps(rule.get("config") or {}),
+        ))
+    await db.flush()
+
+
+async def seed_task_templates(db):
+    from sqlalchemy import select
+    from app.models import TaskTemplate
+    from app.services.task_catalog import catalog_templates
+    from app.utils.jsonutil import dumps
+
+    for row in catalog_templates():
+        exists = await db.scalar(select(TaskTemplate.id).where(TaskTemplate.code == row["code"]))
+        if exists:
+            continue
+        db.add(TaskTemplate(
+            code=row["code"],
+            name=row["name"],
+            category=row["category"],
+            scene=row["scene"],
+            industry=row["industry"],
+            task_type=row["task_type"],
+            judge_resource_id=row["judge_resource_id"],
+            metric_weights_json=dumps(row["metric_weights"]),
+            default_prompt=row["default_prompt"],
+            rubric=row["rubric"],
+            description=row["description"],
+        ))
+    await db.flush()
+
+
+async def seed_alert_policies(db):
+    from sqlalchemy import select
+    from app.models import AlertPolicy
+
+    defaults = [
+        ("task_failed", "failed", "评测任务失败"),
+        ("task_timeout", "timeout", "评测任务超时"),
+        ("tool_failed", "tool_failed", "评测工具调用失败"),
+        ("resource_short", "resource_short", "评测资源不足"),
+        ("callback_error", "callback_error", "状态回传异常"),
+    ]
+    for code, event_type, title in defaults:
+        exists = await db.scalar(select(AlertPolicy.id).where(AlertPolicy.code == code))
+        if exists:
+            continue
+        db.add(AlertPolicy(code=code, event_type=event_type, title=title, enabled=True))
+    await db.flush()
+
+
+async def seed_leaderboard_weights(db):
+    from sqlalchemy import select
+    from app.models import LeaderboardWeight
+    from app.services.task_catalog import CAPABILITIES, INDUSTRIES, SCENES
+
+    defaults = [("overall", "general", 1.0)]
+    for code, _ in INDUSTRIES:
+        defaults.append(("overall", code, 1.0))
+    for code, _ in CAPABILITIES:
+        defaults.append(("ability", code, 1.0))
+    for code, _ in SCENES:
+        defaults.append(("ability", code, 1.0))
+        defaults.append(("special", code, 1.0))
+    for board, key, w in defaults:
+        exists = await db.scalar(
+            select(LeaderboardWeight.id).where(LeaderboardWeight.board_type == board, LeaderboardWeight.dim_key == key)
+        )
+        if exists:
+            continue
+        db.add(LeaderboardWeight(board_type=board, dim_key=key, weight=w))
+    await db.flush()
+
+
+async def seed_default_workspace(db):
+    from sqlalchemy import select
+    from app.models import EvalWorkspace
+
+    exists = await db.scalar(select(EvalWorkspace.id).where(EvalWorkspace.code == "default"))
+    if not exists:
+        db.add(EvalWorkspace(name="默认工作空间", code="default", quota_tokens=1000000, quota_calls=100000))
+        await db.flush()
+
+
+async def seed_knowledge(db):
+    from sqlalchemy import select
+    from app.models import KnowledgeEntry, TaskTemplate
+    from app.utils.jsonutil import dumps
+
+    if not await db.scalar(select(KnowledgeEntry.id).limit(1)):
+        db.add(KnowledgeEntry(
+            category="exception",
+            title="任务失败不自动恢复",
+            content="诊断 Agent 只给建议，需人工确认后通过工具重跑，禁止直接改队列。",
+            tags_json=dumps(["failed", "retry"]),
+        ))
+        db.add(KnowledgeEntry(
+            category="profile",
+            title="内置裁判画像",
+            content="exact_match/contains/fuzzy 与四类安全启发式裁判可直接编排。",
+            tags_json=dumps(["tool", "judge"]),
+        ))
+    tpls = (await db.execute(select(TaskTemplate).limit(8))).scalars().all()
+    for t in tpls:
+        exists = await db.scalar(select(KnowledgeEntry.id).where(KnowledgeEntry.ref_type == "template", KnowledgeEntry.ref_id == t.code))
+        if exists:
+            continue
+        db.add(KnowledgeEntry(
+            category="template",
+            title=t.name,
+            content=t.description or t.rubric,
+            tags_json=dumps([t.scene, t.industry]),
+            ref_type="template",
+            ref_id=t.code,
+        ))
+    await db.flush()
+
+
 async def seed_db():
     from sqlalchemy import select
     from app.models import User, Role
@@ -172,6 +379,14 @@ async def seed_db():
         await seed_rbac(db)
         await sync_permissions(db)
         await seed_builtin_resources(db)
+        await seed_quality_rules(db)
+        await seed_task_templates(db)
+        from app.services.eval_packs import seed_eval_packs
+        await seed_eval_packs(db)
+        await seed_alert_policies(db)
+        await seed_leaderboard_weights(db)
+        await seed_default_workspace(db)
+        await seed_knowledge(db)
         r = await db.execute(select(Role).where(Role.code == "admin"))
         admin_role = r.scalar_one_or_none()
         r = await db.execute(select(User).where(User.username == "admin"))

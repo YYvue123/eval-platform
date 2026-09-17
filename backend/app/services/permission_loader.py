@@ -12,6 +12,9 @@ ACTION_NAMES = {
     "export": "导出",
     "invoke": "调用",
     "publish": "发布",
+    "audit": "审核",
+    "confirm": "确认",
+    "backup": "备份",
     "run": "执行",
 }
 
@@ -29,6 +32,8 @@ RESOURCE_NAMES = {
     "task": "评测任务",
     "leaderboard": "模型榜单",
     "service": "评测服务",
+    "agent": "编排Agent",
+    "ops": "运行支撑",
 }
 
 

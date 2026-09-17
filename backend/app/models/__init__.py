@@ -3,10 +3,42 @@ from app.models.notification import Notification, NotificationRead
 from app.models.role import Role, Permission
 from app.models.audit_log import AuditLog
 from app.models.dataset import Dataset, DatasetVersion, DatasetItem, DataTag, DatasetLog
-from app.models.eval_model import EvalModel, ModelCallLog
-from app.models.prompt import PromptTemplate, PromptVersion
-from app.models.resource import BaseResource, ResourceCallLog
-from app.models.eval_task import EvalTask, EvalResult, QualityReport, EvalServiceRequest
+from app.models.eval_model import (
+    EvalModel,
+    ModelCallLog,
+    ModelMeta,
+    ModelVersion,
+    ModelAccessConfig,
+    ModelAcl,
+    ModelHealthSample,
+    ModelCost,
+)
+from app.models.prompt import PromptTemplate, PromptVersion, PromptCallLog, PromptTestRun
+from app.models.resource import (
+    BaseResource,
+    ResourceCallLog,
+    ResourceEvent,
+    BatchSnapshot,
+    BatchJob,
+    BatchShardResult,
+)
+from app.models.eval_task import (
+    EvalTask,
+    EvalResult,
+    EvalLineage,
+    QualityReport,
+    QualityRule,
+    QualityIssue,
+    EvalServiceRequest,
+    TaskTemplate,
+    TaskEvent,
+    TaskSubtask,
+    AlertPolicy,
+    EvalWorkspace,
+    LeaderboardWeight,
+    LeaderboardSnapshot,
+)
+from app.models.agent import KnowledgeEntry, AgentSession, AgentMessage, AgentSuggestion
 
 __all__ = [
     "User",
@@ -22,12 +54,38 @@ __all__ = [
     "DatasetLog",
     "EvalModel",
     "ModelCallLog",
+    "ModelMeta",
+    "ModelVersion",
+    "ModelAccessConfig",
+    "ModelAcl",
+    "ModelHealthSample",
+    "ModelCost",
     "PromptTemplate",
     "PromptVersion",
+    "PromptCallLog",
+    "PromptTestRun",
     "BaseResource",
     "ResourceCallLog",
+    "ResourceEvent",
+    "BatchSnapshot",
+    "BatchJob",
+    "BatchShardResult",
     "EvalTask",
     "EvalResult",
+    "EvalLineage",
     "QualityReport",
+    "QualityRule",
+    "QualityIssue",
     "EvalServiceRequest",
+    "TaskTemplate",
+    "TaskEvent",
+    "TaskSubtask",
+    "AlertPolicy",
+    "EvalWorkspace",
+    "LeaderboardWeight",
+    "LeaderboardSnapshot",
+    "KnowledgeEntry",
+    "AgentSession",
+    "AgentMessage",
+    "AgentSuggestion",
 ]

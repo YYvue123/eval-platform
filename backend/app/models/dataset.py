@@ -24,6 +24,7 @@ class Dataset(Base):
     status: Mapped[str] = mapped_column(String(32), default="draft")
     tags: Mapped[str] = mapped_column(Text, default="[]")
     security_level: Mapped[str] = mapped_column(String(32), default="internal")
+    review_comment: Mapped[str] = mapped_column(Text, default="")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

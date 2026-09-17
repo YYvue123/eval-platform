@@ -40,6 +40,7 @@ frontend/test-results/
 *.sqlite3-wal
 *.sqlite3-shm
 backend/uploads/
+backend/backups/
 eval_platform.db
 
 # ============ Env ============
