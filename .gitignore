@@ -1,0 +1,90 @@
+# ============ Python ============
+__pycache__/
+**/__pycache__/
+**/__pycache__/**
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env/
+*.egg-info/
+.eggs/
+*.egg
+
+# ============ Node ============
+node_modules/
+frontend/node_modules/
+
+# ============ Build ============
+dist/
+build/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+
+# ============ Database & Storage ============
+*.db
+*.sqlite
+*.sqlite3
+# SQLite runtime journals and sidecar files
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+backend/uploads/
+eval_platform.db
+
+# ============ Env ============
+.env
+.env.*
+!.env.example
+
+# ============ Logs ============
+*.log
+logs/
+
+# ============ IDE ============
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============ OS ============
+.DS_Store
+Thumbs.db
+
+# ============ Cache ============
+.cache/
+.eslintcache
+.pytest_cache/
+.mypy_cache/
+
+# ============ Cursor ============
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/*
+!.cursor/mcp.json
+!.cursor/agents/
+!.cursor/agents/*
+!.cursor/commands/
+!.cursor/commands/*
+
+# ============ Temporary ============
+*.tmp
+*.temp
+tmp/
+temp/
+nul
+
+# Server-specific deployment options
+/deploy-settings.json
+
+/.deploy-backups/

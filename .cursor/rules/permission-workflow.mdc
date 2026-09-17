@@ -1,0 +1,12 @@
+# 权限工作流：新增页面与按钮
+
+新增需要权限控制的**页面**、**按钮**、**API** 时，必须同步完成以下步骤：
+
+1. 前端按钮加上 `v-if="userStore.hasPermission('resource:action')"` 或 `v-permission="'resource:action'"`；路由在 `meta.permission` 中声明权限码。
+2. 后端路由使用 `require_permission("resource:action")`。
+3. 在 `backend/app/permissions.json` 的 `permissions` 数组中新增。
+4. 若 action 不在 `ACTION_NAMES` 中，在 `backend/app/services/permission_loader.py` 补充。
+5. 在 `backend/app/services/rbac.py` 的角色权限中按业务分配。
+6. 运行 `cd frontend && npm run collect-permissions`。
+
+权限码格式：`resource:action`。当前模块：dashboard、user、role、notification、audit。

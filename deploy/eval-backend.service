@@ -1,0 +1,26 @@
+# 大模型智能评测平台后端 systemd 服务单元
+# 安装：sudo cp deploy/eval-backend.service /etc/systemd/system/
+#       sudo systemctl daemon-reload && sudo systemctl enable --now eval-backend
+
+[Unit]
+Description=Eval Platform Backend (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=eval
+Group=eval
+WorkingDirectory=/opt/eval-platform/backend
+Environment="PATH=/opt/eval-platform/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/eval-platform/backend/.venv/bin/gunicorn app.main:app \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 300
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,141 @@
+/**
+ * 全局样式 - 页面标题、布局、卡片等统一规范
+ */
+
+/* 基础重置 - 去除浏览器默认 body 边距，避免顶部空白与整页滚动条 */
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+/* 全局滚动条 - 细、无上下三角按钮 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(144, 147, 153, 0.35) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(144, 147, 153, 0.35);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(144, 147, 153, 0.55);
+}
+/* 隐藏滚动条两端的上下/左右三角按钮 */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* 页面标题 - 全站统一 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: var(--page-title-size);
+  font-weight: var(--page-title-weight);
+  color: var(--page-title-color);
+  letter-spacing: -0.02em;
+}
+
+.page-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 表格工具栏 */
+.toolbar {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-more {
+  margin-bottom: 16px;
+}
+
+/* 表格操作列：link 按钮与「更多」下拉水平对齐 */
+.op-btns {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+}
+.op-btns .el-button {
+  margin: 0;
+}
+.op-btns .el-dropdown {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+/* 分页 */
+.pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+/* 卡片样式增强 */
+.el-card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-fast);
+}
+
+.el-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* 表格可排序列：表头文字与排序图标左右排布 */
+.el-table th.is-sortable .cell {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.el-table th.is-sortable .caret-wrapper {
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* 详情弹窗 el-descriptions 内容完整显示（覆盖 Element 可能导致截断的样式） */
+.full-content.el-descriptions .el-descriptions__table {
+  table-layout: auto !important;
+}
+.full-content.el-descriptions .el-descriptions__content {
+  overflow: visible !important;
+  text-overflow: unset !important;
+  min-width: 80px !important;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal !important;
+}
+.full-content.el-descriptions .el-descriptions__label {
+  width: auto;
+  min-width: 80px;
+  word-break: break-word;
+  white-space: normal;
+}

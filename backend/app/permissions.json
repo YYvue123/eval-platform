@@ -1,0 +1,18 @@
+{
+  "permissions": [
+    {"resource": "dashboard", "action": "view", "name": "工作台查看"},
+    {"resource": "user", "action": "list", "name": "用户列表"},
+    {"resource": "user", "action": "view", "name": "用户详情"},
+    {"resource": "user", "action": "create", "name": "用户创建"},
+    {"resource": "user", "action": "edit", "name": "用户编辑"},
+    {"resource": "user", "action": "delete", "name": "用户删除"},
+    {"resource": "notification", "action": "list", "name": "通知管理"},
+    {"resource": "notification", "action": "create", "name": "通知发送"},
+    {"resource": "notification", "action": "delete", "name": "通知删除"},
+    {"resource": "notification", "action": "view_mine", "name": "我的通知"},
+    {"resource": "role", "action": "list", "name": "角色列表"},
+    {"resource": "role", "action": "view", "name": "角色详情"},
+    {"resource": "role", "action": "edit", "name": "角色权限配置"},
+    {"resource": "audit", "action": "list", "name": "操作审计"}
+  ]
+}
