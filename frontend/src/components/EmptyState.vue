@@ -28,8 +28,8 @@ const props = defineProps({
 const presets = {
   dataset: {
     title: '暂无数据集',
-    desc: '上传 JSONL、JSON、CSV 或 TXT 格式的数据，开始训练吧',
-    action: '上传数据集'
+    desc: '上传 JSONL、JSON、CSV、Excel 或 TXT，开始评测',
+    action: '新增数据集'
   },
   base_model: {
     title: '暂无基础模型',
@@ -38,13 +38,13 @@ const presets = {
   },
   task: {
     title: '暂无任务',
-    desc: '选择基础模型和数据集，创建你的第一个训练任务',
+    desc: '选择被测模型和数据集，创建你的第一个评测任务',
     action: '创建任务'
   },
   model: {
-    title: '暂无微调模型',
-    desc: '完成训练任务后会在此展示微调后的模型',
-    action: ''
+    title: '暂无被测模型',
+    desc: '注册在线接口或远程加密访问通道后即可评测',
+    action: '注册模型'
   },
   user: {
     title: '暂无用户',

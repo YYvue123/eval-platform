@@ -7,6 +7,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api import auth, users, dashboard, notifications, roles, audit
+from app.api import datasets, models, prompts, resources, tasks, quality
 from app.database import init_db, seed_db
 from app.config import settings
 from app.exceptions import register_exception_handlers
@@ -62,6 +63,14 @@ app.include_router(users.router, prefix="/api/users", tags=["用户管理"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["通知管理"])
 app.include_router(roles.router, prefix="/api/roles", tags=["角色管理"])
 app.include_router(audit.router, prefix="/api/audit", tags=["操作审计"])
+app.include_router(datasets.router, prefix="/api/datasets", tags=["评测数据"])
+app.include_router(models.router, prefix="/api/models", tags=["被测模型"])
+app.include_router(prompts.router, prefix="/api/prompts", tags=["提示词工程"])
+app.include_router(resources.router, prefix="/api/resources", tags=["工具底座"])
+app.include_router(quality.router, prefix="/api/quality", tags=["数据质量"])
+app.include_router(tasks.router, prefix="/api/tasks", tags=["评测任务"])
+app.include_router(tasks.leaderboard_router, prefix="/api/leaderboard", tags=["模型榜单"])
+app.include_router(tasks.service_router, prefix="/api/services", tags=["评测服务"])
 
 
 def custom_openapi():

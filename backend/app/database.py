@@ -25,6 +25,21 @@ async def init_db():
         Role,
         Permission,
         AuditLog,
+        Dataset,
+        DatasetVersion,
+        DatasetItem,
+        DataTag,
+        DatasetLog,
+        EvalModel,
+        ModelCallLog,
+        PromptTemplate,
+        PromptVersion,
+        BaseResource,
+        ResourceCallLog,
+        EvalTask,
+        EvalResult,
+        QualityReport,
+        EvalServiceRequest,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -111,6 +126,41 @@ async def sync_permissions(db):
             await db.execute(text(
                 "INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (:rid, :pid)"
             ), {"rid": admin_role.id, "pid": perm_map[code]})
+    from app.services.rbac import RESEARCHER_PERMISSIONS, VIEWER_PERMISSIONS
+    for role_code, codes in (("researcher", RESEARCHER_PERMISSIONS), ("viewer", VIEWER_PERMISSIONS)):
+        role = (await db.execute(select(Role).where(Role.code == role_code))).scalar_one_or_none()
+        if not role:
+            continue
+        for code in codes:
+            if code in perm_map:
+                await db.execute(text(
+                    "INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (:rid, :pid)"
+                ), {"rid": role.id, "pid": perm_map[code]})
+
+
+async def seed_builtin_resources(db):
+    from sqlalchemy import select
+    from app.models import BaseResource
+    from app.services.builtin_manifests import BUILTIN_MANIFESTS
+    from app.utils.jsonutil import dumps
+
+    for mf in BUILTIN_MANIFESTS:
+        exists = await db.scalar(select(BaseResource.id).where(BaseResource.resource_id == mf["resource_id"]))
+        if exists:
+            continue
+        db.add(BaseResource(
+            resource_id=mf["resource_id"],
+            resource_type=mf["resource_type"],
+            name=mf["name"],
+            version=mf["version"],
+            spec_version=str(mf.get("spec_version", "0.6.1")),
+            description=mf.get("description", ""),
+            status="online",
+            builtin=True,
+            manifest_json=dumps(mf),
+            health_status="online",
+        ))
+    await db.flush()
 
 
 async def seed_db():
@@ -121,6 +171,7 @@ async def seed_db():
     async with async_session() as db:
         await seed_rbac(db)
         await sync_permissions(db)
+        await seed_builtin_resources(db)
         r = await db.execute(select(Role).where(Role.code == "admin"))
         admin_role = r.scalar_one_or_none()
         r = await db.execute(select(User).where(User.username == "admin"))

@@ -1,4 +1,4 @@
-/** 侧栏菜单：一级为功能分类，二级为现有页面 */
+/** 侧栏菜单 */
 export const MENU_GROUPS = [
   {
     index: 'overview',
@@ -7,6 +7,35 @@ export const MENU_GROUPS = [
     flat: true,
     children: [
       { index: '/dashboard', title: '工作台', icon: 'DataAnalysis', permission: 'dashboard:view' }
+    ]
+  },
+  {
+    index: 'base',
+    title: '评测底座',
+    icon: 'Box',
+    children: [
+      { index: '/datasets', title: '评测数据', icon: 'Collection', permission: 'dataset:list', match: '/datasets' },
+      { index: '/quality', title: '数据质量', icon: 'CircleCheck', permission: 'quality:list' },
+      { index: '/models', title: '被测模型', icon: 'Cpu', permission: 'model:list' },
+      { index: '/prompts', title: '提示词工程', icon: 'ChatLineSquare', permission: 'prompt:list' },
+      { index: '/resources', title: '工具底座', icon: 'SetUp', permission: 'resource:list' }
+    ]
+  },
+  {
+    index: 'eval',
+    title: '评测任务',
+    icon: 'List',
+    children: [
+      { index: '/tasks', title: '任务管理', icon: 'Finished', permission: 'task:list', match: '/tasks' },
+      { index: '/services', title: '评测服务', icon: 'Ticket', permission: 'service:list' }
+    ]
+  },
+  {
+    index: 'apps',
+    title: '应用服务',
+    icon: 'Trophy',
+    children: [
+      { index: '/leaderboard', title: '模型榜单', icon: 'Trophy', permission: 'leaderboard:view' }
     ]
   },
   {

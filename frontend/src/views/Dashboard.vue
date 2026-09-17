@@ -27,10 +27,20 @@
       </el-col>
     </el-row>
     <el-card shadow="never" class="intro-card">
-      <template #header>当前进度</template>
-      <p>本仓库是评测平台骨架，从 llm-manager 复用了登录、权限、用户、通知和审计。</p>
-      <p>后续将按文档接入：评测数据、被测模型注册、工具底座与批量评测。</p>
-      <p v-if="stats.message" class="hint">{{ stats.message }}</p>
+      <template #header>最近任务</template>
+      <el-table v-if="workbench.recent?.length" :data="workbench.recent" size="small">
+        <el-table-column prop="name" label="任务" />
+        <el-table-column prop="status" label="状态" width="110" />
+        <el-table-column label="通过率" width="110">
+          <template #default="{ row }">{{ ((row.pass_rate || 0) * 100).toFixed(1) }}%</template>
+        </el-table-column>
+        <el-table-column label="" width="90">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="$router.push(`/tasks/${row.id}`)">查看</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p v-else class="hint">还没有评测任务。从「评测数据」导入样本，注册被测模型后即可创建任务。</p>
     </el-card>
   </div>
 </template>
@@ -40,12 +50,15 @@ import { onMounted, ref } from 'vue'
 import { dashboardApi } from '@/api'
 
 const stats = ref({})
+const workbench = ref({})
 
 onMounted(async () => {
   try {
     stats.value = await dashboardApi.getStats()
+    workbench.value = await dashboardApi.getWorkbench()
   } catch (_) {
     stats.value = {}
+    workbench.value = {}
   }
 })
 </script>

@@ -9,6 +9,10 @@ ACTION_NAMES = {
     "create": "创建",
     "edit": "编辑",
     "delete": "删除",
+    "export": "导出",
+    "invoke": "调用",
+    "publish": "发布",
+    "run": "执行",
 }
 
 RESOURCE_NAMES = {
@@ -17,6 +21,14 @@ RESOURCE_NAMES = {
     "notification": "通知",
     "role": "权限管理",
     "audit": "操作审计",
+    "dataset": "评测数据",
+    "model": "被测模型",
+    "prompt": "提示词",
+    "resource": "工具底座",
+    "quality": "数据质量",
+    "task": "评测任务",
+    "leaderboard": "模型榜单",
+    "service": "评测服务",
 }
 
 
