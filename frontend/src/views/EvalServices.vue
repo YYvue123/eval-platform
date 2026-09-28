@@ -45,18 +45,28 @@
           </template>
         </el-table-column>
         <el-table-column prop="report_summary" label="交付摘要" min-width="140" show-overflow-tooltip />
-        <el-table-column v-if="userStore.hasPermission('service:edit')" label="办理" width="560">
+        <el-table-column v-if="userStore.hasPermission('service:edit')" label="办理" width="220">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="quote(row, 'auto')">自动报价</el-button>
-            <el-button link type="primary" size="small" @click="quote(row, 'expert')">专家报价</el-button>
-            <el-button link type="primary" size="small" @click="confirm(row)">确认</el-button>
-            <el-button link type="primary" size="small" @click="setStatus(row, 'running')">执行</el-button>
-            <el-button link type="success" size="small" @click="setStatus(row, 'delivered')">交付</el-button>
-            <el-button v-if="row.task_id || row.report_path" link size="small" @click="download(row, 'json')">JSON</el-button>
-            <el-button link size="small" @click="shadow(row)">影子</el-button>
-            <el-button link size="small" @click="promote(row)">转正</el-button>
-            <el-button link size="small" @click="rollback(row)">回滚</el-button>
-            <el-button link size="small" @click="showShadow(row)">门禁</el-button>
+            <el-button
+              v-for="a in primaryActions(row)"
+              :key="a.key"
+              link
+              :type="a.type || 'primary'"
+              size="small"
+              @click="a.run"
+            >{{ a.label }}</el-button>
+            <el-dropdown v-if="moreActions(row).length" trigger="click">
+              <el-button link size="small">更多</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-for="a in moreActions(row)"
+                    :key="a.key"
+                    @click="a.run"
+                  >{{ a.label }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -118,6 +128,47 @@ function statusType(s) {
   if (s === 'rejected') return 'danger'
   if (s === 'running') return 'warning'
   return 'info'
+}
+
+function primaryActions(row) {
+  const st = row.status
+  const list = []
+  if (['draft', 'submitted', 'quoted'].includes(st)) {
+    list.push({ key: 'quote-auto', label: '自动报价', run: () => quote(row, 'auto') })
+    list.push({ key: 'confirm', label: '确认', run: () => confirm(row) })
+  } else if (st === 'confirmed') {
+    list.push({ key: 'run', label: '执行', run: () => setStatus(row, 'running') })
+  } else if (st === 'running') {
+    list.push({ key: 'deliver', label: '交付', type: 'success', run: () => setStatus(row, 'delivered') })
+    list.push({ key: 'gate', label: '门禁', run: () => showShadow(row) })
+  } else if (st === 'delivered') {
+    list.push({ key: 'gate', label: '门禁', run: () => showShadow(row) })
+    if (row.shadow?.status === 'ready') {
+      list.push({ key: 'promote', label: '转正', run: () => promote(row) })
+    }
+  } else {
+    list.push({ key: 'gate', label: '门禁', run: () => showShadow(row) })
+  }
+  return list.slice(0, 2)
+}
+
+function moreActions(row) {
+  const all = [
+    { key: 'quote-expert', label: '专家报价', run: () => quote(row, 'expert') },
+    { key: 'quote-auto', label: '自动报价', run: () => quote(row, 'auto') },
+    { key: 'confirm', label: '确认', run: () => confirm(row) },
+    { key: 'run', label: '执行', run: () => setStatus(row, 'running') },
+    { key: 'deliver', label: '交付', run: () => setStatus(row, 'delivered') },
+    { key: 'shadow', label: '影子采样', run: () => shadow(row) },
+    { key: 'promote', label: '转正', run: () => promote(row) },
+    { key: 'rollback', label: '回滚', run: () => rollback(row) },
+    { key: 'gate', label: '门禁详情', run: () => showShadow(row) },
+  ]
+  if (row.task_id || row.report_path) {
+    all.push({ key: 'json', label: '下载 JSON', run: () => download(row, 'json') })
+  }
+  const primaryKeys = new Set(primaryActions(row).map((a) => a.key))
+  return all.filter((a) => !primaryKeys.has(a.key))
 }
 
 async function loadData() {
@@ -187,11 +238,9 @@ async function download(row, fmt = 'json') {
 async function shadow(row) {
   await servicesApi.shadow(row.id, {
     gray_version: 'v-next',
-    traffic_pct: 0.05,
-    production: { score: 0.9, latency_ms: 100, samples: [0.9, 0.91, 0.89] },
-    candidate: { score: 0.91, latency_ms: 105, samples: [0.91, 0.92, 0.9] }
+    traffic_pct: 0.05
   })
-  ElMessage.success('影子双路已记录（仅返回生产结果，流量 5%）')
+  ElMessage.success('已触发服务端影子采样（不提交客户端分数）')
   loadData()
 }
 

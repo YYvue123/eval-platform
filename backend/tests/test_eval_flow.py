@@ -466,13 +466,12 @@ class EvalFlowTest(unittest.TestCase):
             sh = client.post(f"/api/services/{sid}/shadow", json={
                 "gray_version": "v-next",
                 "traffic_pct": 0.05,
-                "production": {"score": 0.9, "latency_ms": 100, "samples": [0.9, 0.91, 0.89]},
-                "candidate": {"score": 0.91, "latency_ms": 108, "samples": [0.91, 0.92, 0.90]},
             }, headers=h)
             self.assertEqual(sh.status_code, 200, sh.text)
-            self.assertTrue(sh.json()["shadow"]["stable"])
-            self.assertEqual(sh.json()["shadow"]["returned"], "production")
-            # 证据窗 7 天：测试中回拨 started_at
+            shadow = sh.json()["shadow"]
+            self.assertEqual(shadow["returned"], "production")
+            self.assertFalse(shadow.get("promotable"))
+            # 无服务端成对证据：即使回拨时间窗也不得转正
             import asyncio
             from datetime import datetime, timedelta
             from app.database import async_session
@@ -486,11 +485,7 @@ class EvalFlowTest(unittest.TestCase):
 
             asyncio.run(_age())
             promo = client.post(f"/api/services/{sid}/promote", headers=h)
-            self.assertEqual(promo.status_code, 200, promo.text)
-            self.assertEqual(promo.json()["production_version"], "v-next")
-            rb = client.post(f"/api/services/{sid}/rollback", headers=h)
-            self.assertEqual(rb.json()["gray_version"], "")
-            self.assertEqual(rb.json()["production_version"], "v1")
+            self.assertEqual(promo.status_code, 400, promo.text)
 
     def test_agent_orchestration(self):
         with TestClient(app) as client:

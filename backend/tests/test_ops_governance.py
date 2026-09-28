@@ -104,6 +104,20 @@ class OpsGovernanceTest(unittest.TestCase):
     def test_drill_and_report_and_policy(self):
         with TestClient(app) as client:
             h, _ = self._auth(client)
+            # 无证据不得正式 pass
+            bad = client.post(
+                "/api/ops/drills",
+                headers=h,
+                json={
+                    "drill_type": "release",
+                    "result": "pass",
+                    "checklist": ["ci", "backup"],
+                    "notes": "no evidence",
+                    "evidence": {},
+                },
+            )
+            self.assertEqual(bad.status_code, 400, bad.text)
+
             d = client.post(
                 "/api/ops/drills",
                 headers=h,
@@ -112,11 +126,19 @@ class OpsGovernanceTest(unittest.TestCase):
                     "result": "pass",
                     "checklist": ["backup", "switch-upstream", "ready"],
                     "notes": "AC46",
-                    "evidence": {"runbook": "docs/operations/WP15-runbook.md"},
+                    "evidence": {"sha256": "abc", "rpo_seconds": 1, "rto_seconds": 2},
                 },
             )
             self.assertEqual(d.status_code, 200, d.text)
             self.assertEqual(d.json()["policy_version"], "2026-09-28-wp16")
+
+            draft = client.post(
+                "/api/ops/drills",
+                headers=h,
+                json={"drill_type": "release", "result": "draft", "evidence": {}},
+            )
+            self.assertEqual(draft.status_code, 200, draft.text)
+            self.assertEqual(draft.json()["result"], "draft")
 
             report = client.get("/api/ops/report", headers=h)
             self.assertEqual(report.status_code, 200, report.text)

@@ -82,13 +82,15 @@ async def append_event(
 
 
 def run_out(run: AgentRun) -> dict:
+    cp = loads(run.checkpoint_json, {})
     return {
         "id": run.id,
         "session_id": run.session_id,
         "status": run.status,
         "provider": run.provider,
+        "planner_model_id": run.planner_model_id,
         "graph_version": run.graph_version,
-        "checkpoint": loads(run.checkpoint_json, {}),
+        "checkpoint": cp,
         "checkpoint_thread_id": run.checkpoint_thread_id,
         "lease_owner": run.lease_owner or "",
         "fencing_token": run.fencing_token or 0,
@@ -97,6 +99,7 @@ def run_out(run: AgentRun) -> dict:
         "rounds_used": run.rounds_used,
         "token_budget": run.token_budget,
         "tokens_used": run.tokens_used,
+        "tokens_usage_unknown": bool(cp.get("tokens_usage_unknown")),
         "error_code": run.error_code or "",
         "error_message": run.error_message or "",
         "event_seq": run.event_seq,
@@ -133,19 +136,31 @@ async def create_run(
     session: AgentSession,
     *,
     message: str,
-    provider: str = "mock",
+    provider: str = "live",
     max_rounds: int = 8,
     token_budget: int = 0,
     client_message_id: str = "",
+    planner_model_id: int | None = None,
 ) -> AgentRun:
-    """创建 run；若已有 active run 则 409。"""
+    """创建 run；若已有 active run 则 409。禁止 mock provider。"""
     if session.active_run_id:
         active = await db.get(AgentRun, session.active_run_id)
         if active and active.status in {"queued", "running", "waiting"}:
             raise HTTPException(409, "会话已有活跃 run，禁止并发启动")
 
-    if provider not in {"mock", "live"}:
-        raise HTTPException(400, "provider 仅支持 mock|live")
+    if provider == "mock":
+        raise HTTPException(400, "mock_provider_removed:禁止 Mock，请使用 live + 已配置规划模型")
+    if provider != "live":
+        raise HTTPException(400, "provider 仅支持 live")
+
+    mid = planner_model_id or getattr(session, "planner_model_id", None)
+    if not mid:
+        raise HTTPException(400, "planner_model_id_required:请指定已配置 api_url 的规划模型")
+    from app.models import EvalModel
+
+    model = await db.get(EvalModel, int(mid))
+    if not model or not (model.api_url or "").strip():
+        raise HTTPException(400, "planner_model_misconfigured:规划模型不存在或未配置 api_url")
 
     thread = f"sess-{session.id}-{uuid.uuid4().hex[:12]}"
     run = AgentRun(
@@ -153,7 +168,8 @@ async def create_run(
         tenant_id=session.tenant_id,
         status="queued",
         graph_version=GRAPH_VERSION,
-        provider=provider,
+        provider="live",
+        planner_model_id=int(mid),
         checkpoint_json=dumps(_default_checkpoint(message)),
         checkpoint_thread_id=thread,
         max_rounds=max(1, int(max_rounds or 8)),
@@ -162,10 +178,11 @@ async def create_run(
     db.add(run)
     await db.flush()
     session.active_run_id = run.id
+    session.planner_model_id = int(mid)
     session.row_version = int(session.row_version or 0) + 1
     session.updated_at = datetime.utcnow()
     db.add(AgentMessage(session_id=session.id, role="user", content=message, tool_name="", payload_json=dumps({"client_message_id": client_message_id})))
-    await append_event(db, run, "run.created", {"provider": provider, "message": message[:200]})
+    await append_event(db, run, "run.created", {"provider": "live", "planner_model_id": int(mid), "message": message[:200]})
     await db.flush()
     return run
 
@@ -216,17 +233,77 @@ async def request_cancel(db: AsyncSession, run: AgentRun) -> AgentRun:
     return run
 
 
-def _mock_select_tool(checkpoint: dict) -> dict:
-    """确定性：首轮调 search_knowledge，其后回复。"""
-    obs = checkpoint.get("observations") or []
-    user = ""
+def _openai_tools() -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": name,
+                "parameters": schema,
+            },
+        }
+        for name, schema in TOOL_SCHEMAS.items()
+    ]
+
+
+def _parse_tool_call(raw: dict) -> dict | None:
+    if not raw:
+        return None
+    fn = raw.get("function") or {}
+    name = fn.get("name") or raw.get("name")
+    if not name:
+        return None
+    args_raw = fn.get("arguments") if "function" in raw else raw.get("arguments")
+    if isinstance(args_raw, str):
+        args = loads(args_raw, {})
+    elif isinstance(args_raw, dict):
+        args = args_raw
+    else:
+        args = {}
+    return {"name": name, "arguments": args, "id": raw.get("id") or ""}
+
+
+async def _live_select_tool(db: AsyncSession, run: AgentRun, checkpoint: dict) -> tuple[dict | None, dict]:
+    """调用真实规划模型选工具；返回 (tool|None, llm_meta)。禁止降级 mock。"""
+    from app.models import EvalModel
+    from app.services.model_client import invoke_chat_tools
+
+    if not run.planner_model_id:
+        raise RuntimeError("planner_model_id_required")
+    model = await db.get(EvalModel, int(run.planner_model_id))
+    if not model or not (model.api_url or "").strip():
+        raise RuntimeError("planner_model_misconfigured")
+
+    messages: list[dict] = [
+        {
+            "role": "system",
+            "content": (
+                "你是评测编排助手。需要时调用 search_knowledge 或 infer_dims；"
+                "信息足够时直接用自然语言回复，不再调用工具。"
+            ),
+        }
+    ]
     for m in checkpoint.get("messages") or []:
-        if m.get("role") == "user":
-            user = m.get("content") or ""
-            break
-    if not obs:
-        return {"name": "search_knowledge", "arguments": {"query": (user or "评测")[:40]}}
-    return {}
+        messages.append({"role": m.get("role") or "user", "content": m.get("content") or ""})
+    for obs in checkpoint.get("observations") or []:
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": obs.get("tool_call_id") or "obs",
+                "content": dumps(obs.get("result") or {}),
+            }
+        )
+        # 部分兼容端需要 assistant 占位
+    llm = await invoke_chat_tools(model, messages, _openai_tools())
+    tool_calls = llm.get("tool_calls") or []
+    if tool_calls:
+        tool = _parse_tool_call(tool_calls[0])
+        return tool, llm
+    # 无 tool_calls：进入 reply，把 content 记入 checkpoint
+    if llm.get("content"):
+        checkpoint["pending_reply"] = llm["content"]
+    return None, llm
 
 
 async def _execute_tool(db: AsyncSession, name: str, args: dict) -> dict:
@@ -244,8 +321,22 @@ async def _execute_tool(db: AsyncSession, name: str, args: dict) -> dict:
     raise ValueError(f"unknown_tool:{name}")
 
 
-async def _charge_tokens(run: AgentRun, n: int) -> None:
-    run.tokens_used = int(run.tokens_used or 0) + max(0, n)
+async def _charge_tokens(
+    run: AgentRun,
+    n: int | None,
+    *,
+    unknown: bool = False,
+    checkpoint: dict | None = None,
+) -> None:
+    if unknown or n is None:
+        if checkpoint is not None:
+            checkpoint["tokens_usage_unknown"] = True
+        else:
+            cp = loads(run.checkpoint_json, {})
+            cp["tokens_usage_unknown"] = True
+            run.checkpoint_json = dumps(cp)
+        return
+    run.tokens_used = int(run.tokens_used or 0) + max(0, int(n))
     if run.token_budget and run.tokens_used > run.token_budget:
         raise PermissionError("budget_exceeded")
 
@@ -279,14 +370,44 @@ async def step_once(db: AsyncSession, run: AgentRun, *, fencing_token: int | Non
                 await db.flush()
                 return run
 
-            if run.provider == "mock":
-                tool = _mock_select_tool(cp)
-            else:
-                # live：无真实 tool-calling 时降级为 mock 选择，并记事件
-                tool = _mock_select_tool(cp)
-                await append_event(db, run, "provider.fallback_mock_select", {})
+            try:
+                tool, llm_meta = await _live_select_tool(db, run, cp)
+            except Exception as exc:  # noqa: BLE001
+                run.status = "failed"
+                run.error_code = "planner_unavailable"
+                run.error_message = str(exc)[:300]
+                run.finished_at = datetime.utcnow()
+                await append_event(db, run, "run.failed", {"error_code": "planner_unavailable", "detail": str(exc)[:200]})
+                await _clear_active(db, run)
+                await db.flush()
+                return run
 
-            await _charge_tokens(run, 10)
+            tokens = llm_meta.get("tokens")
+            try:
+                await _charge_tokens(run, tokens, unknown=tokens is None, checkpoint=cp)
+            except PermissionError:
+                run.status = "paused_budget"
+                run.error_code = "budget_exceeded"
+                run.error_message = "超过 token 预算"
+                run.finished_at = datetime.utcnow()
+                await append_event(db, run, "run.paused_budget", {"tokens_used": run.tokens_used})
+                await _clear_active(db, run)
+                await db.flush()
+                return run
+
+            await append_event(
+                db,
+                run,
+                "llm.select",
+                {
+                    "finish_reason": llm_meta.get("finish_reason"),
+                    "tokens": tokens,
+                    "latency_ms": llm_meta.get("latency_ms"),
+                    "has_tool": bool(tool),
+                },
+                step_id=f"r{run.rounds_used}",
+            )
+
             if not tool:
                 cp["phase"] = "reply"
                 run.checkpoint_json = dumps(cp)
@@ -324,7 +445,7 @@ async def step_once(db: AsyncSession, run: AgentRun, *, fencing_token: int | Non
                 await db.flush()
                 return run
             obs = list(cp.get("observations") or [])
-            obs.append({"tool": name, "result": result})
+            obs.append({"tool": name, "result": result, "tool_call_id": tool.get("id") or ""})
             cp["observations"] = obs
             cp["pending_tool"] = None
             cp["phase"] = "select_tool"
@@ -333,38 +454,43 @@ async def step_once(db: AsyncSession, run: AgentRun, *, fencing_token: int | Non
 
         elif phase == "reply":
             obs = cp.get("observations") or []
-            reply = f"已完成工具循环，观察 {len(obs)} 次。"
-            if obs:
+            reply = cp.get("pending_reply") or f"已完成工具循环，观察 {len(obs)} 次。"
+            if not cp.get("pending_reply") and obs:
                 first = obs[0].get("result") or {}
                 if "count" in first:
-                    reply = f"检索到 {first.get('count')} 条知识，可继续确认计划。"
+                    reply = f"检索到 {first.get('count')} 条知识，可继续澄清评测需求。"
             cp["final_reply"] = reply
             cp["phase"] = "done"
             run.checkpoint_json = dumps(cp)
-            await _charge_tokens(run, 5)
-            await append_event(db, run, "llm.reply", {"content": reply})
-            db.add(AgentMessage(session_id=run.session_id, role="main", content=reply, tool_name="agent_runtime"))
             run.status = "success"
             run.finished_at = datetime.utcnow()
-            run.lease_owner = ""
+            db.add(AgentMessage(session_id=run.session_id, role="main", content=reply, tool_name="agent_runtime"))
+            await append_event(db, run, "llm.reply", {"reply": reply[:500]})
             await append_event(db, run, "run.success", {})
             await _clear_active(db, run)
 
         else:
-            run.status = "success"
+            run.status = "failed"
+            run.error_code = "unknown_phase"
+            run.error_message = str(phase)
             run.finished_at = datetime.utcnow()
             await _clear_active(db, run)
 
     except PermissionError:
         run.status = "paused_budget"
         run.error_code = "budget_exceeded"
-        run.error_message = "token 预算耗尽"
+        run.error_message = "超过 token 预算"
         run.finished_at = datetime.utcnow()
-        run.lease_owner = ""
-        await append_event(db, run, "run.paused_budget", {"tokens_used": run.tokens_used, "token_budget": run.token_budget})
+        await append_event(db, run, "run.paused_budget", {"tokens_used": run.tokens_used})
+        await _clear_active(db, run)
+    except Exception as exc:  # noqa: BLE001
+        run.status = "failed"
+        run.error_code = "runtime_error"
+        run.error_message = str(exc)[:300]
+        run.finished_at = datetime.utcnow()
+        await append_event(db, run, "run.failed", {"error": str(exc)[:200]})
         await _clear_active(db, run)
 
-    run.lease_until = datetime.utcnow() + timedelta(seconds=LEASE_SECONDS)
     await db.flush()
     return run
 
@@ -401,9 +527,10 @@ async def start_and_run(
     session: AgentSession,
     *,
     message: str,
-    provider: str = "mock",
+    provider: str = "live",
     max_rounds: int = 8,
     token_budget: int = 0,
+    planner_model_id: int | None = None,
 ) -> AgentRun:
     run = await create_run(
         db,
@@ -412,6 +539,7 @@ async def start_and_run(
         provider=provider,
         max_rounds=max_rounds,
         token_budget=token_budget,
+        planner_model_id=planner_model_id,
     )
     claimed, token = await claim_run(db, run.id)
     if not claimed:

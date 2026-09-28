@@ -11,44 +11,55 @@ SENSITIVE_LEVELS = frozenset({"secret", "confidential", "restricted"})
 
 
 def apply_object_scope(stmt, model, actor: ActorContext, *, creator_attr: str = "creator_id"):
-    """将租户与范围过滤附加到 SQLAlchemy select。"""
+    """将租户与范围过滤附加到 SQLAlchemy select。平台 builtin 资源跨租户只读可见。"""
     tenant_col = getattr(model, "tenant_id")
     vis_col = getattr(model, "visibility", None)
     creator_col = getattr(model, creator_attr, None)
+    builtin_col = getattr(model, "builtin", None)
 
-    stmt = stmt.where(tenant_col == actor.tenant_id)
+    if builtin_col is not None:
+        stmt = stmt.where(or_(builtin_col.is_(True), tenant_col == actor.tenant_id))
+    else:
+        stmt = stmt.where(tenant_col == actor.tenant_id)
 
     if actor.data_scope == "all":
         if vis_col is not None and not actor.is_admin:
-            stmt = stmt.where(or_(vis_col != "isolated", creator_col == actor.user_id))
+            if builtin_col is not None:
+                stmt = stmt.where(
+                    or_(
+                        builtin_col.is_(True),
+                        vis_col != "isolated",
+                        creator_col == actor.user_id,
+                    )
+                )
+            else:
+                stmt = stmt.where(or_(vis_col != "isolated", creator_col == actor.user_id))
         return stmt
 
     if actor.data_scope == "shared":
         if vis_col is None or creator_col is None:
             return stmt.where(creator_col == actor.user_id) if creator_col is not None else stmt
-        return stmt.where(
-            or_(
-                vis_col == "shared",
-                creator_col == actor.user_id,
-            )
-        )
+        parts = [vis_col == "shared", creator_col == actor.user_id]
+        if builtin_col is not None:
+            parts.append(builtin_col.is_(True))
+        return stmt.where(or_(*parts))
 
-    # own：本人或共享；隔离对象仅本人
+    # own：本人或共享；隔离对象仅本人；builtin 可读
     if creator_col is None:
         return stmt
     if vis_col is None:
         return stmt.where(creator_col == actor.user_id)
-    return stmt.where(
-        or_(
-            creator_col == actor.user_id,
-            and_(vis_col == "shared", vis_col != "isolated"),
-        )
-    )
+    parts = [creator_col == actor.user_id, and_(vis_col == "shared", vis_col != "isolated")]
+    if builtin_col is not None:
+        parts.append(builtin_col.is_(True))
+    return stmt.where(or_(*parts))
 
 
 def object_is_visible(obj, actor: ActorContext, *, creator_attr: str = "creator_id") -> bool:
     if obj is None:
         return False
+    if getattr(obj, "builtin", False):
+        return True
     tid = getattr(obj, "tenant_id", None)
     if tid is None or int(tid) != int(actor.tenant_id):
         return False

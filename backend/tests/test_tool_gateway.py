@@ -200,8 +200,33 @@ class McpSkillApiTest(unittest.TestCase):
             headers=self.h,
         )
         self.assertEqual(probe.status_code, 200, probe.text)
-        tools = (((probe.json().get("result") or {}).get("result") or {}).get("tools")) or []
+        body = probe.json()
+        self.assertEqual(body.get("mode"), "registered")
+        self.assertEqual(body.get("target"), "builtin/mcp_gateway")
+        tools = (((body.get("result") or {}).get("result") or {}).get("tools")) or []
         self.assertGreaterEqual(len(tools), 1)
+
+    def test_mcp_probe_source_mutex(self):
+        both = self.client.post(
+            "/api/resources/mcp/probe",
+            json={
+                "resource_id": "builtin/mcp_gateway",
+                "endpoint": "http://127.0.0.1:9/mcp",
+                "method": "initialize",
+            },
+            headers=self.h,
+        )
+        self.assertEqual(both.status_code, 400, both.text)
+        payload = both.json()
+        detail = payload.get("detail") or payload.get("message") or both.text
+        self.assertIn("mcp_source_mutex", str(detail))
+
+        empty = self.client.post(
+            "/api/resources/mcp/probe",
+            json={"method": "initialize"},
+            headers=self.h,
+        )
+        self.assertEqual(empty.status_code, 400, empty.text)
 
     def test_skill_invoke_still_works(self):
         inv = self.client.post(

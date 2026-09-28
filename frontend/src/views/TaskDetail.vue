@@ -52,8 +52,8 @@
     <el-row :gutter="16" class="block">
       <el-col :span="6"><el-card><div class="stat-label">状态</div><div class="stat-value">{{ statusLabel }}</div></el-card></el-col>
       <el-col :span="6"><el-card><div class="stat-label">进度</div><div class="stat-value">{{ task.progress || 0 }}%</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="stat-label">通过率</div><div class="stat-value">{{ ((task.pass_rate || 0) * 100).toFixed(1) }}%</div></el-card></el-col>
-      <el-col :span="6"><el-card><div class="stat-label">平均分</div><div class="stat-value">{{ Number(task.avg_score || 0).toFixed(3) }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="stat-label">通过率</div><div class="stat-value">{{ task.pass_rate == null ? '—' : `${(task.pass_rate * 100).toFixed(1)}%` }}</div></el-card></el-col>
+      <el-col :span="6"><el-card><div class="stat-label">平均分</div><div class="stat-value">{{ task.avg_score == null ? '—' : Number(task.avg_score).toFixed(3) }}</div></el-card></el-col>
     </el-row>
     <el-descriptions :column="3" border class="block">
       <el-descriptions-item label="模板">{{ task.template_code || '-' }}</el-descriptions-item>

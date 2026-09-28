@@ -297,7 +297,7 @@ async def patch_ticket(
 
 class DrillBody(BaseModel):
     drill_type: str = "restore"
-    result: str = "pass"
+    result: str = "draft"
     checklist: list = Field(default_factory=list)
     notes: str = ""
     evidence: dict = Field(default_factory=dict)
@@ -318,15 +318,18 @@ async def create_drill(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_permission("ops:ticket")),
 ):
-    d = await og.record_drill(
-        db,
-        drill_type=body.drill_type,
-        operator_id=user.id,
-        result=body.result,
-        checklist=body.checklist,
-        notes=body.notes,
-        evidence=body.evidence,
-    )
+    try:
+        d = await og.record_drill(
+            db,
+            drill_type=body.drill_type,
+            operator_id=user.id,
+            result=body.result,
+            checklist=body.checklist,
+            notes=body.notes,
+            evidence=body.evidence,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return og.drill_out(d)
 
 

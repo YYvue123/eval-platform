@@ -1,21 +1,39 @@
 <template>
   <div class="not-found">
     <div class="not-found-content">
-      <div class="code">404</div>
-      <h1 class="title">页面不存在</h1>
-      <p class="desc">您访问的地址无效或已被移除，请检查链接或返回首页。</p>
-      <el-button type="primary" @click="goHome">返回首页</el-button>
+      <div class="code">{{ denied ? '403' : '404' }}</div>
+      <h1 class="title">{{ denied ? '无权访问该页面' : '页面不存在' }}</h1>
+      <p class="desc">
+        {{
+          denied
+            ? '当前账号没有访问该模块的权限。可返回上一页，或进入你有权使用的工作台。'
+            : '您访问的地址无效或已被移除。可返回上一页，或进入可访问工作台。'
+        }}
+      </p>
+      <div class="actions">
+        <el-button @click="goBack">返回上一页</el-button>
+        <el-button type="primary" @click="goHome">可访问工作台</el-button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { safeHomePath } from '@/utils/navigation'
 
 const router = useRouter()
+const route = useRoute()
+const denied = computed(() => !!route.query.denied)
+
+function goBack() {
+  if (window.history.length > 1) router.back()
+  else goHome()
+}
 
 function goHome() {
-  router.push('/dashboard')
+  router.push(safeHomePath(router))
 }
 </script>
 
@@ -50,4 +68,5 @@ function goHome() {
   margin: 0 0 24px;
   line-height: 1.6;
 }
+.actions { display: flex; gap: 8px; justify-content: center; }
 </style>

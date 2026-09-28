@@ -1,0 +1,71 @@
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "route_permission_samples": [
+    {
+      "path": "/dashboard",
+      "permission": "dashboard:view"
+    },
+    {
+      "path": "/notifications",
+      "permission": "notification:list"
+    },
+    {
+      "path": "/permissions",
+      "permission": "role:list"
+    },
+    {
+      "path": "/users",
+      "permission": "user:list"
+    },
+    {
+      "path": "/audit",
+      "permission": "audit:list"
+    },
+    {
+      "path": "/ops",
+      "permission": "ops:view"
+    },
+    {
+      "path": "/datasets",
+      "permission": "dataset:list"
+    },
+    {
+      "path": "/datasets/:id",
+      "permission": "dataset:view"
+    },
+    {
+      "path": "/quality",
+      "permission": "quality:list"
+    },
+    {
+      "path": "/models",
+      "permission": "model:list"
+    },
+    {
+      "path": "/prompts",
+      "permission": "prompt:list"
+    },
+    {
+      "path": "/resources",
+      "permission": "resource:list"
+    }
+  ],
+  "nav_candidates": [
+    "/dashboard",
+    "/agents",
+    "/tasks",
+    "/datasets",
+    "/models",
+    "/resources",
+    "/services",
+    "/leaderboard",
+    "/ops",
+    "/users",
+    "/notifications",
+    "/audit",
+    "/profile"
+  ],
+  "checked_at": "2026-09-28T15:32:25.684Z"
+}

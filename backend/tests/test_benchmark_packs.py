@@ -39,12 +39,16 @@ class PackUnitTest(unittest.TestCase):
 
     def test_code_sandbox_no_host_exec(self):
         sample = packs.load_pack("bench.code")["samples"][0]
-        ok = sims.code_sandbox_score(sample)
-        self.assertFalse(ok["host_executed"])
-        self.assertEqual(ok["status"], "ok")
+        missing = sims.code_sandbox_score(sample)
+        self.assertEqual(missing["status"], "not_run")
+        self.assertEqual(missing["reason"], "candidate_required")
+        with_cand = sims.code_sandbox_score(sample, candidate=sample.get("reference") or "def f():\n  pass")
+        self.assertFalse(with_cand["host_executed"])
+        self.assertEqual(with_cand["status"], "not_run")
+        self.assertIsNone(with_cand["code_pass"])
         sample_bad = {**sample, "execute_on_host": True}
         with self.assertRaises(sims.HostExecutionForbidden):
-            sims.code_sandbox_score(sample_bad)
+            sims.code_sandbox_score(sample_bad, candidate="x = 1")
 
     def test_table_simulator(self):
         sample = packs.load_pack("bench.table")["samples"][0]
@@ -92,7 +96,10 @@ class PackApiTest(unittest.TestCase):
             headers=self.h,
         )
         self.assertEqual(media.status_code, 200, media.text)
-        self.assertTrue(media.json()["ok"])
+        # 32B stub 仅有 ftyp，不得宣称可解码通过
+        self.assertIn(media.json()["status"], {"not_run", "fail"})
+        self.assertFalse(media.json().get("ok"))
+        self.assertFalse((media.json().get("media") or {}).get("decodable_stub"))
 
         mut = self.client.post(
             "/api/benchmarks/simulate",

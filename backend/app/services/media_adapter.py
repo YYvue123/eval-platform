@@ -71,10 +71,32 @@ def validate_media_sample(sample: dict[str, Any]) -> list[str]:
 def describe_media(uri: str, media_type: str) -> dict[str, Any]:
     path = resolve_media_uri(uri)
     data = path.read_bytes()
+    decodable = _try_decode(data, media_type)
     return {
         "uri": uri,
         "media_type": media_type,
         "path": str(path),
         "size": len(data),
-        "decodable_stub": _matches_magic(data, media_type),
+        "decodable": decodable,
+        "decodable_stub": False,
+        "status": "ok" if decodable else "not_run",
+        "reason": "" if decodable else "decode_failed_or_unsupported",
     }
+
+
+def _try_decode(data: bytes, media_type: str) -> bool:
+    """最小真实结构探测：非 magic 冒充即可判通过。"""
+    if not _matches_magic(data, media_type):
+        return False
+    if media_type == "image":
+        if data.startswith(b"\x89PNG"):
+            return len(data) > 24 and data[12:16] == b"IHDR"
+        if data.startswith(b"\xff\xd8\xff"):
+            return len(data) > 64
+    if media_type == "audio":
+        # WAV: RIFF....WAVE
+        return len(data) > 12 and data[8:12] == b"WAVE"
+    if media_type == "video":
+        return b"ftyp" in data[:32] and len(data) > 64
+    return False
+

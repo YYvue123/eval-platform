@@ -26,31 +26,39 @@ def _normalize_code(src: str) -> str:
 
 
 def code_sandbox_score(sample: dict[str, Any], candidate: str | None = None) -> dict[str, Any]:
-    """不执行候选代码：仅参考解比对 + 预计算测试 oracle；显式宿主执行直接拒绝。"""
+    """禁止用参考解冒充候选；无隔离执行器时不得记 tests passed。"""
     if sample.get("execute_on_host"):
         raise HostExecutionForbidden("code_must_not_execute_on_host")
+    if candidate is None or str(candidate).strip() == "":
+        return {
+            "simulator": "sim.code_sandbox",
+            "host_executed": False,
+            "syntax_ok": None,
+            "matches_reference": None,
+            "tests_total": len(sample.get("tests") or []),
+            "tests_passed": None,
+            "code_pass": None,
+            "status": "not_run",
+            "reason": "candidate_required",
+        }
     ref = _normalize_code(sample.get("reference") or "")
-    cand = _normalize_code(candidate if candidate is not None else ref)
-    # 语法检查仅针对候选文本结构，不 exec
+    cand = _normalize_code(candidate)
     syntax_ok = True
     try:
-        if cand:
-            ast.parse(cand)
+        ast.parse(cand)
     except SyntaxError:
         syntax_ok = False
-    match_ref = cand == ref and bool(ref)
-    tests = sample.get("tests") or []
-    # 预计算 oracle：测试期望已在金标中，pass 当且仅当匹配参考解
-    passed = len(tests) if match_ref and syntax_ok else 0
+    # 无隔离执行器：不得将文本匹配参考解记为正式通过
     return {
         "simulator": "sim.code_sandbox",
         "host_executed": False,
         "syntax_ok": syntax_ok,
-        "matches_reference": match_ref,
-        "tests_total": len(tests),
-        "tests_passed": passed,
-        "code_pass": (passed / len(tests)) if tests else 0.0,
-        "status": "ok" if match_ref and syntax_ok else "fail",
+        "matches_reference": bool(ref) and cand == ref,
+        "tests_total": len(sample.get("tests") or []),
+        "tests_passed": None,
+        "code_pass": None,
+        "status": "not_run",
+        "reason": "isolated_executor_unavailable",
     }
 
 
@@ -99,12 +107,13 @@ def media_probe(sample: dict[str, Any]) -> dict[str, Any]:
     info = None
     if not errors:
         info = media_adapter.describe_media(sample["media_uri"], sample["media_type"])
+    ok = not errors and bool(info and info.get("decodable"))
     return {
         "simulator": "sim.media_probe",
-        "ok": not errors,
+        "ok": ok,
         "errors": errors,
         "media": info,
-        "status": "ok" if not errors else "fail",
+        "status": "ok" if ok else ("fail" if errors else "not_run"),
     }
 
 

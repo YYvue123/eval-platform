@@ -187,6 +187,12 @@ async def init_db():
             ("knowledge_entries", "source_hash", "ALTER TABLE knowledge_entries ADD COLUMN source_hash VARCHAR(64) DEFAULT ''"),
             ("knowledge_entries", "review_status", "ALTER TABLE knowledge_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'approved'"),
             ("knowledge_entries", "valid_until", "ALTER TABLE knowledge_entries ADD COLUMN valid_until DATETIME"),
+            ("eval_service_requests", "tenant_id", "ALTER TABLE eval_service_requests ADD COLUMN tenant_id INTEGER"),
+            ("eval_service_requests", "visibility", "ALTER TABLE eval_service_requests ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("base_resources", "tenant_id", "ALTER TABLE base_resources ADD COLUMN tenant_id INTEGER"),
+            ("base_resources", "visibility", "ALTER TABLE base_resources ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("agent_runs", "planner_model_id", "ALTER TABLE agent_runs ADD COLUMN planner_model_id INTEGER"),
+            ("agent_sessions", "planner_model_id", "ALTER TABLE agent_sessions ADD COLUMN planner_model_id INTEGER"),
         ]:
             try:
                 r = await conn.execute(text(f"PRAGMA table_info({table})"))
@@ -292,6 +298,7 @@ async def seed_builtin_resources(db):
             description=mf.get("description", ""),
             status="online",
             builtin=True,
+            visibility="shared",
             manifest_json=dumps(mf),
             health_status="online",
         ))
@@ -456,6 +463,8 @@ async def seed_tenants_and_backfill(db):
             db.add(TenantMembership(tenant_id=default.id, user_id=u.id))
     await db.flush()
 
+    from app.models import EvalServiceRequest, BaseResource
+
     scoped_models = [
         (Dataset, "datasets"),
         (EvalModel, "eval_models"),
@@ -465,6 +474,8 @@ async def seed_tenants_and_backfill(db):
         (AgentSession, "agent_sessions"),
         (BatchSnapshot, "batch_snapshots"),
         (EvalWorkspace, "eval_workspaces"),
+        (EvalServiceRequest, "eval_service_requests"),
+        (BaseResource, "base_resources"),
     ]
     for model, _table in scoped_models:
         rows = (await db.execute(select(model))).scalars().all()
@@ -473,9 +484,17 @@ async def seed_tenants_and_backfill(db):
                 row.tenant_id = default.id
             vis = getattr(row, "visibility", None)
             if not vis:
-                row.visibility = "shared" if model is EvalWorkspace else "private"
+                if model is EvalWorkspace:
+                    row.visibility = "shared"
+                elif model is BaseResource and getattr(row, "builtin", False):
+                    row.visibility = "shared"
+                else:
+                    row.visibility = "private"
             creator = getattr(row, "creator_id", None)
             owner = getattr(row, "owner_id", None) if hasattr(row, "owner_id") else None
+            if model is BaseResource and getattr(row, "builtin", False):
+                row.visibility = "shared"
+                continue
             if creator is None and owner is None and model is not EvalWorkspace:
                 # 不明归属进入隔离，禁止普通范围读取
                 if getattr(row, "visibility", "private") == "private" and model is not BatchSnapshot:

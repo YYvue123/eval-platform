@@ -8,6 +8,19 @@
       <el-button v-if="userStore.hasPermission('task:create')" type="primary" @click="openCreate()">创建任务</el-button>
     </div>
     <el-card>
+      <div class="toolbar">
+        <el-input v-model="search" placeholder="搜索任务名" clearable style="width: 220px" @clear="onFilter" @keyup.enter="onFilter" />
+        <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 150px" @change="onFilter">
+          <el-option label="草稿" value="draft" />
+          <el-option label="待审" value="pending_review" />
+          <el-option label="排队" value="queued" />
+          <el-option label="执行中" value="running" />
+          <el-option label="成功" value="success" />
+          <el-option label="失败" value="failed" />
+          <el-option label="已取消" value="cancelled" />
+        </el-select>
+        <el-button @click="onFilter">查询</el-button>
+      </div>
       <el-table v-loading="loading" :data="items" stripe>
         <template #empty>
           <EmptyState type="task" action-text="创建任务" :show-action="userStore.hasPermission('task:create')" @action="openCreate" />
@@ -21,9 +34,9 @@
         <el-table-column prop="scene" label="场景" width="110" />
         <el-table-column prop="industry" label="行业" width="90" />
         <el-table-column prop="priority" label="优先级" width="80" />
-        <el-table-column prop="status" label="状态" width="140">
+        <el-table-column prop="status" label="状态" width="160">
           <template #default="{ row }">
-            {{ statusText(row) }}
+            <StatusBadge :phase="taskPhase(row.status)" :text="statusText(row)" />
             <span v-if="row.attempt" class="muted"> ·#{{ row.attempt }}</span>
           </template>
         </el-table-column>
@@ -45,6 +58,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="total > 0"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[20, 50, 100]"
+        layout="total, sizes, prev, pager, next"
+        class="pagination"
+        @current-change="loadData"
+        @size-change="() => { page = 1; loadData() }"
+      />
     </el-card>
 
     <el-dialog v-model="showForm" title="创建评测任务" width="620px">
@@ -75,29 +99,15 @@
         </el-form-item>
         <el-form-item label="优先级"><el-input-number v-model="form.priority" :min="1" :max="10" /></el-form-item>
         <el-form-item label="依赖任务">
-          <el-select v-model="form.depends_on_id" clearable filterable style="width: 100%">
-            <el-option v-for="t in items" :key="t.id" :label="`${t.id} ${t.name}`" :value="t.id" />
+          <el-select v-model="form.depends_on_id" clearable filterable remote :remote-method="searchDeps" style="width: 100%">
+            <el-option v-for="t in depOptions" :key="t.id" :label="`${t.id} ${t.name}`" :value="t.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="数据集">
-          <el-select v-model="form.dataset_id" filterable style="width: 100%" @change="onDatasetChange">
-            <el-option
-              v-for="d in datasets"
-              :key="d.id"
-              :label="`${d.name} (${d.data_count}) · ${d.status}/${d.quality_status}`"
-              :value="d.id"
-            />
-          </el-select>
+          <ResourcePicker v-model="form.dataset_id" kind="dataset" placeholder="搜索数据集" @select="onDatasetSelect" />
         </el-form-item>
         <el-form-item label="被测模型">
-          <el-select v-model="form.model_id" filterable style="width: 100%" @change="onModelChange">
-            <el-option
-              v-for="m in models"
-              :key="m.id"
-              :label="`${m.name}${m.api_url ? '' : '（无endpoint）'}`"
-              :value="m.id"
-            />
-          </el-select>
+          <ResourcePicker v-model="form.model_id" kind="model" placeholder="搜索模型" @select="onModelSelect" />
         </el-form-item>
         <el-form-item label="提示词">
           <el-select v-model="form.prompt_id" clearable filterable style="width: 100%">
@@ -135,27 +145,35 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { datasetsApi, modelsApi, promptsApi, resourcesApi, tasksApi } from '@/api'
+import { promptsApi, resourcesApi, tasksApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/EmptyState.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import ResourcePicker from '@/components/ResourcePicker.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
 const items = ref([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+const search = ref('')
+const statusFilter = ref(typeof route.query.status === 'string' ? route.query.status : '')
 const showForm = ref(false)
 const submitting = ref(false)
-const datasets = ref([])
-const models = ref([])
 const prompts = ref([])
 const judges = ref([])
 const templates = ref([])
 const scenes = ref([])
 const industries = ref([])
+const depOptions = ref([])
+const selectedDataset = ref(null)
+const selectedModel = ref(null)
 const form = ref(emptyForm())
 let pollTimer
 
@@ -168,28 +186,52 @@ function emptyForm() {
 }
 
 function formatRate(v) {
-  return `${((v || 0) * 100).toFixed(1)}%`
+  if (v == null) return '—'
+  return `${(v * 100).toFixed(1)}%`
+}
+
+const STATUS_CN = {
+  draft: '草稿',
+  pending_review: '待审',
+  queued: '排队',
+  running: '执行中',
+  success: '成功',
+  failed: '失败',
+  partial_failed: '部分失败',
+  cancelled: '已取消',
+  paused_budget: '预算暂停',
+}
+
+function taskPhase(st) {
+  if (['queued', 'running'].includes(st)) return 'running'
+  if (st === 'failed' || st === 'partial_failed') return 'failed'
+  if (st === 'success') return 'completed'
+  if (st === 'pending_review') return 'awaiting_approval'
+  if (st === 'paused_budget') return 'budget_paused'
+  if (st === 'draft') return 'idle'
+  return 'idle'
 }
 
 function statusText(row) {
-  const base = row.status || ''
+  const base = STATUS_CN[row.status] || row.status || ''
   const tags = []
   if (row.trial_run) tags.push('试跑')
-  if (row.simulation) tags.push('simulation')
+  if (row.simulation) tags.push('模拟')
   if (row.cancel_requested && row.status === 'running') tags.push('取消中')
   return tags.length ? `${base}（${tags.join('/')}）` : base
 }
 
-const selectedDataset = computed(() => datasets.value.find((d) => d.id === form.value.dataset_id))
-const selectedModel = computed(() => models.value.find((m) => m.id === form.value.model_id))
 const selectedPrompt = computed(() => prompts.value.find((p) => p.id === form.value.prompt_id))
 
 const gateHint = computed(() => {
   if (form.value.trial_run) return ''
   const tips = []
   const ds = selectedDataset.value
-  if (ds && ds.status !== 'published') tips.push('数据集未发布')
-  if (ds && !['passed', 'ok', 'good'].includes(ds.quality_status)) tips.push('数据集未质检通过')
+  if (ds) {
+    const st = ds.status || ds.publish_status || ''
+    if (st !== 'published') tips.push('数据集未发布')
+    if (!['passed', 'ok', 'good'].includes(ds.quality_status)) tips.push('数据集未质检通过')
+  }
   const m = selectedModel.value
   if (m && !(m.api_url || '').trim()) tips.push('模型无 endpoint')
   const p = selectedPrompt.value
@@ -197,10 +239,12 @@ const gateHint = computed(() => {
   return tips.length ? `当前不满足正式评测：${tips.join('；')}。将自动建议开启仅测试。` : ''
 })
 
-function onDatasetChange() {
+function onDatasetSelect(opt) {
+  selectedDataset.value = opt?.raw || null
   suggestTrial()
 }
-function onModelChange() {
+function onModelSelect(opt) {
+  selectedModel.value = opt?.raw || null
   suggestTrial()
 }
 function suggestTrial() {
@@ -210,14 +254,30 @@ function suggestTrial() {
   }
 }
 
+function onFilter() {
+  page.value = 1
+  loadData()
+}
+
 async function loadData() {
   loading.value = true
   try {
-    const res = await tasksApi.list({ page_size: 50 })
+    const res = await tasksApi.list({
+      page: page.value,
+      page_size: pageSize.value,
+      search: search.value || undefined,
+      status: statusFilter.value || undefined,
+    })
     items.value = res.items || []
+    total.value = res.total ?? items.value.length
   } finally {
     loading.value = false
   }
+}
+
+async function searchDeps(q) {
+  const res = await tasksApi.list({ page: 1, page_size: 30, search: q || undefined })
+  depOptions.value = res.items || []
 }
 
 function applyTemplate(code) {
@@ -232,29 +292,25 @@ function applyTemplate(code) {
 }
 
 async function openCreate(presetCode) {
-  const [ds, ms, ps, rs, cat, tpls] = await Promise.all([
-    datasetsApi.list({ page_size: 200 }),
-    modelsApi.list({ page_size: 100 }),
+  const [ps, rs, cat, tpls] = await Promise.all([
     promptsApi.list({ page_size: 100 }),
     resourcesApi.list({ resource_type: 'tool', page_size: 50 }),
     tasksApi.catalog(),
     tasksApi.templates()
   ])
-  datasets.value = ds.items || []
-  models.value = ms.items || []
   prompts.value = ps.items || []
   judges.value = rs.items || []
   scenes.value = cat.scenes || []
   industries.value = cat.industries || []
   templates.value = tpls.items || []
+  selectedDataset.value = null
+  selectedModel.value = null
   form.value = {
     ...emptyForm(),
     name: '评测任务',
-    dataset_id: datasets.value[0]?.id,
-    model_id: models.value[0]?.id,
-    prompt_id: prompts.value[0]?.id,
     template_code: presetCode || route.query.template || ''
   }
+  await searchDeps('')
   if (form.value.template_code) applyTemplate(form.value.template_code)
   suggestTrial()
   showForm.value = true
@@ -306,6 +362,12 @@ async function audit(row, approved) {
   loadData()
 }
 
+watch(() => route.query.status, (v) => {
+  statusFilter.value = typeof v === 'string' ? v : ''
+  page.value = 1
+  loadData()
+})
+
 onMounted(async () => {
   await loadData()
   pollTimer = setInterval(() => {
@@ -318,6 +380,8 @@ onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.pagination { margin-top: 16px; justify-content: flex-end; }
 .hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .warn { display: block; margin-top: 4px; color: var(--el-color-warning); }
 .muted { color: var(--el-text-color-secondary); font-size: 12px; }

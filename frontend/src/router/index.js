@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { firstAccessiblePath, safeHomePath } from '@/utils/navigation'
 
 const APP_TITLE = '大模型智能评测平台'
 
@@ -65,13 +66,26 @@ router.beforeEach((to, _from, next) => {
   const userStore = useUserStore()
   if (!to.meta.public && !userStore.isLoggedIn()) {
     next({ path: '/login', query: { redirect: to.fullPath } })
-  } else if (to.path === '/login' && userStore.isLoggedIn()) {
-    next('/dashboard')
-  } else if (to.meta.permission && !hasRoutePermission(userStore, to.meta.permission)) {
-    next('/dashboard')
-  } else {
-    next()
+    return
   }
+  if (to.path === '/login' && userStore.isLoggedIn()) {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
+    next(redirect || safeHomePath(router))
+    return
+  }
+  if (to.meta.permission && !hasRoutePermission(userStore, to.meta.permission)) {
+    // 无权限：不要强制 dashboard（可能同样无权）
+    if (to.path === '/dashboard' || to.name === 'Dashboard') {
+      next(firstAccessiblePath(router, userStore))
+      return
+    }
+    next({
+      path: firstAccessiblePath(router, userStore),
+      query: { denied: to.fullPath },
+    })
+    return
+  }
+  next()
 })
 
 router.afterEach((to) => {

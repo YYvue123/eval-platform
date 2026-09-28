@@ -23,8 +23,20 @@
         <el-table-column prop="model_source" label="来源" width="90" />
         <el-table-column prop="access_mode" label="接入" width="130" />
         <el-table-column prop="current_version" label="版本" width="80" />
-        <el-table-column prop="health_status" label="健康" width="90" />
+        <el-table-column prop="health_status" label="健康" width="90">
+          <template #default="{ row }">
+            <StatusBadge
+              :phase="row.health_status === 'ok' || row.health_status === 'healthy' ? 'completed' : row.health_status === 'fail' || row.health_status === 'unhealthy' ? 'failed' : 'idle'"
+              :text="row.health_status || '未探测'"
+            />
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="90" />
+        <el-table-column label="连接" width="110">
+          <template #default="{ row }">
+            <span :class="(row.api_url || '').trim() ? 'ok' : 'warn'">{{ (row.api_url || '').trim() ? '已配置' : '未配置' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <div class="op-btns">
@@ -37,6 +49,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="total > 0"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[20, 50, 100]"
+        layout="total, sizes, prev, pager, next"
+        class="pagination"
+        @current-change="loadData"
+        @size-change="() => { page = 1; loadData() }"
+      />
     </el-card>
 
     <el-dialog v-model="showForm" :title="form.id ? '编辑模型' : '注册模型'" width="720px">
@@ -69,7 +92,8 @@
         <el-tab-pane label="接入">
           <el-form :model="form" label-width="120px">
             <el-form-item label="接口地址">
-              <el-input v-model="form.api_url" placeholder="留空则使用本地 Mock" />
+              <el-input v-model="form.api_url" placeholder="必填：真实推理服务 URL；留空将无法正式调用" />
+              <div class="field-hint">未配置 api_url 时探测/试调用会失败，不会回退到本地 Mock。</div>
             </el-form-item>
             <el-form-item label="模型名"><el-input v-model="form.served_model_name" /></el-form-item>
             <el-form-item label="API Key"><el-input v-model="form.api_key" type="password" show-password placeholder="不修改请留空" /></el-form-item>
@@ -191,11 +215,15 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { modelsApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/EmptyState.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
 
 const userStore = useUserStore()
 const scenes = ['qa', '智能对话', '表格分析', '文本写作', 'RAG', '代码应用']
 const loading = ref(false)
 const items = ref([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
 const search = ref('')
 const source = ref('')
 const showForm = ref(false)
@@ -226,8 +254,14 @@ function emptyForm() {
 async function loadData() {
   loading.value = true
   try {
-    const res = await modelsApi.list({ search: search.value, model_source: source.value, page_size: 50 })
+    const res = await modelsApi.list({
+      search: search.value || undefined,
+      model_source: source.value || undefined,
+      page: page.value,
+      page_size: pageSize.value,
+    })
     items.value = res.items || []
+    total.value = res.total ?? items.value.length
   } finally {
     loading.value = false
   }
@@ -307,11 +341,18 @@ async function remove(row) {
 }
 
 let timer
-watch([search, source], () => { clearTimeout(timer); timer = setTimeout(loadData, 250) })
+watch([search, source], () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => { page.value = 1; loadData() }, 250)
+})
 onMounted(loadData)
 </script>
 
 <style scoped>
 .result { margin-top: 12px; white-space: pre-wrap; background: var(--bg-page); padding: 12px; border-radius: 8px; }
 h4 { margin: 16px 0 8px; }
+.pagination { margin-top: 16px; justify-content: flex-end; }
+.field-hint { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
+.ok { color: var(--el-color-success); font-size: 12px; }
+.warn { color: var(--el-color-warning); font-size: 12px; }
 </style>

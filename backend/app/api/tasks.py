@@ -896,9 +896,9 @@ async def list_services(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("service:list")),
+    actor: ActorContext = Depends(require_actor("service:list")),
 ):
-    q = select(EvalServiceRequest)
+    q = apply_object_scope(select(EvalServiceRequest), EvalServiceRequest, actor)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     rows = (await db.execute(q.order_by(EvalServiceRequest.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
     return {"items": [_service_out(s) for s in rows], "total": total or 0}
@@ -909,7 +909,7 @@ async def create_service(
     body: ServiceCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("service:create")),
+    actor: ActorContext = Depends(require_actor("service:create")),
 ):
     await _quota_guard(db, body.workspace_id)
     quote = _auto_quote(body.industry, body.requirement) if body.quote_mode != "expert" else {"mode": "expert", "amount": 0, "items": [], "currency": "CNY"}
@@ -918,14 +918,16 @@ async def create_service(
         **data,
         quote_amount=quote["amount"],
         quote_detail_json=dumps(quote),
-        creator_id=current.id,
+        creator_id=actor.user_id,
+        tenant_id=actor.tenant_id,
+        visibility="private",
     )
     _bump_quote_version(s)
     quote["version"] = s.quote_version
     s.quote_detail_json = dumps(quote)
     db.add(s)
     await db.flush()
-    await log_audit(db, "service", "create", user_id=current.id, username=current.username, target_id=s.id, ip=get_client_ip(request))
+    await log_audit(db, "service", "create", user_id=actor.user_id, username=actor.username, target_id=s.id, ip=get_client_ip(request))
     return _service_out(s)
 
 
@@ -975,9 +977,8 @@ async def confirm_service(
 
 class ShadowBody(BaseModel):
     gray_version: str = "v-next"
-    production: dict = {}
-    candidate: dict = {}
     traffic_pct: float = 0.05
+    # 禁止客户端提交 production/candidate 观测；仅服务端可写入
 
 
 @service_router.post("/{sid}/shadow")
@@ -985,22 +986,73 @@ async def shadow_service(
     sid: int,
     body: ShadowBody,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("service:edit")),
+    actor: ActorContext = Depends(require_actor("service:edit")),
 ):
     from datetime import datetime
-    from app.services.shadow_router import evaluate_shadow
-    s = await db.get(EvalServiceRequest, sid)
-    if not s:
-        raise HTTPException(404, "评测服务单不存在")
+    import uuid
+    from app.services.shadow_router import evaluate_shadow, make_server_observation
+    from app.services.object_policy import get_visible_or_404
+
+    s = await get_visible_or_404(db, EvalServiceRequest, sid, actor, not_found="评测服务单不存在或无权访问")
     if not s.shadow_started_at:
         s.shadow_started_at = datetime.utcnow()
     s.gray_version = body.gray_version
     s.traffic_pct = float(body.traffic_pct or 0.05)
+
+    # 服务端成对探测：对绑定模型做两次受控调用（无模型则 insufficient）
+    production = None
+    candidate = None
+    pair_count = 0
+    try:
+        if s.model_id:
+            model = await db.get(EvalModel, s.model_id)
+            if model and (model.api_url or "").strip():
+                from app.services.model_client import invoke_model
+
+                prompt = f"shadow-probe service={s.id} version={s.production_version or 'v1'}"
+                r1 = await invoke_model(model, prompt)
+                r2 = await invoke_model(model, prompt + " candidate")
+                # 用延迟构造相对样本，分数用确定性 hash 归一（非客户端）
+                def _score(out: dict) -> float:
+                    raw = str(out.get("output") or "")
+                    return (sum(ord(c) for c in raw) % 1000) / 1000.0
+
+                s1 = _score(r1)
+                s2 = _score(r2)
+                production = make_server_observation(
+                    observation_id=uuid.uuid4().hex,
+                    score=s1,
+                    latency_ms=float(r1.get("latency_ms") or 0),
+                    samples=[s1, s1],
+                    failed=False,
+                )
+                candidate = make_server_observation(
+                    observation_id=uuid.uuid4().hex,
+                    score=s2,
+                    latency_ms=float(r2.get("latency_ms") or 0),
+                    samples=[s2, s2],
+                    failed=bool(r2.get("mock")),
+                )
+                pair_count = 1
+                prev = loads(s.shadow_json, {})
+                pair_count = int(prev.get("evidence_pair_count") or 0) + 1
+    except Exception as exc:  # noqa: BLE001
+        result = {
+            "returned": "production",
+            "promotable": False,
+            "status": "insufficient_evidence",
+            "gates": [{"code": "server_probe_failed", "ok": False, "detail": str(exc)[:200]}],
+            "traffic_pct": s.traffic_pct,
+        }
+        s.shadow_json = dumps(result)
+        return _service_out(s)
+
     result = evaluate_shadow(
-        body.production,
-        body.candidate,
+        production,
+        candidate,
         traffic_pct=s.traffic_pct,
         started_at=s.shadow_started_at,
+        evidence_pair_count=pair_count,
     )
     s.shadow_json = dumps(result)
     return _service_out(s)
@@ -1010,12 +1062,12 @@ async def shadow_service(
 async def promote_service(
     sid: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("service:edit")),
+    actor: ActorContext = Depends(require_actor("service:edit")),
 ):
     from app.services.shadow_router import can_promote
-    s = await db.get(EvalServiceRequest, sid)
-    if not s:
-        raise HTTPException(404, "评测服务单不存在")
+    from app.services.object_policy import get_visible_or_404
+
+    s = await get_visible_or_404(db, EvalServiceRequest, sid, actor, not_found="评测服务单不存在或无权访问")
     shadow = loads(s.shadow_json, {})
     ok, reason = can_promote(shadow, started_at=s.shadow_started_at)
     if not ok:

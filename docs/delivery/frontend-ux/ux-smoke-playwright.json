@@ -1,0 +1,366 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "E:\\eval-platform\\frontend\\node_modules\\@playwright\\test\\cli.js",
+      "test"
+    ],
+    "configFile": "E:\\eval-platform\\frontend\\playwright.config.mjs",
+    "rootDir": "E:/eval-platform/frontend/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "E:/eval-platform/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "E:/eval-platform/frontend/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "../docs/delivery/frontend-ux/ux-smoke-playwright.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "smoke.spec.mjs",
+      "file": "smoke.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "smoke · 登录与工作台",
+          "file": "smoke.spec.mjs",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "UX-login: 登录后离开 /login 并进入可访问页",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1824,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:33.205Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c3460f1d697aa8671d63-2e0f5087cb5abcff12d6",
+              "file": "smoke.spec.mjs",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "UX-dashboard: 工作台可加载（有权限时）",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1847,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:35.227Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c3460f1d697aa8671d63-dc1c1acc15e662f1cfa2",
+              "file": "smoke.spec.mjs",
+              "line": 11,
+              "column": 3
+            },
+            {
+              "title": "UX-tasks: 任务列表可达",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1500,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:37.093Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c3460f1d697aa8671d63-d3d35696510201220ef8",
+              "file": "smoke.spec.mjs",
+              "line": 21,
+              "column": 3
+            },
+            {
+              "title": "UX-models: 注册表单不再提示本地 Mock",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1585,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:38.613Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c3460f1d697aa8671d63-570d5643fe5575b5e809",
+              "file": "smoke.spec.mjs",
+              "line": 28,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "ux-safety-services.spec.mjs",
+      "file": "ux-safety-services.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Safety / Services 可达",
+          "file": "ux-safety-services.spec.mjs",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "UX12-nav: 安全可信页可打开复核或试评入口",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1804,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:40.248Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "80591308442664321a8b-4b762434602b1b3f5aa6",
+              "file": "ux-safety-services.spec.mjs",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "EvalServices: 服务页可打开",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1581,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:42.064Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "80591308442664321a8b-c3d9679f10c8d23434f4",
+              "file": "ux-safety-services.spec.mjs",
+              "line": 17,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "ux05-mcp-mutex.spec.mjs",
+      "file": "ux05-mcp-mutex.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "UX05 · MCP 来源互斥（UI）",
+          "file": "ux05-mcp-mutex.spec.mjs",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "探测来源 registered/remote 单选互斥",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2434,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-28T15:46:43.682Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "90415621af221e610f1a-afba2eaa37b281a6ca9f",
+              "file": "ux05-mcp-mutex.spec.mjs",
+              "line": 5,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-28T15:46:32.407Z",
+    "duration": 13988.703000000001,
+    "expected": 7,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

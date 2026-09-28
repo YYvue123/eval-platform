@@ -62,6 +62,7 @@ import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api'
+import { safeHomePath } from '@/utils/navigation'
 
 const router = useRouter()
 const route = useRoute()
@@ -100,7 +101,11 @@ async function handleSubmit() {
     userStore.setAuth(res.access_token, res.username, res.role || 'viewer', form.rememberMe)
     ElMessage.success('登录成功')
     const redirect = route.query.redirect
-    router.push(typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/dashboard')
+    if (typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')) {
+      router.push(redirect)
+    } else {
+      router.push(safeHomePath(router))
+    }
   } catch (e) {
     if (e?.errors) return
   } finally {

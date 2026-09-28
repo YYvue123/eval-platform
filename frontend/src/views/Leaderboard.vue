@@ -1,9 +1,5 @@
 <template>
   <div class="obs">
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
-
     <header class="obs-hero">
       <div class="obs-hero__glow" aria-hidden="true" />
       <div class="obs-hero__grid" aria-hidden="true" />
@@ -240,7 +236,7 @@ async function drawRadar() {
   const indicators = (data.scenes || []).map((s) => ({ name: s, max: 1 }))
   chart.setOption({
     backgroundColor: 'transparent',
-    textStyle: { color: '#64748b', fontFamily: 'IBM Plex Sans' },
+    textStyle: { color: '#64748b', fontFamily: 'ui-sans-serif, system-ui, sans-serif' },
     legend: { data: (data.series || []).map((s) => s.model_name), textStyle: { color: '#64748b' }, top: 0 },
     radar: {
       indicator: indicators.length ? indicators : [{ name: 'n/a', max: 1 }],
@@ -284,7 +280,7 @@ onUnmounted(() => chart?.dispose())
   --ink: var(--text-primary, #1e293b);
   --muted: var(--text-secondary, #64748b);
   --good: var(--color-success, #22c55e);
-  font-family: 'IBM Plex Sans', sans-serif;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
   color: var(--ink);
   margin: -8px -4px 0;
   padding: 8px 4px 28px;
@@ -334,11 +330,11 @@ onUnmounted(() => chart?.dispose())
   text-transform: uppercase;
   font-size: 11px;
   color: var(--accent);
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
 }
 .obs-title {
   margin: 0;
-  font-family: 'Syne', sans-serif;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
   font-weight: 800;
   font-size: clamp(28px, 4vw, 40px);
   letter-spacing: -0.03em;
@@ -405,7 +401,7 @@ onUnmounted(() => chart?.dispose())
 }
 .obs-chip span { color: var(--muted); }
 .obs-chip strong { color: var(--ink); font-weight: 600; }
-.mono { font-family: 'IBM Plex Mono', monospace; }
+.mono { font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace; }
 
 .obs-toolbar {
   display: flex;
@@ -484,7 +480,7 @@ onUnmounted(() => chart?.dispose())
 }
 .podium-card h3 {
   margin: 10px 0 6px;
-  font-family: 'Syne', sans-serif;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
   font-size: 18px;
   color: var(--ink);
 }
@@ -560,7 +556,7 @@ onUnmounted(() => chart?.dispose())
 }
 .obs-panel__head h2 {
   margin: 0;
-  font-family: 'Syne', sans-serif;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
   font-size: 16px;
   color: var(--ink);
 }

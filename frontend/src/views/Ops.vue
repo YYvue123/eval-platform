@@ -442,14 +442,19 @@ async function disableTicket(row) {
 }
 
 async function logDrill() {
-  await opsApi.createDrill({
-    drill_type: 'release',
-    result: 'pass',
-    checklist: ['ci', 'backup', 'ready', 'admission'],
-    notes: 'Ops UI 登记',
-  })
-  ElMessage.success('已登记演练')
-  await loadGov()
+  try {
+    await opsApi.createDrill({
+      drill_type: 'release',
+      result: 'draft',
+      checklist: ['ci', 'backup', 'ready', 'admission'],
+      notes: 'Ops UI 草稿登记（无实测证据不得 pass）',
+      evidence: {}
+    })
+    ElMessage.success('已登记草稿演练（非正式通过）')
+    await loadGov()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '登记失败')
+  }
 }
 
 async function createAuth() {

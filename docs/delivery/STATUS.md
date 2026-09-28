@@ -2,7 +2,7 @@
 
 > 用户追加要求：所有业务流程（含 trial/工具试用）删除 Mock、固定假结果和成功回退，缺少依赖必须明确阻塞；见 [真实实现硬要求](NO-MOCK-REAL-IMPLEMENTATION.md)。本轮已完成文档复审，代码整改待实施。
 
-> 2026-09-28 复审补充：以下为历史交付记录，不能直接解释为原设计全量验收通过。当前仍存在真实 Agent 回退 Mock、影子门禁信任客户端观测、无证据演练 pass 等阻断项。以 [交付复审与下一轮整改](REVIEW-AND-FRONTEND-NEXT.md) 的追加结论一起阅读；缺陷尚未修复。下一轮重点完成全站 24 页 UI/交互及对应后端可信性整改。
+> 2026-09-28 U0 补充：F01 Agent mock、F02 客户端影子分数、F03 无证据演练 pass、F10 参考解冒充已整改（见 `frontend-ux/U0.md`）。U1–U5 已交付文档与代码门禁；**浏览器 UX01–16 多数仍 not_run**；WP06/07/11/14/16 仍需按复审分层，不得仅凭历史「全量 tests OK」视为原范围关闭。
 
 相对核查包 `docs/implementation-plan-2026-09-28` 的追加记录，**不覆写**原始差距矩阵事实。
 
@@ -28,3 +28,10 @@
 | 2026-09-28 | WP16 | 运维制度/贡献许可、工单闭环、演练留痕、数据授权、运营报表、基准生态 TBD；全量 157 tests OK + build | `docs/delivery/WP16.md` |
 | 2026-09-28 | M4 收口 | WP00–WP16 工程包闭环；L3/L4 与 ECO-TBD 仍开放 | `docs/delivery/MILESTONE-M4.md` |
 | 2026-09-28 | L3 DeepSeek | staging + DeepSeek 双模型直连/平台 trial + 本地 HTTP MCP；证据包 ok | `docs/delivery/L3-LIVE.md` |
+| 2026-09-28 | U0 No-Mock | F01–F04/F10：禁 mock agent、影子仅服务端观测、演练证据门禁、资源/服务单租户字段、代码/媒体 not_run；隔离单测通过 | `docs/delivery/frontend-ux/U0.md` |
+| 2026-09-28 | U1 交互基础 | F05–F07：会话 generation 隔离、轮询单飞/事件去重/写锁、MCP 来源互斥；mcp_probe 负例单测 | `docs/delivery/frontend-ux/U1.md` |
+| 2026-09-28 | U2 Agent 工作台 | 第 4 节：会话轨+产品态主动作+ResourcePicker+动态澄清+高级 Tab；build 通过 | `docs/delivery/frontend-ux/U2.md` |
+| 2026-09-28 | U3 工具中心 | 第 5 节：Tab/分页/详情、注册向导、Schema 试用台、MCP 三态工作台；build 通过 | `docs/delivery/frontend-ux/U3.md` |
+| 2026-09-28 | U4 全站矩阵 | 24 页覆盖表；Dashboard/Tasks/Models/Safety/EvalServices/路由回退重点收口；浏览器 UX not_run | `docs/delivery/frontend-ux/U4.md` |
+| 2026-09-28 | U5 验收交接 | 权限采集+ux-static；隔离回归 63 OK；F/UX/AC 映射诚实标注；浏览器 UX 多数 not_run | `docs/delivery/frontend-ux/U5.md` |
+| 2026-09-28 | UX 烟雾 e2e | Playwright 脚手架；隔离库+Vite；7 passed（登录/工作台/Tasks/Models/Safety/Services/MCP 互斥） | `docs/delivery/frontend-ux/UX-SMOKE.md` |

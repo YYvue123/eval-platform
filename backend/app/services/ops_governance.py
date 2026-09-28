@@ -143,13 +143,28 @@ async def record_drill(
     evidence: dict,
     policy_version: str = POLICY_VERSION,
 ) -> OpsDrillRecord:
+    evidence = evidence or {}
+    result = (result or "draft").strip().lower()
+    # 正式 pass 必须带可核验证据；否则降为 draft / 拒绝
+    evidence_ok = bool(
+        evidence.get("sha256")
+        or evidence.get("rpo_seconds") is not None
+        or evidence.get("rto_seconds") is not None
+        or evidence.get("signed_by")
+        or evidence.get("evidence_uri")
+        or evidence.get("restore_path")
+    )
+    if result == "pass" and not evidence_ok:
+        raise ValueError("drill_pass_requires_evidence:正式通过必须提供 sha256/RPO/RTO/签署人或证据 URI")
+    if result not in {"pass", "fail", "draft", "not_run", "blocked"}:
+        result = "draft"
     d = OpsDrillRecord(
         drill_type=drill_type or "restore",
         operator_id=operator_id,
-        result=result or "pass",
+        result=result,
         checklist_json=dumps(checklist or []),
         notes=notes or "",
-        evidence_json=dumps(evidence or {}),
+        evidence_json=dumps(evidence),
         policy_version=policy_version or POLICY_VERSION,
     )
     db.add(d)

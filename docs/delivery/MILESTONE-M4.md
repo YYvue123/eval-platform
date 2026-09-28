@@ -39,10 +39,12 @@
 ## 建议下一步（非 WP 编号）
 
 1. ~~准备预发 + 真实模型/MCP 证据~~ → 见 `docs/delivery/L3-LIVE.md`（DeepSeek）
-2. 轮换已暴露的 API Key；补企业 mTLS / 外部 MCP（若需要）
-3. 组织按 runbook 做一次有签字的发布/回滚演练（AC46 人工段）
-4. 业务关闭 ECO-TBD 或正式宣布「试点范围」边界
-5. L4：容量压测与生产值班签署
+2. ~~前端 No-Mock / Agent / 工具中心 / 全站 / 验收门禁（U0–U5）~~ → `docs/delivery/frontend-ux/`（浏览器 UX 多数 not_run）
+3. 轮换已暴露的 API Key；补企业 mTLS / 外部 MCP（若需要）
+4. 组织按 runbook 做一次有签字的发布/回滚演练（AC46 人工段）
+5. 补 Playwright（或等价）隔离 e2e，关闭 UX01–16 中可自动化格
+6. 业务关闭 ECO-TBD 或正式宣布「试点范围」边界
+7. L4：容量压测与生产值班签署
 
 ## 回滚与制度
 

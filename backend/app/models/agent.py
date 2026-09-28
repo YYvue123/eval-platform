@@ -40,6 +40,7 @@ class AgentSession(Base):
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     active_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     row_version: Mapped[int] = mapped_column(Integer, default=0)
+    planner_model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -76,7 +77,8 @@ class AgentRun(Base):
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="queued")  # queued|running|waiting|success|failed|cancelled|paused_budget
     graph_version: Mapped[str] = mapped_column(String(32), default="runtime-v1")
-    provider: Mapped[str] = mapped_column(String(20), default="mock")  # mock|live
+    provider: Mapped[str] = mapped_column(String(20), default="live")  # live only
+    planner_model_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checkpoint_json: Mapped[str] = mapped_column(Text, default="{}")
     checkpoint_thread_id: Mapped[str] = mapped_column(String(64), default="", unique=True)
     lease_owner: Mapped[str] = mapped_column(String(120), default="")

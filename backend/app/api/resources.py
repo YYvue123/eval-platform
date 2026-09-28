@@ -10,6 +10,7 @@ from app.models import BaseResource, ResourceCallLog, ResourceEvent, User
 from app.services.actor_context import ActorContext
 from app.services.audit import get_client_ip, log_audit
 from app.services.http_adapter import health_http_tool
+from app.services.object_policy import apply_object_scope, object_is_visible
 from app.services.protocol import validate_manifest
 from app.services.serializers import now
 from app.services.tool_gateway import ensure_resource_version, invoke_tool
@@ -37,6 +38,27 @@ class MatchBody(BaseModel):
     name: str = ""
 
 
+def _redact_manifest(manifest: dict) -> dict:
+    """返回脱敏 manifest：token/密钥只保留是否已配置。"""
+    data = loads(dumps(manifest or {}), {})
+
+    def walk(node):
+        if isinstance(node, dict):
+            out = {}
+            for k, v in node.items():
+                lk = str(k).lower()
+                if lk in {"token", "api_key", "apikey", "authorization", "secret", "password"} and v:
+                    out[k] = {"configured": True, "redacted": True}
+                else:
+                    out[k] = walk(v)
+            return out
+        if isinstance(node, list):
+            return [walk(x) for x in node]
+        return node
+
+    return walk(data)
+
+
 def resource_out(r: BaseResource):
     return {
         "id": r.id,
@@ -48,10 +70,12 @@ def resource_out(r: BaseResource):
         "description": r.description,
         "status": r.status,
         "builtin": r.builtin,
+        "tenant_id": r.tenant_id,
+        "visibility": r.visibility,
         "health_status": r.health_status,
         "call_count": r.call_count,
         "fail_count": r.fail_count,
-        "manifest": loads(r.manifest_json, {}),
+        "manifest": _redact_manifest(loads(r.manifest_json, {})),
         "quality_report": loads(r.quality_report, {}),
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
@@ -79,9 +103,9 @@ async def list_resources(
     status: str = Query(""),
     search: str = Query(""),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("resource:list")),
+    actor: ActorContext = Depends(require_actor("resource:list")),
 ):
-    q = select(BaseResource)
+    q = apply_object_scope(select(BaseResource), BaseResource, actor)
     if resource_type:
         q = q.where(BaseResource.resource_type == resource_type)
     if status:
@@ -181,7 +205,7 @@ async def register_resource(
     body: ManifestBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("resource:create")),
+    actor: ActorContext = Depends(require_actor("resource:create")),
 ):
     errors = validate_manifest(body.manifest)
     if errors:
@@ -191,6 +215,12 @@ async def register_resource(
     report = {"passed": True, "checks": ["schema", "resource_id", "capabilities"]}
     created = False
     if existing:
+        if existing.builtin:
+            raise HTTPException(403, "禁止覆盖平台内置资源")
+        if not object_is_visible(existing, actor):
+            raise HTTPException(404, "资源不存在或无权访问")
+        if int(existing.tenant_id or -1) != int(actor.tenant_id):
+            raise HTTPException(403, "禁止覆盖其他租户资源")
         existing.manifest_json = dumps(body.manifest)
         existing.name = body.manifest["name"]
         existing.version = body.manifest["version"]
@@ -214,13 +244,15 @@ async def register_resource(
             manifest_json=dumps(body.manifest),
             quality_report=dumps(report),
             health_status="online",
-            creator_id=current.id,
+            creator_id=actor.user_id,
+            tenant_id=actor.tenant_id,
+            visibility="private",
         )
         db.add(r)
         await db.flush()
-    await ensure_resource_version(db, r, creator_id=current.id)
+    await ensure_resource_version(db, r, creator_id=actor.user_id)
     await _emit(db, "resource.registered" if created else "resource.updated", rid, {"version": r.version})
-    await log_audit(db, "resource", "register", user_id=current.id, username=current.username, target_id=r.id, ip=get_client_ip(request), detail=rid)
+    await log_audit(db, "resource", "register", user_id=actor.user_id, username=actor.username, target_id=r.id, ip=get_client_ip(request), detail=rid)
     return resource_out(r)
 
 
@@ -256,19 +288,30 @@ async def mcp_probe(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("resource:invoke")),
 ):
-    """探测远程或已注册 MCP：initialize / tools/list / tools/call。"""
+    """探测远程或已注册 MCP：initialize / tools/list / tools/call。来源互斥。"""
     from app.services.skill_runtime import run_mcp
+    from datetime import datetime
 
+    rid = (body.resource_id or "").strip()
+    endpoint = (body.endpoint or "").strip()
+    if rid and endpoint:
+        raise HTTPException(400, "mcp_source_mutex:resource_id 与 endpoint 不能同时提供，请二选一")
+    if not rid and not endpoint:
+        raise HTTPException(400, "请提供 resource_id 或 HTTP endpoint")
+
+    mode = "registered" if rid else "remote"
+    target = rid if rid else endpoint
     manifest: dict = {}
-    if body.resource_id:
-        r = await _load_resource(db, body.resource_id)
+    if rid:
+        r = await _load_resource(db, rid)
         if not r:
             raise HTTPException(404, "资源不存在")
         manifest = loads(r.manifest_json, {})
+        # 注册资源探测时忽略 body.endpoint/token，避免误导
     else:
-        if not body.endpoint.startswith("http"):
-            raise HTTPException(400, "请提供 HTTP endpoint 或 resource_id")
-        interfaces = {"endpoint": body.endpoint, "auth": {"token": body.token} if body.token else {}}
+        if not endpoint.startswith("http"):
+            raise HTTPException(400, "endpoint 须为 http(s) URL")
+        interfaces = {"endpoint": endpoint, "auth": {"token": body.token} if body.token else {}}
         if body.egress_allowlist:
             interfaces["egress_allowlist"] = body.egress_allowlist
         manifest = {"interfaces": interfaces, "capabilities": {"timeout": 30}}
@@ -276,7 +319,13 @@ async def mcp_probe(
         result = await run_mcp(manifest, {"method": body.method, "params": body.params or {}, "id": 1})
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "result": result}
+    return {
+        "ok": True,
+        "mode": mode,
+        "target": target,
+        "probed_at": datetime.utcnow().isoformat() + "Z",
+        "result": result,
+    }
 
 
 @router.post("/{rid:path}/health")

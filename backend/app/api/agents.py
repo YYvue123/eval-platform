@@ -90,11 +90,12 @@ class SuggestionAct(BaseModel):
 
 class RunIn(BaseModel):
     message: str = ""
-    provider: str = "mock"
+    provider: str = "live"
     max_rounds: int = 8
     token_budget: int = 0
     client_message_id: str = ""
     sync: bool = True
+    planner_model_id: int | None = None
 
 
 def _session_out(s: AgentSession, messages=None, suggestions=None, approvals=None):
@@ -471,6 +472,7 @@ async def start_run(
             provider=body.provider,
             max_rounds=body.max_rounds,
             token_budget=body.token_budget,
+            planner_model_id=body.planner_model_id,
         )
     else:
         run = await runtime.create_run(
@@ -481,6 +483,7 @@ async def start_run(
             max_rounds=body.max_rounds,
             token_budget=body.token_budget,
             client_message_id=body.client_message_id,
+            planner_model_id=body.planner_model_id,
         )
     return runtime.run_out(run)
 

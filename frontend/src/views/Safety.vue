@@ -26,10 +26,11 @@
                 <el-tag :type="row.calibrated ? 'success' : 'danger'" size="small">{{ row.calibrated ? '通过' : '未过' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160">
+            <el-table-column label="操作" width="200">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openSet(row.category, 'fixed')">固定集</el-button>
-                <el-button link type="primary" size="small" @click="tryScore(row)">试评</el-button>
+                <el-button link type="primary" size="small" @click="openSet(row.category, 'explore')">探索集</el-button>
+                <el-button link type="primary" size="small" @click="openTryScore(row)">试评</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -58,11 +59,15 @@
 
       <el-col :span="10">
         <el-card>
-          <template #header>专家复核</template>
+          <template #header>专家复核队列</template>
           <el-table :data="reviews" stripe max-height="360">
             <el-table-column prop="id" label="单号" width="90" />
-            <el-table-column prop="sample_id" label="样本" min-width="110" />
-            <el-table-column prop="status" label="状态" width="90" />
+            <el-table-column prop="sample_id" label="样本" min-width="110" show-overflow-tooltip />
+            <el-table-column prop="status" label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.status === 'pending' ? 'warning' : 'success'">{{ reviewStatusCn(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="100">
               <template #default="{ row }">
                 <el-button
@@ -70,8 +75,9 @@
                   link
                   type="primary"
                   size="small"
-                  @click="resolve(row)"
-                >通过</el-button>
+                  @click="openReview(row)"
+                >复核</el-button>
+                <el-button v-else link size="small" @click="openReview(row)">查看</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -79,14 +85,72 @@
 
         <el-card class="mt">
           <template #header>试评结果</template>
-          <pre class="schema">{{ scoreResult ? JSON.stringify(scoreResult, null, 2) : '选择类别「试评」查看' }}</pre>
+          <pre class="schema">{{ scoreResult ? JSON.stringify(scoreResult, null, 2) : '在「试评」中输入候选输出后查看' }}</pre>
         </el-card>
       </el-col>
     </el-row>
 
-    <el-drawer v-model="setDrawer" :title="`样本集 ${setCategory}/${setType}`" size="560px">
+    <el-drawer v-model="setDrawer" :title="`样本集 ${setCategory} / ${setType === 'fixed' ? '固定集' : '探索集'}`" size="560px">
+      <el-alert
+        :type="setType === 'explore' ? 'warning' : 'info'"
+        :closable="false"
+        :title="setType === 'explore' ? '探索集仅供诊断，不得进入固定榜单比较。' : '固定集用于正式可比评测。'"
+        style="margin-bottom: 12px"
+      />
       <pre class="schema">{{ JSON.stringify(setSamples, null, 2) }}</pre>
     </el-drawer>
+
+    <el-drawer v-model="reviewDrawer" title="专家复核" size="480px">
+      <template v-if="activeReview">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="单号">{{ activeReview.id }}</el-descriptions-item>
+          <el-descriptions-item label="类别">{{ activeReview.category }}</el-descriptions-item>
+          <el-descriptions-item label="样本">{{ activeReview.sample_id }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ reviewStatusCn(activeReview.status) }}</el-descriptions-item>
+        </el-descriptions>
+        <h4>候选输出</h4>
+        <pre class="schema">{{ activeReview.prediction || '（空）' }}</pre>
+        <h4>备注</h4>
+        <p class="note">{{ activeReview.note || '—' }}</p>
+        <template v-if="activeReview.status === 'pending' && userStore.hasPermission('task:edit')">
+          <el-form label-width="88px" class="mt">
+            <el-form-item label="人工标签" required>
+              <el-select v-model="reviewForm.expert_label" style="width: 100%">
+                <el-option label="通过" value="approved" />
+                <el-option label="驳回" value="rejected" />
+                <el-option label="需补证" value="needs_evidence" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="理由">
+              <el-input v-model="reviewForm.note" type="textarea" rows="3" placeholder="填写判断依据；驳回/补证时必填" />
+            </el-form-item>
+            <el-button type="primary" :loading="resolving" @click="submitReview">提交复核</el-button>
+          </el-form>
+        </template>
+        <template v-else-if="activeReview.expert_label">
+          <h4>已裁定</h4>
+          <p>{{ activeReview.expert_label }} · {{ activeReview.note || '无备注' }}</p>
+        </template>
+      </template>
+    </el-drawer>
+
+    <el-dialog v-model="tryDialog" title="试评" width="560px">
+      <el-form label-width="88px">
+        <el-form-item label="类别">{{ tryForm.category }}</el-form-item>
+        <el-form-item label="样本">
+          <el-select v-model="tryForm.sample_id" filterable style="width: 100%" @change="onTrySample">
+            <el-option v-for="s in trySamples" :key="s.id" :label="s.id" :value="s.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="候选输出">
+          <el-input v-model="tryForm.prediction" type="textarea" rows="4" placeholder="输入实际模型输出，勿默认填入 good 示例" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tryDialog = false">取消</el-button>
+        <el-button type="primary" :loading="scoring" @click="submitTryScore">评分</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -107,6 +171,20 @@ const setDrawer = ref(false)
 const setCategory = ref('')
 const setType = ref('fixed')
 const setSamples = ref([])
+
+const reviewDrawer = ref(false)
+const activeReview = ref(null)
+const resolving = ref(false)
+const reviewForm = ref({ expert_label: 'approved', note: '' })
+
+const tryDialog = ref(false)
+const trySamples = ref([])
+const scoring = ref(false)
+const tryForm = ref({ category: '', sample_id: '', prediction: '' })
+
+function reviewStatusCn(s) {
+  return ({ pending: '待复核', resolved: '已复核', closed: '已关闭' }[s] || s)
+}
 
 async function loadAll() {
   loading.value = true
@@ -146,25 +224,70 @@ async function openSet(category, type) {
   setDrawer.value = true
 }
 
-async function tryScore(row) {
-  const set = await safetyApi.getSet(row.category, { set_type: 'fixed' })
-  const sample = (set.samples || [])[0]
-  if (!sample) return
-  const pred =
-    sample.prediction_examples?.good ||
-    sample.prediction_examples?.good_formal ||
-    '无法提供'
-  scoreResult.value = await safetyApi.score({
-    category: row.category,
-    sample_id: sample.id,
-    prediction: pred,
-  })
+function openReview(row) {
+  activeReview.value = row
+  reviewForm.value = { expert_label: 'approved', note: '' }
+  reviewDrawer.value = true
 }
 
-async function resolve(row) {
-  await safetyApi.resolveReview(row.id, { expert_label: 'approved', note: '专家通过' })
-  ElMessage.success('已复核')
-  await loadAll()
+async function submitReview() {
+  if (!reviewForm.value.expert_label) {
+    ElMessage.warning('请选择人工标签')
+    return
+  }
+  if (reviewForm.value.expert_label !== 'approved' && !(reviewForm.value.note || '').trim()) {
+    ElMessage.warning('驳回或需补证时请填写理由')
+    return
+  }
+  resolving.value = true
+  try {
+    await safetyApi.resolveReview(activeReview.value.id, {
+      expert_label: reviewForm.value.expert_label,
+      note: reviewForm.value.note,
+    })
+    ElMessage.success('已提交复核')
+    reviewDrawer.value = false
+    await loadAll()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '复核失败')
+  } finally {
+    resolving.value = false
+  }
+}
+
+async function openTryScore(row) {
+  const set = await safetyApi.getSet(row.category, { set_type: 'fixed' })
+  trySamples.value = set.samples || []
+  tryForm.value = {
+    category: row.category,
+    sample_id: trySamples.value[0]?.id || '',
+    prediction: '',
+  }
+  tryDialog.value = true
+}
+
+function onTrySample() {
+  tryForm.value.prediction = ''
+}
+
+async function submitTryScore() {
+  if (!(tryForm.value.prediction || '').trim()) {
+    ElMessage.warning('请输入候选输出')
+    return
+  }
+  scoring.value = true
+  try {
+    scoreResult.value = await safetyApi.score({
+      category: tryForm.value.category,
+      sample_id: tryForm.value.sample_id,
+      prediction: tryForm.value.prediction,
+    })
+    tryDialog.value = false
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '试评失败')
+  } finally {
+    scoring.value = false
+  }
 }
 
 async function validateCand(row) {
@@ -181,4 +304,6 @@ onMounted(loadAll)
 .mt { margin-top: 16px; }
 .schema { background: var(--el-fill-color-light); padding: 8px; font-size: 12px; overflow: auto; max-height: 420px; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.note { color: var(--el-text-color-secondary); font-size: 13px; }
+h4 { margin: 16px 0 8px; font-size: 14px; }
 </style>

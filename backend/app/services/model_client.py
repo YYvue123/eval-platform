@@ -137,16 +137,8 @@ async def _invoke_once(model: EvalModel, prompt: str) -> dict:
     started = time.perf_counter()
     url = _chat_url(model.api_url)
     if not url:
-        text = f"[mock:{model.name}] {prompt[:800]}"
-        mark_success(model)
-        observe_model_invoke(True)
-        return {
-            "output": text,
-            "latency_ms": int((time.perf_counter() - started) * 1000),
-            "tokens": len(prompt) + len(text),
-            "mock": True,
-            "finish_reason": "stop",
-        }
+        observe_model_invoke(False)
+        raise RuntimeError("model_api_url_required:未配置 api_url，禁止 Mock 回退")
     headers = {"Content-Type": "application/json"}
     if model.api_key:
         if model.auth_type == "api_key":
@@ -172,6 +164,8 @@ async def _invoke_once(model: EvalModel, prompt: str) -> dict:
                 "tokens": tokens,
                 "mock": False,
                 "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop") if isinstance(data.get("choices"), list) and data.get("choices") else "stop",
+                "usage": data.get("usage") or {},
+                "raw_finish": data.get("choices", [{}])[0] if isinstance(data.get("choices"), list) and data.get("choices") else {},
             }
         except Exception as exc:
             last_error = str(exc)
@@ -180,10 +174,60 @@ async def _invoke_once(model: EvalModel, prompt: str) -> dict:
     raise RuntimeError(last_error or "模型调用失败")
 
 
+async def invoke_chat_tools(
+    model: EvalModel,
+    messages: list[dict],
+    tools: list[dict],
+) -> dict:
+    """OpenAI 兼容 tools 调用；无 api_url 直接失败。"""
+    blocked = circuit_blocked(model)
+    if blocked:
+        raise RuntimeError(blocked)
+    url = _chat_url(model.api_url)
+    if not url:
+        raise RuntimeError("model_api_url_required:规划模型未配置 api_url")
+    headers = {"Content-Type": "application/json"}
+    if model.api_key:
+        headers["Authorization"] = f"Bearer {model.api_key}"
+    body = {
+        "model": model.served_model_name or model.name,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": 0,
+    }
+    started = time.perf_counter()
+    async with _semaphore(model):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(model.timeout or 90), **httpx_tls_kwargs(model.channel_type)) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+    mark_success(model)
+    observe_model_invoke(True)
+    choice = (data.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    usage = data.get("usage") or {}
+    return {
+        "message": msg,
+        "tool_calls": msg.get("tool_calls") or [],
+        "content": msg.get("content") or "",
+        "finish_reason": choice.get("finish_reason") or "",
+        "usage": usage,
+        "tokens": int(usage.get("total_tokens") or 0) or None,
+        "latency_ms": int((time.perf_counter() - started) * 1000),
+        "mock": False,
+    }
+
+
 async def health_check(model: EvalModel) -> dict:
     started = time.perf_counter()
     if not model.api_url:
-        return {"ok": True, "status": "mock", "detail": "未配置接口，评测将使用本地 Mock 输出", "latency_ms": 0}
+        return {
+            "ok": False,
+            "status": "misconfigured",
+            "detail": "未配置 api_url，禁止判健康/Mock",
+            "latency_ms": 0,
+        }
     url = _chat_url(model.api_url)
     headers = {}
     if model.api_key:
@@ -192,10 +236,17 @@ async def health_check(model: EvalModel) -> dict:
         async with httpx.AsyncClient(timeout=10, **httpx_tls_kwargs(model.channel_type)) as client:
             resp = await client.get(url.rsplit("/chat/completions", 1)[0] + "/models", headers=headers)
             latency = int((time.perf_counter() - started) * 1000)
-            if resp.status_code >= 200 and resp.status_code < 300:
-                return {"ok": True, "status": "online", "detail": f"HTTP {resp.status_code}", "latency_ms": latency}
-            return {"ok": False, "status": "abnormal", "detail": f"HTTP {resp.status_code}", "latency_ms": latency}
-    except Exception as exc:
-        latency = int((time.perf_counter() - started) * 1000)
-        status = "timeout" if "timeout" in str(exc).lower() else "abnormal"
-        return {"ok": False, "status": status, "detail": str(exc), "latency_ms": latency}
+            ok = 200 <= resp.status_code < 300
+            return {
+                "ok": ok,
+                "status": "online" if ok else "unhealthy",
+                "detail": f"HTTP {resp.status_code}",
+                "latency_ms": latency,
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "status": "unreachable",
+            "detail": str(exc)[:200],
+            "latency_ms": int((time.perf_counter() - started) * 1000),
+        }

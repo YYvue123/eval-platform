@@ -12,15 +12,38 @@ LATENCY_DRIFT_MAX = 0.20
 CORR_MIN = 0.90
 
 
+def _reject_client_observation(payload: dict | None, label: str) -> str | None:
+    """请求体携带的 score/samples 一律视为不可信，除非 source=server_persisted。"""
+    if not payload:
+        return None
+    if payload.get("source") == "server_persisted" and payload.get("observation_id"):
+        return None
+    dirty = any(
+        k in payload and payload.get(k) is not None
+        for k in ("score", "server_score", "samples", "latency_ms", "client_score")
+    )
+    if dirty:
+        return f"{label}_client_observation_rejected"
+    return None
+
+
 def _server_scores(payload: dict | None) -> dict[str, Any]:
-    """只接受服务端观测字段；忽略 client_score。"""
     p = payload or {}
+    if p.get("source") != "server_persisted" or not p.get("observation_id"):
+        return {
+            "score": None,
+            "latency_ms": None,
+            "samples": [],
+            "failed": bool(p.get("failed")),
+            "trusted": False,
+        }
     return {
-        "score": float(p.get("score") if p.get("score") is not None else p.get("server_score") or 0),
-        "latency_ms": float(p.get("latency_ms") or 0),
+        "score": float(p["score"]) if p.get("score") is not None else None,
+        "latency_ms": float(p["latency_ms"]) if p.get("latency_ms") is not None else None,
         "samples": list(p.get("samples") or []),
         "failed": bool(p.get("failed")),
-        "client_score": p.get("client_score"),
+        "trusted": True,
+        "observation_id": p.get("observation_id"),
     }
 
 
@@ -46,123 +69,149 @@ def evaluate_shadow(
     traffic_pct: float = TRAFFIC_PCT_DEFAULT,
     started_at: datetime | None = None,
     now: datetime | None = None,
+    evidence_pair_count: int = 0,
 ) -> dict[str, Any]:
     """
-    四门禁：
-    1) 单项分数漂移 >10% 不得转正
-    2) 样本相关性不足
-    3) 常量分数 → inconclusive
-    4) 仅有客户端伪造分数 → 无效
+    四门禁 + 拒绝客户端观测。
     始终 returned=production（candidate 失败不影响生产）。
     """
-    prod = _server_scores(production)
-    cand = _server_scores(candidate)
     gates: list[dict[str, Any]] = []
     now = now or datetime.utcnow()
 
-    # Gate: forged client score
-    if candidate and candidate.get("client_score") is not None and candidate.get("score") is None and candidate.get("server_score") is None:
-        gates.append({"code": "client_score_rejected", "ok": False, "detail": "伪造客户端 score 无效"})
-    else:
-        gates.append({"code": "client_score_rejected", "ok": True, "detail": "ok"})
+    for label, payload in (("production", production), ("candidate", candidate)):
+        reason = _reject_client_observation(payload, label)
+        if reason:
+            gates.append({"code": "client_observation_rejected", "ok": False, "detail": reason})
+            return {
+                "returned": "production",
+                "promotable": False,
+                "status": "rejected",
+                "gates": gates,
+                "traffic_pct": traffic_pct,
+                "score_diff_rate": None,
+                "detail": reason,
+            }
 
-    # Gate: candidate failure isolation
+    prod = _server_scores(production)
+    cand = _server_scores(candidate)
+
+    if not prod["trusted"] or not cand["trusted"]:
+        gates.append(
+            {
+                "code": "server_observation_required",
+                "ok": False,
+                "detail": "缺少服务端持久化观测（observation_id + source=server_persisted）",
+            }
+        )
+        return {
+            "returned": "production",
+            "promotable": False,
+            "status": "insufficient_evidence",
+            "gates": gates,
+            "traffic_pct": traffic_pct,
+            "score_diff_rate": None,
+        }
+
+    gates.append({"code": "client_observation_rejected", "ok": True, "detail": "ok"})
+
     cand_failed = bool(cand["failed"])
-    gates.append({
-        "code": "candidate_isolated",
-        "ok": True,
-        "detail": "candidate_failed_ignored" if cand_failed else "candidate_ok",
-    })
+    gates.append(
+        {
+            "code": "candidate_isolated",
+            "ok": True,
+            "detail": "candidate_failed_ignored" if cand_failed else "candidate_ok",
+        }
+    )
 
-    # Gate: constant scores inconclusive
     psamples = [float(x) for x in prod["samples"]] if prod["samples"] else []
     csamples = [float(x) for x in cand["samples"]] if cand["samples"] else []
     const_p = len(psamples) >= 2 and len(set(psamples)) == 1
     const_c = len(csamples) >= 2 and len(set(csamples)) == 1
-    inconclusive = const_p or const_c
-    gates.append({
-        "code": "constant_score",
-        "ok": not inconclusive,
-        "detail": "inconclusive" if inconclusive else "ok",
-    })
-
-    # Gate: score drift
-    ps, cs = prod["score"], cand["score"]
-    if cand_failed:
-        drift = None
-        drift_ok = False
-        gates.append({"code": "score_drift", "ok": False, "detail": "candidate_failed"})
-    elif ps == 0 and cs == 0:
-        drift = 0.0
-        drift_ok = True
-        gates.append({"code": "score_drift", "ok": True, "detail": "0"})
+    if const_p or const_c:
+        gates.append({"code": "constant_inconclusive", "ok": False, "detail": "常量分数 inconclusive"})
+        status = "inconclusive"
     else:
-        drift = abs(cs - ps) / ps if ps else (1.0 if cs else 0.0)
-        drift_ok = drift <= SCORE_DRIFT_MAX
-        gates.append({"code": "score_drift", "ok": drift_ok, "detail": round(drift, 4)})
+        gates.append({"code": "constant_inconclusive", "ok": True, "detail": "ok"})
+        status = "evaluated"
 
-    # Gate: correlation
+    score_diff_rate = None
+    if prod["score"] is not None and cand["score"] is not None and abs(prod["score"]) > 1e-9:
+        score_diff_rate = abs(cand["score"] - prod["score"]) / abs(prod["score"])
+    drift_ok = score_diff_rate is not None and score_diff_rate <= SCORE_DRIFT_MAX
+    gates.append(
+        {
+            "code": "score_drift",
+            "ok": drift_ok,
+            "detail": f"diff_rate={score_diff_rate}",
+        }
+    )
+
     corr = pearson(psamples, csamples) if psamples and csamples else None
-    if corr is None:
-        # 无成对样本时用延迟差作为弱门禁
-        pl, cl = prod["latency_ms"], cand["latency_ms"]
-        lat_diff = abs(cl - pl) / pl if pl else (0.0 if cl == 0 else 1.0)
-        corr_ok = lat_diff <= LATENCY_DRIFT_MAX and not cand_failed
-        gates.append({"code": "correlation", "ok": corr_ok, "detail": f"latency_proxy:{round(lat_diff, 4)}"})
-    else:
-        corr_ok = corr >= CORR_MIN
-        gates.append({"code": "correlation", "ok": corr_ok, "detail": round(corr, 4)})
+    corr_ok = corr is not None and corr >= CORR_MIN
+    gates.append({"code": "correlation", "ok": bool(corr_ok), "detail": f"pearson={corr}"})
 
-    evidence_days = 0.0
+    # 证据窗：需要 started_at 满 EVIDENCE_DAYS 且至少有成对观测计数
+    window_ok = False
     if started_at:
-        evidence_days = max((now - started_at).total_seconds() / 86400.0, 0.0)
-    # 证据窗在转正时复核；shadow 记录仅保存天数与起始点
-    gates.append({
-        "code": "evidence_window",
-        "ok": True,
-        "detail": f"pending_check:{evidence_days:.2f}d/{EVIDENCE_DAYS}d",
-        "deferred": True,
-    })
+        elapsed = (now - started_at).total_seconds()
+        window_ok = elapsed >= EVIDENCE_DAYS * 86400 and evidence_pair_count >= 2
+    gates.append(
+        {
+            "code": "evidence_window",
+            "ok": window_ok,
+            "detail": f"pairs={evidence_pair_count} days_required={EVIDENCE_DAYS}",
+        }
+    )
 
-    traffic = float(traffic_pct if traffic_pct is not None else TRAFFIC_PCT_DEFAULT)
-    if traffic <= 0:
-        traffic = TRAFFIC_PCT_DEFAULT
-
-    # promotable 不含证据窗（deferred）
-    core_ok = all(g["ok"] for g in gates if not g.get("deferred")) and not inconclusive and not cand_failed
-    status = "inconclusive" if inconclusive else ("ready" if core_ok else "blocked")
+    promotable = (
+        status != "inconclusive"
+        and all(g["ok"] for g in gates if g["code"] != "candidate_isolated")
+        and not cand_failed
+    )
 
     return {
-        "production": {"score": ps, "latency_ms": prod["latency_ms"], "failed": False},
-        "candidate": {"score": cs, "latency_ms": cand["latency_ms"], "failed": cand_failed},
-        "score_diff_rate": None if drift is None else round(float(drift), 4),
-        "correlation": None if corr is None else round(corr, 4),
-        "gates": gates,
-        "promotable": core_ok,
-        "status": status,
-        "stable": core_ok,
         "returned": "production",
-        "traffic_pct": traffic,
-        "evidence_days": round(evidence_days, 4),
-        "evidence_required_days": EVIDENCE_DAYS,
+        "promotable": promotable,
+        "status": status if promotable or status == "inconclusive" else "blocked",
+        "gates": gates,
+        "traffic_pct": traffic_pct,
+        "score_diff_rate": score_diff_rate,
+        "pearson": corr,
+        "evidence_pair_count": evidence_pair_count,
     }
 
 
-def can_promote(shadow: dict[str, Any], *, started_at: datetime | None = None, now: datetime | None = None) -> tuple[bool, str]:
-    if not shadow:
-        return False, "missing_shadow_evidence"
-    if shadow.get("status") == "inconclusive":
-        return False, "inconclusive_constant_scores"
-    if not shadow.get("promotable"):
-        bad = [g["code"] for g in (shadow.get("gates") or []) if not g.get("ok") and not g.get("deferred")]
-        return False, "gates_failed:" + ",".join(bad or ["unknown"])
+def can_promote(shadow: dict | None, *, started_at: datetime | None = None, now: datetime | None = None) -> tuple[bool, str]:
+    s = shadow or {}
+    if not s:
+        return False, "no_shadow_evidence"
+    if s.get("status") in {"rejected", "insufficient_evidence", "inconclusive"}:
+        return False, f"status:{s.get('status')}"
+    if not s.get("promotable"):
+        bad = [g["code"] for g in (s.get("gates") or []) if not g.get("ok")]
+        return False, "gates:" + ",".join(bad or ["not_promotable"])
     now = now or datetime.utcnow()
-    if not started_at:
-        return False, "evidence_window_missing_start"
-    days = max((now - started_at).total_seconds() / 86400.0, 0.0)
-    if days < EVIDENCE_DAYS:
+    if started_at and (now - started_at) < timedelta(days=EVIDENCE_DAYS):
+        days = (now - started_at).total_seconds() / 86400
         return False, f"evidence_window_insufficient:{days:.2f}d"
-    traffic = float(shadow.get("traffic_pct") or 0)
-    if traffic <= 0:
-        return False, "traffic_not_enabled"
-    return True, ""
+    if int(s.get("evidence_pair_count") or 0) < 2:
+        return False, "evidence_pairs_insufficient"
+    return True, "ok"
+
+
+def make_server_observation(
+    *,
+    observation_id: str,
+    score: float,
+    latency_ms: float,
+    samples: list[float],
+    failed: bool = False,
+) -> dict[str, Any]:
+    return {
+        "source": "server_persisted",
+        "observation_id": observation_id,
+        "score": score,
+        "latency_ms": latency_ms,
+        "samples": samples,
+        "failed": failed,
+    }
