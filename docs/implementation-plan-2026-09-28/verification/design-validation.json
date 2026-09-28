@@ -1,0 +1,37 @@
+{
+  "design_checks": [
+    "schema-valid:agent-plan.schema.json",
+    "schema-valid:source-envelope.schema.json",
+    "schema-valid:source-manifest.schema.json",
+    "schema-valid:source-model.schema.json",
+    "schema-valid:tool-result.schema.json",
+    "example-valid:agent-plan",
+    "example-valid:tool-result",
+    "negative-rejected:negative-budget",
+    "negative-rejected:unregistered-node-kind",
+    "negative-rejected:extra-credential-field",
+    "negative-rejected:bad-resource-hash",
+    "example-references-and-dag-valid",
+    "markdown-local-links-valid",
+    "backend-ast:70"
+  ],
+  "current_code_probes": {
+    "watermark_empty_prediction": {
+      "score": 1.0,
+      "passed": true,
+      "metrics": {
+        "integrity": 1.0,
+        "parseable": 1.0
+      }
+    },
+    "hallucination_empty_prediction": {
+      "score": 1.0,
+      "passed": true,
+      "metrics": {
+        "object_hallucination": 0.0,
+        "relation_hallucination": 0.0
+      }
+    }
+  },
+  "scope": "Design validation and pure-function probes only; no integration tests or production database access."
+}

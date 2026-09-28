@@ -1,0 +1,16 @@
+{
+  "code_commit": "90056950c28c4fac669dd79b2979f75ba3431dd8",
+  "audit_date": "2026-09-28",
+  "source_files": [
+    {
+      "name": "第五章项目设计方案v3.docx",
+      "sha256": "2f7203bc9947faaa3faf7c5803aeed5d8ce1178606e579eccc8bb96dbd144602",
+      "bytes": 2389249
+    },
+    {
+      "name": "大模型智能评测平台工具底座标准接口规范_V0.6.1.docx",
+      "sha256": "037eb44481b18f38b947f83bb5f2e2b9570ea8b22d83b85a5c773e5f3e6843c4",
+      "bytes": 918909
+    }
+  ]
+}

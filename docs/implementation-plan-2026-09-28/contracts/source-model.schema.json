@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Model Under Test Manifest V1.3",
+  "type": "object",
+  "required": [
+    "model_id",
+    "model_name",
+    "model_type",
+    "scene_white_list",
+    "max_context_tokens",
+    "support_stream",
+    "version",
+    "parallel_limit"
+  ],
+  "properties": {
+    "model_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]{1,32}/[a-z0-9_]{1,64}$"
+    },
+    "model_name": {
+      "type": "string"
+    },
+    "model_type": {
+      "type": "string",
+      "enum": [
+        "internal",
+        "external"
+      ]
+    },
+    "scene_white_list": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "max_context_tokens": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "support_stream": {
+      "type": "boolean"
+    },
+    "support_function_call": {
+      "type": "boolean",
+      "default": false
+    },
+    "version": {
+      "type": "string"
+    },
+    "parallel_limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "enterprise_name": {
+      "type": "string"
+    },
+    "enterprise_model_code": {
+      "type": "string"
+    },
+    "endpoint": {
+      "type": "string",
+      "format": "uri"
+    },
+    "auth_type": {
+      "type": "string",
+      "enum": [
+        "bearer_token",
+        "api_key",
+        "mtls"
+      ]
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "open_source",
+        "self_dev",
+        "fine_tune"
+      ]
+    },
+    "base_model": {
+      "type": "string"
+    },
+    "deploy_cluster": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "model_type": {
+            "const": "external"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "enterprise_name",
+          "enterprise_model_code"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "model_type": {
+            "const": "internal"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "source_type",
+          "base_model",
+          "deploy_cluster"
+        ]
+      }
+    }
+  ]
+}

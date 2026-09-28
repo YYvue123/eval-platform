@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "plan_id": "c44b4c1a-9436-462c-afab-0baf3f63bfb3",
+  "version": 1,
+  "goal": "使用指定金融问答基准对授权模型进行100条试点评测，输出可追溯报告",
+  "mode": "trial",
+  "resources": [
+    {"key": "finance_data", "kind": "dataset", "id": "fixture-dataset", "version": "1.0.0", "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    {"key": "target_model", "kind": "model", "id": "fixture-model", "version": "1.0.0", "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+    {"key": "finance_judge", "kind": "judge", "id": "fixture/judge", "version": "1.0.0", "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+    {"key": "finance_benchmark", "kind": "benchmark", "id": "fixture-finance-qa", "version": "1.0.0", "content_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+  ],
+  "nodes": [
+    {
+      "node_id": "evaluate", "kind": "evaluation", "depends_on": [],
+      "config": {"dataset_key": "finance_data", "model_key": "target_model", "judge_key": "finance_judge", "benchmark_key": "finance_benchmark", "sample_limit": 100, "seed": 42, "repeat": 1},
+      "success_criteria": ["完成100条或明确记录错误与预算暂停原因", "保存每条评分与证据"]
+    },
+    {
+      "node_id": "report", "kind": "report", "depends_on": ["evaluate"],
+      "config": {"input_nodes": ["evaluate"], "formats": ["json", "md"]},
+      "success_criteria": ["所有统计可由样本结果复算", "解释引用实际证据"]
+    }
+  ],
+  "budget": {"max_total_tokens": 50000, "max_cost_micros": 20000000, "currency": "CNY", "max_active_seconds": 3600, "max_tool_calls": 40},
+  "risk": "medium",
+  "evidence_refs": ["fixture:resource-search:001"]
+}

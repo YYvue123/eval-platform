@@ -1,0 +1,1912 @@
+P0006 大模型智能评测平台
+P0007 工具底座标准接口规范
+P0015 文档版本：V0.6.1
+P0016 发布日期：2026年8月
+P0017 文档状态：正式发布
+P0018 密级：对外公开
+P0020 致合作厂商
+P0021 本规范为大模型智能评测平台对外合作的官方技术标准，用于指导行业垂域大模型厂商完成评测接入工作。
+P0022 平台采用"远程加密访问模式"为外部企业模型评测的默认合作模式：被测模型部署在企业本地环境，企业开放加密端口，大模型智能评测平台通过mTLS/VPN等加密通道远程调用模型推理接口进行评测。核心保障企业模型权重不出域、评测数据在平台侧、传输全程加密。
+P0023 请厂商重点阅读以下章节：第10章 被测大模型与企业接入规范、第10.4节 远程加密访问规范、第15章 接入交付与验收、附录D 被测大模型Manifest与接口Schema、附录E 企业接入FAQ与踩坑清单。
+P0025 修订记录
+P0026 版本
+P0027 日期
+P0028 修订人
+P0029 修订内容
+P0030 V0.1
+P0031 2026-08-15
+P0032 架构组
+P0033 初稿，确定整体框架与资源分类
+P0034 V0.5
+P0035 2026-08-20
+P0036 架构组
+P0037 补充统一通信协议、Manifest规范、各资源类型接口细节；完善安全权限、可观测性、接入验收章节，新增评测标尺、数据源与批量评测接口、部分失败语义、Token消耗计量、鲁棒性准入测试等；明确batch模式约束、pass_threshold键名校验、批量分片快照机制
+P0038 V0.6
+P0039 2026-08-24
+P0040 架构组
+P0041 新增被测大模型与企业接入规范；补充离线评测工具包（Eval Kit）标准；新增分级验收机制；统一跨单位数据安全与接入拓扑；修复模型与Agent接口语义冲突（新增被测智能体分类）；解除Eval Kit与在线注册流程耦合；新增在线评测数据流说明；细化试点期准入规则；
+P0042 V0.6.1
+P0043 2026-08-24
+P0044 架构组
+P0045 外部企业模型接入模式调整：离线Eval Kit进场模式变更为远程加密访问模式；新增加密通道规范（mTLS/VPN/API网关）；更新跨单位网络拓扑与数据安全机制；同步更新交付物、验收标准与企业FAQ
+P0048 目录
+P0049 1  总则与适用范围
+P0050 2  术语与定义
+P0051   2.1  核心术语定义
+P0052   2.2  规范术语约定（RFC 2119）
+P0053 3  资源统一抽象模型与Manifest规范
+P0054 4  统一通信协议
+P0055 5  工具（Tool）接口规范
+P0056 6  智能体（Agent）接口规范
+P0057 7  MCP接入规范
+P0058 8  技能（Skill）接口规范
+P0059 9  数据源（DataSource）与批量评测接口规范
+P0060 10 被测大模型与企业接入规范
+P0061 11 外部API接口规范
+P0062 12 资源注册与发现
+P0063 13 安全与权限管控
+P0064 14 可观测性
+P0065 15 接入交付与验收
+P0066 附录A  资源Manifest完整JSON Schema
+P0067 附录B  消息信封完整定义
+P0068 附录C  统一错误码体系
+P0069 附录D  被测大模型Manifest与接口Schema
+P0070 附录E  企业接入FAQ与问题清单
+P0072 1  总则与适用范围
+P0073 1.1  编制目的
+P0074 本规范为大模型智能评测平台工具底座的核心技术标准，定义各类资源的接入接口、通信协议与治理规则。工具底座是平台智能评测管理、数据集调度、评测指标管理、结果展示与报告生成的核心基石，支撑对外部50+行业垂域大模型、内部50+开源大模型的11类典型场景常态化评测。
+P0075 统一资源抽象与接口契约，降低接入成本，保障评测口径统一、结果可横向对标，支撑平台规模化、自动化、周期性评测业务。
+P0076 1.2  项目背景与业务范围
+P0077 本平台覆盖内外双模型池、11类标准评测场景的常态化评测：
+P0078 外部评测对象：50+款行业垂域大模型，覆盖政务、工业、医疗、教育、金融等垂直领域，通过标准化接入实现定期能力评测与横向对标。
+P0079 内部评测对象：50+款自研/开源基础大模型、垂直微调模型，实现版本迭代回归评测、性能基线对比、能力退化监测。
+P0080 评测场景：固定11类典型业务场景，统一评测数据集、统一评测标尺、统一结果口径。
+P0081 1.3  资源分类
+P0082 本规范将所有接入资源分为底座内部执行资源和被测对象资源两大类，共9小类。底座内部资源遵循完整治理规范；被测对象资源聚焦调用契约与结果标准，不强制内部实现细节。
+P0083 大类
+P0084 资源类型
+P0085 英文标识
+P0086 核心特征
+P0087 适用范围
+P0088 底座内部执行资源
+P0089 工具
+P0090 Tool
+P0091 无状态、确定输入输出、单次执行完成
+P0092 评测打分、内容校验、合规检测等原子能力
+P0093 底座内部执行资源
+P0094 智能体
+P0095 Agent
+P0096 有状态、多轮交互、自主规划、工具调用
+P0097 底座内部复杂评测流程编排
+P0098 底座内部执行资源
+P0099 MCP服务
+P0100 MCP Server
+P0101 标准化协议暴露工具/资源/Prompt
+P0102 底座内部标准化能力接入
+P0103 底座内部执行资源
+P0104 技能
+P0105 Skill
+P0106 可复用逻辑单元、触发条件驱动、可链式组合
+P0107 固定场景评测逻辑复用
+P0108 底座内部执行资源
+P0109 数据源
+P0110 DataSource
+P0111 评测数据集提供者、支持批量分片读取、只读
+P0112 11类场景评测数据集管理
+P0113 底座内部执行资源
+P0114 外部API
+P0115 External API
+P0116 第三方服务接口、需协议适配与鉴权
+P0117 底座依赖的外部服务调用
+P0118 被测对象资源
+P0119 被测大模型
+P0120 Model
+P0121 被评测主体，提供推理能力
+P0122 外部垂域大模型、内部开源大模型
+P0123 被测对象资源
+P0124 被测智能体
+P0125 Agent(MUT)
+P0126 具备自主规划与工具调用能力的被评测智能体
+P0127 外部企业智能体产品、内部智能体系统
+P0128 被测对象资源
+P0129 评测工具包
+P0130 Eval Kit
+P0131 离线标准化评测执行包
+P0132 外部企业进场评测场景
+P0134 1.4  规范层级与兼容性
+P0135 本规范采用语义化版本（SemVer）管理。主版本号变更表示不兼容的协议调整，次版本号变更表示向后兼容的功能新增，修订号变更表示向后兼容的问题修复。框架在接入资源时，应通过Manifest中的spec_version字段确认资源遵循的规范版本，并按最低兼容版本策略进行适配。
+P0137 2  术语与定义
+P0138 2.1  核心术语定义
+P0139 资源（Resource）：本规范中可被框架发现、注册、调用的外部能力单元的统称，分为底座内部资源与被测对象资源。
+P0140 Manifest：资源描述文件，采用JSON格式，包含资源的元数据、能力声明、接口定义、评测标尺、权限需求等信息，是资源注册与发现的核心依据。
+P0141 消息信封（Envelope）：框架与外部资源之间通信的统一消息包装格式，包含Header、Trace Context、Auth Context、Body四个部分。
+P0142 评测标尺（Evaluation Spec）：定义评测任务的预期结果、评分逻辑与判定指标的规范对象，包含裁判类型、参考输出、指标名称、裁判提示词模板等。
+P0143 数据源（DataSource）：评测数据集的标准化提供者，支持数据集挂载、分片拉取、元数据校验。
+P0144 注册中心（Registry）：框架中负责资源注册、存储、查询、健康检查的核心组件。
+P0145 统一网关（Gateway）：框架中负责协议适配、路由转发、鉴权、限流、熔断、可观测的中间层。
+P0146 被测大模型（Model Under Test）：作为评测对象的大模型服务，包括内部部署模型与外部企业提供的垂域模型。
+P0147 评测工具包（Eval Kit）：标准化离线评测容器包，包含加密题库、本地执行引擎、裁判模型、结果生成模块，用于外部企业进场评测，保障敏感数据不出域。
+P0148 数据血缘（Data Lineage）：数据在评测流程中的流转轨迹记录，用于隐私泄露与偏见传递的定责追踪。
+P0149 副作用（Side Effects）：资源执行过程中可能改变外部状态的操作，需在接入时显式声明。
+P0150 2.2  规范术语约定（RFC 2119）
+P0151 本文档使用以下RFC 2119标准术语表述规范要求等级：
+P0152 术语
+P0153 含义
+P0154 违反后果
+P0155 MUST（必须）
+P0156 该项为强制要求，不满足则资源无法通过注册或准入测试
+P0157 注册拒绝/准入不通过
+P0158 SHALL（应）
+P0159 与MUST等效，用于强调强制性义务
+P0160 同上
+P0161 SHOULD（应该）
+P0162 该项为强烈建议，存在合理理由时可偏离，但须评估并记录影响
+P0163 可能导致警告或限制使用
+P0164 MAY（可以）
+P0165 该项为可选项，是否实现由资源方自行决定
+P0166 无强制要求
+P0167 禁止（MUST NOT）
+P0168 该项为强制禁止，任何情况下不得实施
+P0169 注册拒绝/准入不通过
+P0171 本文档中所有使用上述术语的条款均为规范性条款，未使用上述术语的描述为说明性内容。
+P0173 3  资源统一抽象模型与Manifest规范
+P0174 3.1  五层抽象模型
+P0175 本规范将外部资源的接入与治理抽象为五层模型，自底向上依次为：资源注册与治理层、外部资源类型层、统一通信协议层、统一接口网关层、资源消费者层。各层职责清晰、接口标准化，上层通过下层提供的标准接口进行交互，层间通过统一消息信封传递数据。
+P0177 图3-1  大模型评测平台工具底座资源统一抽象模型图
+P0179 层级
+P0180 名称
+P0181 核心职责
+P0182 关键组件
+P0183 L1
+P0184 资源注册与治理层
+P0185 资源注册、Manifest存储、健康检查、版本管理、灰度发布、审计日志
+P0186 注册中心、Manifest仓库、健康检查器、版本管理器
+P0187 L2
+P0188 外部资源类型层
+P0189 九类外部资源的具体实现与差异化接口语义
+P0190 Tool、Agent、MCP Server、Skill、DataSource、External API、Model、Agent(MUT)、Eval Kit
+P0191 L3
+P0192 统一通信协议层
+P0193 消息信封封装、序列化、链路追踪、消息类型定义、Token计量
+P0194 Envelope、JSON/Protobuf、Trace Context、Usage
+P0195 L4
+P0196 统一接口网关层
+P0197 协议适配、路由转发、鉴权、限流、熔断、可观测埋点
+P0198 协议适配器、路由器、鉴权器、限流器、熔断器
+P0199 L5
+P0200 资源消费者层
+P0201 业务侧对外部资源的调用与编排
+P0202 编排引擎、评测执行器、批量调度器、报告生成器
+P0204 3.2  Manifest规范
+P0205 Manifest是外部资源的标准化描述文件，采用JSON格式，文件命名规范为manifest.json。每个外部资源必须提供且仅提供一个Manifest，注册时提交至注册中心。Manifest包含以下顶层字段：
+P0206 字段名
+P0207 类型
+P0208 必填
+P0209 说明
+P0210 spec_version
+P0211 string
+P0212 是
+P0213 遵循的本规范版本号，如"1.3.0"
+P0214 resource_id
+P0215 string
+P0216 是
+P0217 资源唯一标识，格式为{namespace}/{name}；namespace≤32字符（小写字母+数字），name≤64字符（小写字母+数字+下划线），全局唯一
+P0218 resource_type
+P0219 enum
+P0220 是
+P0221 资源类型：tool/agent/mcp/skill/datasource/api/model/agent_mut/eval_kit
+P0222 name
+P0223 string
+P0224 是
+P0225 资源显示名称，人类可读
+P0226 version
+P0227 string
+P0228 是
+P0229 资源版本号，遵循SemVer规范
+P0230 description
+P0231 string
+P0232 是
+P0233 资源功能描述，不超过500字
+P0234 owner
+P0235 object
+P0236 是
+P0237 资源所有者信息：name、contact、email
+P0238 tags
+P0239 array<string>
+P0240 否
+P0241 资源标签，用于分类检索；被测模型须包含场景标签
+P0242 capabilities
+P0243 object
+P0244 是
+P0245 能力声明，详见3.3节
+P0246 evaluation_spec
+P0247 object
+P0248 评测类必填
+P0249 评测标尺定义，详见3.4节
+P0250 interfaces
+P0251 object
+P0252 是
+P0253 接口定义，详见各资源类型章节
+P0254 permissions
+P0255 object
+P0256 否
+P0257 权限需求声明，详见第13章
+P0258 side_effects
+P0259 array<object>
+P0260 否
+P0261 外部副作用声明清单，详见3.5节
+P0262 resources
+P0263 object
+P0264 否
+P0265 运行资源需求：cpu、memory、gpu、timeout
+P0266 lifecycle
+P0267 object
+P0268 否
+P0269 生命周期配置：health_check、graceful_shutdown；被测模型与Eval Kit不强制
+P0270 metadata
+P0271 object
+P0272 否
+P0273 扩展元数据，键值对形式
+P0275 3.3  能力声明（capabilities）
+P0276 字段名
+P0277 类型
+P0278 必填
+P0279 说明
+P0280 input_schema
+P0281 object
+P0282 是
+P0283 输入参数JSON Schema定义
+P0284 output_schema
+P0285 object
+P0286 是
+P0287 输出结果JSON Schema定义
+P0288 call_mode
+P0289 enum
+P0290 是
+P0291 调用模式：sync（同步）/async（异步）/stream（流式）/batch（批量）
+P0292 idempotent
+P0293 boolean
+P0294 是
+P0295 是否支持幂等调用，写操作必须为true
+P0296 timeout
+P0297 integer
+P0298 是
+P0299 单次调用超时时间（秒），默认300，最大3600
+P0300 retryable
+P0301 boolean
+P0302 否
+P0303 失败后是否可安全重试，默认false
+P0304 max_concurrency
+P0305 integer
+P0306 否
+P0307 最大并发调用数
+P0309 3.4  评测标尺（evaluation_spec）
+P0310 评测标尺定义了评测任务的预期结果、评分逻辑与判定指标，是评测平台判定模型回答质量的核心依据。所有评测类资源必须在Manifest中提供evaluation_spec对象。
+P0311 字段名
+P0312 类型
+P0313 必填
+P0314 说明
+P0315 judge_type
+P0316 enum
+P0317 是
+P0318 裁判类型：llm_judge（大模型裁判）/regex（正则匹配）/exact_match（精确匹配）/fuzzy（模糊匹配）/custom（自定义脚本）
+P0319 reference_output
+P0320 object
+P0321 否
+P0322 参考输出（Golden Answer），包含标准答案或评分rubric；llm_judge模式下作为裁判参考
+P0323 metric_names
+P0324 array<string>
+P0325 是
+P0326 判定指标名称列表，如["rouge_l","bleu","accuracy","judge_score"]，须与输出Schema中的指标字段对应
+P0327 judge_prompt_template
+P0328 string
+P0329 llm_judge时必填
+P0330 裁判提示词模板，使用{{question}}、{{answer}}、{{reference}}等占位符
+P0331 judge_model
+P0332 string
+P0333 llm_judge时必填
+P0334 裁判模型标识，须为框架已注册的模型资源
+P0335 pass_threshold
+P0336 object
+P0337 否
+P0338 通过阈值定义，如{"judge_score": 4.0, "accuracy": 0.8}；键名MUST严格匹配metric_names数组元素，不匹配则注册中心直接拒绝注册；低于阈值判定为不通过
+P0339 scoring_rubric
+P0340 string
+P0341 否
+P0342 评分细则说明，用于裁判模型或人工评分参考
+P0344 3.5  外部副作用声明（side_effects）
+P0345 资源在执行过程中可能产生改变外部状态的操作（副作用），必须在Manifest的side_effects字段中显式声明。框架根据声明自动启用沙箱隔离或Mock拦截，防止评测环境被污染。
+P0346 字段名
+P0347 类型
+P0348 必填
+P0349 说明
+P0350 type
+P0351 enum
+P0352 是
+P0353 副作用类型：write_fs（写入文件系统）/http_call（外部HTTP调用）/email（发送邮件）/db_write（数据库写入）/payment（产生费用）/other（其他）
+P0354 description
+P0355 string
+P0356 是
+P0357 副作用操作描述
+P0358 target
+P0359 string
+P0360 否
+P0361 操作目标，如文件路径、URL、数据库表名
+P0362 reversible
+P0363 boolean
+P0364 是
+P0365 是否可回滚；可回滚的操作在评测后框架自动执行回滚
+P0366 mock_strategy
+P0367 enum
+P0368 否
+P0369 Mock策略：dry_run（空跑）/stub（返回固定值）/record（录制真实响应后回放）
+P0372 4  统一通信协议
+P0373 4.1  协议栈
+P0374 框架与外部资源之间的通信采用分层协议栈设计，自顶向下依次为应用层、消息类型层、信封层、序列化层、传输层。各层职责独立，下层对上层透明。
+P0375 4.2  消息信封（Envelope）
+P0376 所有跨组件、跨资源的通信必须使用统一的消息信封格式，由Header、Trace Context、Auth Context、Body四个部分组成。
+P0377 部分
+P0378 字段
+P0379 类型
+P0380 必填
+P0381 说明
+P0382 Header
+P0383 message_id
+P0384 string
+P0385 是
+P0386 消息唯一ID，UUID v4
+P0387 Header
+P0388 message_type
+P0389 enum
+P0390 是
+P0391 request/response/event/stream
+P0392 Header
+P0393 version
+P0394 string
+P0395 是
+P0396 信封协议版本，当前"1.3"
+P0397 Header
+P0398 timestamp
+P0399 string
+P0400 是
+P0401 ISO 8601格式，含时区
+P0402 Header
+P0403 source
+P0404 string
+P0405 是
+P0406 发送方标识
+P0407 Header
+P0408 destination
+P0409 string
+P0410 是
+P0411 接收方资源ID
+P0412 Header
+P0413 correlation_id
+P0414 string
+P0415 否
+P0416 关联ID，用于请求-响应配对与幂等控制
+P0417 Header
+P0418 priority
+P0419 enum
+P0420 否
+P0421 low/normal/high，默认normal
+P0422 Header
+P0423 ttl
+P0424 integer
+P0425 否
+P0426 消息存活时间（秒），默认300
+P0427 Header
+P0428 tenant_id
+P0429 string
+P0430 否
+P0431 租户ID，跨单位多租户场景必填
+P0432 Trace
+P0433 trace_id
+P0434 string
+P0435 是
+P0436 全链路追踪ID
+P0437 Trace
+P0438 span_id
+P0439 string
+P0440 是
+P0441 当前跨度ID
+P0442 Trace
+P0443 parent_span_id
+P0444 string
+P0445 否
+P0446 父跨度ID
+P0447 Auth
+P0448 caller_id
+P0449 string
+P0450 是
+P0451 调用方身份标识
+P0452 Auth
+P0453 token
+P0454 string
+P0455 否
+P0456 访问凭证
+P0457 Auth
+P0458 permissions
+P0459 array
+P0460 否
+P0461 调用方权限列表
+P0462 Body
+P0463 action
+P0464 string
+P0465 request必填
+P0466 请求动作名称
+P0467 Body
+P0468 parameters
+P0469 object
+P0470 request必填
+P0471 请求参数
+P0472 Body
+P0473 status
+P0474 string
+P0475 response必填
+P0476 success/error
+P0477 Body
+P0478 result
+P0479 any
+P0480 response可选
+P0481 响应结果
+P0482 Body
+P0483 error
+P0484 object
+P0485 error时必填
+P0486 code、message、details
+P0487 Body
+P0488 metadata
+P0489 object
+P0490 response可选
+P0491 响应元数据；涉及大模型调用的资源MUST携带usage字段，详见4.5节
+P0492 Body
+P0493 event_type
+P0494 string
+P0495 event必填
+P0496 事件类型
+P0497 Body
+P0498 payload
+P0499 any
+P0500 event必填
+P0501 事件负载
+P0502 Body
+P0503 chunk_id
+P0504 integer
+P0505 stream必填
+P0506 流数据块序号，从0开始
+P0507 Body
+P0508 data
+P0509 any
+P0510 stream必填
+P0511 当前块数据
+P0512 Body
+P0513 done
+P0514 boolean
+P0515 stream必填
+P0516 是否为最后一块
+P0517 Body
+P0518 finish_reason
+P0519 enum
+P0520 stream的done块必填
+P0521 结束原因：stop（自然结束）/length（达到最大长度）/content_filter（内容安全过滤截断）/tool_calls（工具调用）
+P0523 4.3  四种消息类型
+P0524 消息类型
+P0525 适用场景
+P0526 特征
+P0527 Request
+P0528 同步调用、异步任务提交
+P0529 需等待Response或任务确认
+P0530 Response
+P0531 对Request的应答
+P0532 携带status、result或error、metadata
+P0533 Event
+P0534 异步通知、状态变更推送
+P0535 单向发送，无需应答
+P0536 Stream
+P0537 流式输出、增量结果
+P0538 分块传输，末块携带finish_reason
+P0540 4.4  序列化与传输
+P0541 消息信封默认采用JSON序列化。传输层支持以下协议，资源方根据自身能力选择，网关负责协议适配：
+P0542 传输协议
+P0543 适用场景
+P0544 环境限制
+P0545 HTTP/1.1
+P0546 通用同步调用
+P0547 生产环境推荐
+P0548 HTTP/2
+P0549 高性能多路复用
+P0550 生产环境推荐
+P0551 WebSocket
+P0552 全双工实时通信
+P0553 生产环境可用
+P0554 gRPC
+P0555 高性能RPC
+P0556 生产环境推荐
+P0557 SSE
+P0558 服务端单向推送
+P0559 生产环境可用
+P0560 stdio
+P0561 本地进程间通信
+P0562 仅限本地开发调试（Dev/Test），生产环境（Production）强制使用HTTP/gRPC协议
+P0564 4.5  Token消耗计量（usage）
+P0565 仅涉及大模型调用的资源（Agent、LLM裁判工具、被测模型等），Response消息的metadata字段必须强制携带usage对象，用于平台核算Token成本与模型效率分析。网关自动解析usage并暴露为Prometheus指标。
+P0566 字段
+P0567 类型
+P0568 必填
+P0569 说明
+P0570 usage.prompt_tokens
+P0571 integer
+P0572 是
+P0573 输入提示词Token数
+P0574 usage.completion_tokens
+P0575 integer
+P0576 是
+P0577 输出补全Token数
+P0578 usage.total_tokens
+P0579 integer
+P0580 是
+P0581 总Token数（=prompt+completion）
+P0582 usage.model
+P0583 string
+P0584 是
+P0585 实际使用的模型标识
+P0586 usage.cost
+P0587 number
+P0588 否
+P0589 本次调用估算费用（单位：元），由网关根据模型单价计算
+P0591 4.6  错误响应规范
+P0592 请求处理失败时，Response的status为"error"，Body中必须包含error对象。错误码采用分层命名规范，评测专属错误码见附录C。
+P0594 5  工具（Tool）接口规范
+P0595 5.1  工具定义与特征
+P0596 工具（Tool）是无状态的、具有确定输入输出的外部能力单元，接收结构化参数后执行特定操作并返回结构化结果。工具不维护会话状态，每次调用相互独立，为底座内部评测执行的原子能力。
+P0597 5.2  接口定义
+P0598 字段名
+P0599 类型
+P0600 必填
+P0601 说明
+P0602 endpoint
+P0603 string
+P0604 是
+P0605 工具调用地址
+P0606 method
+P0607 enum
+P0608 是
+P0609 GET/POST/PUT/DELETE，本地工具为exec
+P0610 auth_type
+P0611 enum
+P0612 是
+P0613 none/bearer_token/api_key/oauth2/mtls
+P0614 request_format
+P0615 enum
+P0616 否
+P0617 json/form-data/raw，默认json
+P0618 response_format
+P0619 enum
+P0620 否
+P0621 json/text/binary，默认json
+P0623 约束：若capabilities.call_mode值为batch，则本字段（endpoint）仅用于网关健康检查与元数据查询，批量任务的实际提交、分片拉取与结果回写，MUST遵循第9章定义的/batch/*路径体系。
+P0624 5.3  调用模式
+P0625 调用模式
+P0626 标识
+P0627 适用场景
+P0628 交互流程
+P0629 同步调用
+P0630 sync
+P0631 快速执行、短时返回（<300秒）
+P0632 Request→Response
+P0633 异步任务
+P0634 async
+P0635 长耗时操作（>300秒）
+P0636 Request提交→返回task_id→轮询/Event通知
+P0637 流式输出
+P0638 stream
+P0639 增量产生结果
+P0640 Request→Stream（多块）→done+finish_reason
+P0641 批量执行
+P0642 batch
+P0643 高并发批量离线评测
+P0644 POST /batch/run→返回batch_id→GET /batch/status
+P0646 5.4  异步任务接口
+P0647 声明为async模式的工具须实现以下接口：
+P0648 接口
+P0649 方法
+P0650 用途
+P0651 任务提交
+P0652 POST /tasks
+P0653 提交异步任务，返回task_id与status
+P0654 任务查询
+P0655 GET /tasks/{task_id}
+P0656 查询任务状态、进度、结果（含部分失败明细）
+P0657 任务取消
+P0658 DELETE /tasks/{task_id}
+P0659 取消正在执行的任务
+P0660 心跳上报
+P0661 POST /tasks/{task_id}/heartbeat
+P0662 Task Heartbeat机制，长时任务定期上报存活状态
+P0664 Task Heartbeat机制：长时任务（>300秒）须每60秒向框架上报一次心跳。框架连续3次（180秒）未收到心跳时，判定任务为假死，触发熔断终止，错误码为TASK_HEARTBEAT_LOST。
+P0665 5.5  流式输出结束语义
+P0666 流式输出的末块（done=true）必须携带finish_reason字段，区分自然结束与异常截断。
+P0667 finish_reason
+P0668 说明
+P0669 评测处理建议
+P0670 stop
+P0671 模型自然结束输出
+P0672 正常评分
+P0673 length
+P0674 达到max_tokens限制被截断
+P0675 标记为不完整，可降低评分或要求重跑
+P0676 content_filter
+P0677 内容安全过滤截断
+P0678 标记为违规，不计入正常评分
+P0679 tool_calls
+P0680 模型发起工具调用，输出暂停
+P0681 等待工具返回后继续，非最终结果
+P0683 5.6  工具开发约束
+P0684 无状态性：工具不得在调用之间持久化状态；
+P0685 幂等性：所有写操作必须支持幂等调用，以correlation_id为幂等键；
+P0686 超时控制：必须在声明的timeout内返回结果或错误；
+P0687 错误处理：内部异常必须转换为标准error对象返回；
+P0688 输入校验：执行前对输入参数进行Schema校验；
+P0689 资源清理：执行完毕后释放所有临时资源；
+P0690 副作用声明：可能产生外部副作用的工具须在Manifest.side_effects中声明。
+P0692 6  智能体（Agent）接口规范（底座内部编排用）
+P0693 说明：本章定义的Agent为底座内部用于评测流程编排的子智能体，非被测对象视角。被测智能体的接入规范见第10章。
+P0694 6.1  Agent描述符
+P0695 字段名
+P0696 类型
+P0697 必填
+P0698 说明
+P0699 role
+P0700 string
+P0701 是
+P0702 Agent角色定义
+P0703 system_prompt
+P0704 string
+P0705 否
+P0706 系统提示词
+P0707 model_config
+P0708 object
+P0709 否
+P0710 model_name、temperature、max_tokens
+P0711 available_tools
+P0712 array<string>
+P0713 否
+P0714 可调用工具resource_id列表
+P0715 max_iterations
+P0716 integer
+P0717 是
+P0718 最大规划迭代次数，默认10
+P0719 supports_stream
+P0720 boolean
+P0721 否
+P0722 是否支持流式输出，默认false
+P0723 human_in_the_loop
+P0724 boolean
+P0725 否
+P0726 是否支持人工介入审批，默认false
+P0727 evaluation_spec
+P0728 object
+P0729 评测Agent必填
+P0730 评测标尺定义
+P0732 6.2  调用接口
+P0733 6.2.1  单轮任务执行
+P0734 {  "action": "agent.execute",  "parameters": {    "task": "执行代码质量批量评测",    "context": {"dataset_id": "ds_code_001"},    "constraints": {"max_time_seconds": 600}  }}
+P0735 6.2.2  多轮会话交互
+P0736 接口
+P0737 方法
+P0738 用途
+P0739 创建会话
+P0740 POST /sessions
+P0741 返回session_id
+P0742 发送消息
+P0743 POST /sessions/{session_id}/messages
+P0744 支持流式响应
+P0745 获取历史
+P0746 GET /sessions/{session_id}/messages
+P0747 历史消息
+P0748 结束会话
+P0749 DELETE /sessions/{session_id}
+P0750 归档会话
+P0751 会话状态
+P0752 GET /sessions/{session_id}
+P0753 当前状态
+P0755 6.3  Agent间协作协议
+P0756 任务委派：主Agent通过网关向子Agent发送agent.execute请求；
+P0757 上下文传递：主Agent通过context字段传递必要上下文；
+P0758 工具权限隔离：子Agent只能调用自身available_tools中声明且已授权的工具；
+P0759 结果汇总：主Agent负责汇总各子Agent结果；
+P0760 超时与熔断：每个子Agent调用独立计时，超时后框架终止并通知主Agent。
+P0761 6.4  安全约束
+P0762 内容安全：输出须经过内容安全审查；
+P0763 工具调用审批：高风险工具须触发人工审批；
+P0764 循环检测：框架监控迭代次数与调用模式，异常循环强制终止；
+P0765 凭证隔离：Agent不得直接访问系统凭证，外部API调用通过网关代理；
+P0766 输出边界：不得超过max_tokens限制。
+P0768 7  MCP接入规范
+P0769 7.1  MCP服务注册
+P0770 字段名
+P0771 类型
+P0772 必填
+P0773 说明
+P0774 transport
+P0775 enum
+P0776 是
+P0777 stdio/sse/http；stdio仅限Dev/Test
+P0778 command
+P0779 string
+P0780 stdio时必填
+P0781 启动命令
+P0782 args
+P0783 array<string>
+P0784 否
+P0785 启动参数
+P0786 env
+P0787 object
+P0788 否
+P0789 环境变量
+P0790 url
+P0791 string
+P0792 sse/http时必填
+P0793 端点URL
+P0794 auth_type
+P0795 enum
+P0796 否
+P0797 none/bearer_token/api_key
+P0798 exposes
+P0799 object
+P0800 是
+P0801 tools、resources、prompts声明
+P0803 7.2  能力映射
+P0804 MCP能力
+P0805 框架映射
+P0806 说明
+P0807 Tools
+P0808 Tool资源
+P0809 MCP工具自动注册为框架Tool资源
+P0810 Resources
+P0811 数据资源
+P0812 只读数据资源，通过URI访问
+P0813 Prompts
+P0814 Prompt模板
+P0815 可复用提示词资源，Agent调用时按需加载
+P0817 7.3  MCP协议交互流程
+P0818 (1) 初始化：框架发送initialize请求，MCP服务返回协议版本与能力声明；
+P0819 (2) 能力列举：框架发送tools/list、resources/list、prompts/list获取暴露能力；
+P0820 (3) 能力调用：调用tools/call、resources/read、prompts/get；
+P0821 (4) 通知处理：MCP服务发送notifications/tools/list_changed等通知；
+P0822 (5) 连接管理：stdio模式下框架管理进程生命周期，sse/http模式下维护连接池。
+P0823 7.4  能力列表变更双缓冲机制
+P0824 MCP服务的工具/资源/提示词列表变更时，采用双缓冲（Double Buffer）机制，消除高并发评测场景下的延迟抖动：
+P0825 即时切换：收到list_changed通知后，框架立即构建新版本能力列表，新请求即时路由至新版本；
+P0826 优雅退出：旧版本列表仅处理已在进行中的存量请求，不接受新请求，存量请求完成后旧缓冲释放；
+P0827 原子切换：新旧缓冲切换为原子操作，通过版本号标记，请求携带版本号确保路由一致性；
+P0828 下线保护：已下线的工具在旧缓冲中标记为draining，存量请求完成后彻底移除。
+P0829 7.5  MCP接入约束
+P0830 协议版本：支持MCP 2025-03-26或更新版本；
+P0831 能力变更：列表变更时发送list_changed通知，框架通过双缓冲即时切换；
+P0832 错误处理：返回标准JSON-RPC错误对象，框架转换为统一error格式；
+P0833 资源限制：stdio模式下进程CPU/内存受框架限制；
+P0834 安全隔离：运行在独立沙箱中，文件系统与网络访问受权限策略控制；
+P0835 stdio仅限Dev/Test：生产环境强制使用HTTP/gRPC协议。
+P0837 8  技能（Skill）接口规范
+P0838 8.1  Skill描述符
+P0839 字段名
+P0840 类型
+P0841 必填
+P0842 说明
+P0843 trigger
+P0844 object
+P0845 是
+P0846 触发条件定义
+P0847 execution_type
+P0848 enum
+P0849 是
+P0850 prompt_template/workflow/code/agent
+P0851 entry_point
+P0852 string
+P0853 是
+P0854 执行入口
+P0855 dependencies
+P0856 array<string>
+P0857 否
+P0858 依赖的工具或Skill resource_id
+P0859 variables
+P0860 object
+P0861 否
+P0862 可配置变量
+P0863 chainable
+P0864 boolean
+P0865 否
+P0866 是否可链式调用，默认true
+P0868 8.2  触发条件
+P0869 触发类型
+P0870 标识
+P0871 匹配方式
+P0872 关键词触发
+P0873 keyword
+P0874 输入文本包含指定关键词（支持正则）
+P0875 意图触发
+P0876 intent
+P0877 语义意图匹配预定义意图
+P0878 实体触发
+P0879 entity
+P0880 输入中包含指定类型实体
+P0881 上下文触发
+P0882 context
+P0883 会话上下文满足特定条件
+P0884 手动触发
+P0885 manual
+P0886 用户或Agent显式调用（@Skill名）
+P0888 8.3  执行方式
+P0889 执行方式
+P0890 标识
+P0891 适用场景
+P0892 提示词模板
+P0893 prompt_template
+P0894 领域问答、内容生成、格式转换
+P0895 工作流
+P0896 workflow
+P0897 复杂业务流程、多步骤操作
+P0898 代码逻辑
+P0899 code
+P0900 数据处理、算法计算、格式解析
+P0901 子Agent
+P0902 agent
+P0903 需要自主规划的复杂子任务
+P0905 8.4  链式组合与上下文传递（execution_context）
+P0906 多个chainable=true的Skill可组成执行链，前一个Skill的输出作为后一个的输入。引入标准execution_context规范与$ref数据引用语法。
+P0907 $ref引用语法规则：
+P0908 语法
+P0909 说明
+P0910 示例
+P0911 $ref:{step_id}.output.{path}
+P0912 引用指定步骤的输出字段路径
+P0913 $ref:step_1.output.entities[0].text
+P0914 $global.{var_name}
+P0915 引用全局变量
+P0916 $global.dataset_id
+P0917 $env:{var_name}
+P0918 引用环境变量
+P0919 $env.MODEL_NAME
+P0920 $input.{path}
+P0921 引用链式调用的原始输入
+P0922 $input.user_query
+P0924 数据血缘：框架在execution_context中自动记录每个步骤的输入来源，形成完整的数据血缘链。
+P0925 8.5  Skill加载与组合
+P0926 动态加载：按需加载，执行完毕后卸载；
+P0927 版本管理：支持多版本并存，按latest/stable/pinned选择；
+P0928 链式组合：通过execution_context与$ref语法实现松耦合的数据传递；
+P0929 冲突解决：多个Skill触发条件匹配时，按优先级与匹配度排序选择；
+P0930 执行隔离：每个Skill在独立上下文中运行，共享数据通过显式$ref传递。
+P0932 9  数据源（DataSource）与批量评测接口规范
+P0933 9.1  概述
+P0934 数据源（DataSource）是评测数据集的标准化提供者，支持数据集挂载、分片拉取、元数据校验，为高并发批量离线评测任务提供数据输入。DataSource在Manifest中resource_type为"datasource"。
+P0935 9.2  DataSource描述符
+P0936 字段名
+P0937 类型
+P0938 必填
+P0939 说明
+P0940 dataset_id
+P0941 string
+P0942 是
+P0943 数据集唯一标识
+P0944 dataset_name
+P0945 string
+P0946 是
+P0947 数据集名称
+P0948 version
+P0949 string
+P0950 是
+P0951 数据集版本号
+P0952 format
+P0953 enum
+P0954 是
+P0955 数据格式：jsonl/csv/parquet/json
+P0956 total_items
+P0957 integer
+P0958 是
+P0959 数据总条目数
+P0960 schema
+P0961 object
+P0962 是
+P0963 单条数据的JSON Schema定义
+P0964 source_type
+P0965 enum
+P0966 是
+P0967 数据来源：mount（挂载卷）/api（API拉取）/stream（流式推送）
+P0968 mount_path
+P0969 string
+P0970 mount时必填
+P0971 数据集挂载路径
+P0972 shard_count
+P0973 integer
+P0974 否
+P0975 分片数量，批量评测时按分片并行读取
+P0976 checksum
+P0977 string
+P0978 是
+P0979 数据集整体SHA-256校验和
+P0980 evaluation_spec
+P0981 object
+P0982 是
+P0983 评测标尺定义
+P0984 security_level
+P0985 enum
+P0986 是
+P0987 数据密级：public/internal/confidential/restricted
+P0989 9.3  数据集挂载模式
+P0990 当source_type为mount时，数据集以只读卷挂载至容器固定路径/datasets/{dataset_id}。工具须校验manifest.json中的checksum与实际文件一致性，校验失败返回DATASET_LOAD_FAILED错误。
+P0991 分片快照（Snapshot）机制：批量任务启动时，框架MUST基于当前checksum冻结分片列表，生成只读快照（Snapshot ID）。后续所有分片拉取请求均MUST携带该Snapshot ID，确保同一批次内数据版本一致。任务运行期间原始数据集热更新不影响已运行快照；新启动任务基于最新checksum生成新快照。快照保留7天用于追溯，超期自动清理。
+P0992 9.4  批量评测接口
+P0993 评测本质是高并发批量离线任务，框架提供标准化批量评测接口，支持JSONL/CSV数据集分片读取与结果回写。声明为batch调用模式的资源须实现以下接口：
+P0994 接口
+P0995 方法
+P0996 用途
+P0997 批量任务提交
+P0998 POST /batch/run
+P0999 提交批量评测任务，返回batch_id与snapshot_id
+P1000 批量任务状态
+P1001 GET /batch/status/{batch_id}
+P1002 查询批量任务进度、成功/失败统计、部分结果
+P1003 批量任务取消
+P1004 DELETE /batch/{batch_id}
+P1005 取消批量任务
+P1006 分片拉取
+P1007 GET /batch/{batch_id}/shards/{shard_id}?snapshot_id={id}
+P1008 拉取指定分片的数据条目
+P1009 分片结果回写
+P1010 PUT /batch/{batch_id}/shards/{shard_id}/results
+P1011 回写指定分片的评测结果
+P1012 批量结果导出
+P1013 GET /batch/{batch_id}/results
+P1014 导出全部评测结果（JSONL/CSV）
+P1016 9.5  批量评测约束
+P1017 分片独立性：每个分片可独立读取与处理，分片间无依赖，支持并行执行；
+P1018 部分失败容忍：单条数据失败不影响整体任务，失败条目记录在failed_details中；
+P1019 结果原子性：分片结果回写采用原子操作（先写临时文件再rename）；
+P1020 进度上报：批量任务须每30秒上报一次进度；
+P1021 预算控制：批量任务须声明Token预算上限，达到预算时框架暂停任务（错误码BUDGET_EXHAUSTED）；
+P1022 数据校验：读取数据时须校验单条数据的Schema，不符合的数据条目标记为skipped。
+P1024 10  被测大模型与企业接入规范
+P1025 本章针对外部50+行业垂域模型、内部50+开源模型定义统一接入标准，支持在线评测与远程加密访问评测双模式。被测对象接入范围说明：若被测对象为纯大模型（Model），仅须实现第10.2节/v1/chat/completions基础推理接口；若被测对象为具备自主规划与工具调用能力的智能体（Agent under Test），除遵循第10.2节基础推理接口外，还须实现第6.2.2节多轮会话交互接口（/sessions、/messages等），以支持多轮对话与工具调用能力评测。
+P1026 10.1  接入模式
+P1027 平台支持两种被测模型接入模式，分别适配内部模型与外部企业模型场景。
+P1029 图2 被测模型接入模式框架图
+P1031 模式
+P1032 适用对象
+P1033 核心特征
+P1034 数据安全
+P1035 网络要求
+P1036 在线模式
+P1037 内部开源/自研大模型
+P1038 模型部署在平台内网，平台直接调用接口进行评测
+P1039 数据集在平台侧，结果自动入库
+P1040 平台内网可达
+P1041 远程加密访问模式
+P1042 外部行业垂域大模型
+P1043 模型部署在企业本地环境，企业开放加密端口，四院评测系统通过mTLS/VPN等加密通道远程调用模型接口进行评测
+P1044 企业模型权重不出域，评测数据在平台侧，传输全程加密
+P1045 企业开放指定加密端口，配置IP白名单
+P1047 10.1.1  在线模式
+P1048 适用于内部50+开源/自研模型。模型部署在平台K8s集群内，遵循统一接口规范，由平台调度器批量调用执行评测，全流程自动化。
+P1049 10.1.2  远程加密访问模式
+P1050 适用于外部50+行业垂域模型。被测模型部署在各央企/企业本地环境，企业开放指定加密端口，四院评测系统通过加密通道（mTLS双向认证、VPN专线或API网关加密）远程调用模型的/v1/chat/completions接口执行评测。评测数据集、裁判模型、评分逻辑均部署在四院平台侧，企业仅需保证模型服务可用、接口兼容、网络可达。
+P1051 核心价值：企业模型权重与训练数据不出域，评测敏感数据在平台侧，通过加密通道仅传输推理请求与响应，兼顾数据安全与评测效率，无需现场进场。
+P1052 10.2  被测大模型统一接口规范
+P1053 在线模式与Eval Kit模式下，被测模型MUST兼容OpenAI兼容接口标准，作为统一调用契约。企业现有接口不兼容的，可在企业侧部署轻量适配层转换，不强制改造模型内核。
+P1054 10.2.1  基础推理接口
+P1055 接口路径：/v1/chat/completions；调用方法：POST
+P1056 请求体必填字段：
+P1057 字段
+P1058 类型
+P1059 说明
+P1060 model
+P1061 string
+P1062 模型标识
+P1063 messages
+P1064 array
+P1065 对话消息列表，包含role与content
+P1066 temperature
+P1067 number
+P1068 采样温度，评测统一指定参数
+P1069 max_tokens
+P1070 integer
+P1071 最大生成长度
+P1072 stream
+P1073 boolean
+P1074 是否流式输出
+P1076 响应体必填字段：
+P1077 字段
+P1078 类型
+P1079 说明
+P1080 id
+P1081 string
+P1082 响应ID
+P1083 model
+P1084 string
+P1085 实际模型版本
+P1086 choices
+P1087 array
+P1088 输出结果列表，每条包含message.content与finish_reason
+P1089 usage
+P1090 object
+P1091 Token消耗统计，含prompt_tokens、completion_tokens、total_tokens
+P1093 10.2.2  流式输出规范
+P1094 流式响应遵循OpenAI SSE格式，data字段为JSON对象，末条携带finish_reason枚举，枚举值与第4.2节统一。
+P1095 10.2.3  错误响应
+P1096 错误响应统一使用HTTP状态码+JSON错误体，错误码映射遵循附录C标准。
+P1097 10.3  被测模型Manifest注册规范
+P1098 所有被测大模型必须提交Manifest完成注册，用于平台批量调度、场景匹配与台账管理。
+P1099 10.3.1  公共必填字段
+P1100 字段名
+P1101 类型
+P1102 必填
+P1103 说明
+P1104 model_id
+P1105 string
+P1106 是
+P1107 模型全局唯一ID，遵循resource_id命名规则
+P1108 model_name
+P1109 string
+P1110 是
+P1111 模型显示名称
+P1112 model_type
+P1113 enum
+P1114 是
+P1115 internal（内部模型）/external（外部企业模型）
+P1116 scene_white_list
+P1117 array<string>
+P1118 是
+P1119 适配的11类评测场景白名单
+P1120 max_context_tokens
+P1121 integer
+P1122 是
+P1123 最大上下文长度（tokens）
+P1124 support_stream
+P1125 boolean
+P1126 是
+P1127 是否支持流式推理
+P1128 support_function_call
+P1129 boolean
+P1130 否
+P1131 是否支持工具调用
+P1132 version
+P1133 string
+P1134 是
+P1135 模型版本号，语义化版本
+P1136 parallel_limit
+P1137 integer
+P1138 是
+P1139 单实例最大并发推理数，平台据此限流
+P1141 10.3.2  外部企业模型专属字段
+P1142 字段名
+P1143 类型
+P1144 必填
+P1145 说明
+P1146 enterprise_name
+P1147 string
+P1148 是
+P1149 所属企业名称
+P1150 enterprise_model_code
+P1151 string
+P1152 是
+P1153 企业侧内部模型编码
+P1154 endpoint
+P1155 string
+P1156 在线模式必填
+P1157 模型服务调用地址
+P1158 auth_type
+P1159 enum
+P1160 在线模式必填
+P1161 鉴权方式：bearer_token/api_key/mtls
+P1162 contact_person
+P1163 string
+P1164 是
+P1165 技术对接联系人
+P1166 sla_level
+P1167 enum
+P1168 否
+P1169 可用性SLA等级
+P1171 10.3.3  内部模型专属字段
+P1172 字段名
+P1173 类型
+P1174 必填
+P1175 说明
+P1176 source_type
+P1177 enum
+P1178 是
+P1179 open_source/self_dev/fine_tune
+P1180 base_model
+P1181 string
+P1182 是
+P1183 基座模型版本
+P1184 deploy_cluster
+P1185 string
+P1186 是
+P1187 部署集群标识
+P1189 10.4  远程加密访问规范
+P1190 远程加密访问模式下，被测模型部署在企业本地环境，四院评测系统通过加密通道远程调用模型接口。本节定义加密通道、端口开放、鉴权认证与网络拓扑的标准规范。
+P1191 10.4.1  加密通道方式
+P1192 企业可根据自身安全等级选择以下一种或多种加密通道方式，平台均支持：
+P1193 通道方式
+P1194 安全等级
+P1195 适用场景
+P1196 技术要求
+P1197 mTLS双向认证
+P1198 高
+P1199 默认推荐，跨公网/专线访问
+P1200 平台与企业各持证书，双向TLS 1.3认证
+P1201 VPN专线
+P1202 高
+P1203 央企/国企等有专线条件的企业
+P1204 IPsec VPN或专线，平台侧固定出口IP
+P1205 API网关加密
+P1206 中
+P1207 企业已有API网关基础设施
+P1208 企业API网关暴露HTTPS接口，配置IP白名单与API Key
+P1209 SSH隧道
+P1210 中
+P1211 临时调试或小规模评测
+P1212 SSH端口转发，仅限测试环境使用
+P1214 10.4.2  端口开放与网络配置
+P1215 企业须开放指定端口用于模型推理接口访问，默认端口443（HTTPS），可自定义但须提前告知平台；
+P1216 企业侧须配置平台出口IP白名单，仅允许平台评测系统IP访问模型接口；
+P1217 平台侧出口IP固定，企业可在接入前获取并配置防火墙规则；
+P1218 企业模型服务须支持至少50并发连接，单样本响应时间≤60秒；
+P1219 网络延迟要求：专线≤20ms，公网mTLS≤100ms（超出将影响评测效率）。
+P1220 10.4.3  鉴权认证规范
+P1221 鉴权方式
+P1222 说明
+P1223 安全等级
+P1224 mTLS证书
+P1225 平台与企业双向证书认证，证书由平台统一签发或企业自签（须提供CA根证书）
+P1226 高
+P1227 Bearer Token
+P1228 企业签发短期JWT Token，含权限、过期时间，平台每次调用携带
+P1229 中
+P1230 API Key
+P1231 静态密钥，通过HTTPS Header传递，企业侧定期轮换
+P1232 中
+P1233 IP白名单
+P1234 仅允许平台出口IP访问，作为基础防护层
+P1235 基础
+P1237 推荐组合：mTLS双向认证 + IP白名单，作为默认安全配置。
+P1238 10.4.4  服务可用性与SLA
+P1239 评测期间企业须保障模型服务持续可用，可用性≥99%；
+P1240 企业须提供技术对接联系人，评测期间7×8小时响应；
+P1241 模型版本变更须提前3个工作日通知平台，避免评测中途接口变更；
+P1242 如遇计划内维护，须提前5个工作日告知平台，协商调整评测窗口；
+P1243 平台侧具备重试与熔断机制，单次调用失败自动重试3次，连续失败触发熔断并通知企业。
+P1244 10.5  评测结果格式规范
+P1245 两种模式下，评测结果均通过模型/v1/chat/completions接口实时返回，由平台侧统一采集、评分与存储。
+P1246 10.5.1  单样本结果
+P1247 每次调用模型接口返回的响应须包含以下字段：
+P1248 id：响应唯一标识；
+P1249 model：实际模型版本标识；
+P1250 choices：输出结果列表，每条包含message.content与finish_reason；
+P1251 usage：Token消耗统计，含prompt_tokens、completion_tokens、total_tokens。
+P1252 10.5.2  批量评测结果汇总
+P1253 平台侧通过第9章批量评测接口自动汇总所有样本结果，生成批次报告，包含：
+P1254 batch_meta：批次元数据，含batch_id、model_id、dataset_version、总条目数、成功数、失败数、平均耗时；
+P1255 result.jsonl：逐条评测结果，含item_id、model_output、score、usage、finish_reason、latency_ms；
+P1256 error_details.json：失败条目明细，含item_id、error_code、error_message、retry_count。
+P1257 10.6  跨单位接入与数据安全
+P1258 10.6.1  网络接入拓扑
+P1259 在线模式：模型部署在平台内网K8s集群，平台调度器内网直接调用。
+P1260 远程加密访问模式：平台评测系统 → 加密通道（mTLS/VPN/API网关）→ 企业防火墙（IP白名单）→ 企业模型服务。平台侧发起调用，企业侧仅需开放指定端口并配置IP白名单。
+P1261 10.6.2  数据安全保障
+P1262 传输加密：所有跨单位调用强制TLS 1.3 + mTLS双向认证，禁止明文传输；
+P1263 模型权重不出域：企业模型权重与训练数据始终在企业本地环境，平台仅通过接口获取推理输出；
+P1264 评测数据在平台侧：评测数据集、裁判模型、评分逻辑均部署在四院平台侧，不传输至企业环境；
+P1265 最小数据原则：单次请求仅包含评测所需的question与上下文，不包含无关敏感数据；
+P1266 输出使用限制：企业模型输出仅用于本次评测评分与报告生成，禁止用于训练或其他用途；
+P1267 全链路审计：所有跨单位调用记录trace_id、时间戳、请求摘要、响应摘要，审计日志保留≥180天。
+P1268 10.6.3  多租户隔离
+P1269 平台按租户隔离企业数据、评测结果与账号权限。
+P1270 消息信封tenant_id字段贯穿全链路，审计日志按租户隔离。
+P1271 不同企业的评测任务、数据集、结果物理隔离存储。
+P1272 10.7  远程评测数据流
+P1273 远程加密访问模式下，被测模型只需实现/v1/chat/completions一个接口并保证加密通道可达，其余数据读取、请求封装、评分、结果存储均由平台完成。端到端数据流如下：
+P1274 (1) 平台调度器从DataSource读取数据集条目（含question、reference_output等字段）；
+P1275 (2) 平台将每条数据封装为标准请求（含model、messages、temperature、max_tokens等），通过加密通道（mTLS/VPN）调用企业侧模型的/v1/chat/completions接口；
+P1276 (3) 企业模型返回推理结果后，平台调用裁判工具（judge_type=llm_judge/regex/exact_match等）进行评分；
+P1277 (4) 评分结果（含score、usage、finish_reason、error_code、latency_ms等）写入batch结果集，通过第9.4节批量结果导出接口汇总。
+P1278 核心结论：被测模型仅需保证/v1/chat/completions接口在加密通道下被正确调用并返回标准响应，数据集读取、请求封装、裁判评分、结果存储均由平台侧完成，厂商无需实现批量接口或评分逻辑。
+P1280 11  外部API接口规范
+P1281 11.1  API描述符
+P1282 字段名
+P1283 类型
+P1284 必填
+P1285 说明
+P1286 api_type
+P1287 enum
+P1288 是
+P1289 rest/graphql/websocket
+P1290 base_url
+P1291 string
+P1292 是
+P1293 API基础URL
+P1294 endpoints
+P1295 array
+P1296 是
+P1297 端点列表（path、method、input_schema、output_schema）
+P1298 auth_type
+P1299 enum
+P1300 是
+P1301 none/api_key/bearer_token/oauth2/basic/mtls
+P1302 auth_config
+P1303 object
+P1304 否
+P1305 鉴权配置
+P1306 rate_limit
+P1307 object
+P1308 否
+P1309 限流配置
+P1310 retry_policy
+P1311 object
+P1312 否
+P1313 重试策略
+P1314 pagination
+P1315 object
+P1316 否
+P1317 分页配置
+P1319 约束：若capabilities.call_mode值为batch，则base_url仅用于健康检查与元数据查询，批量任务MUST遵循第9章/batch/*路径体系。
+P1320 11.2  协议适配
+P1321 外部API概念
+P1322 框架统一模型
+P1323 适配规则
+P1324 HTTP状态码
+P1325 Response.status + error.code
+P1326 2xx→success；4xx/5xx→error
+P1327 请求参数
+P1328 Body.parameters
+P1329 适配器根据endpoints定义组装
+P1330 响应体
+P1331 Body.result
+P1332 按output_schema解析转换
+P1333 API Key/Token
+P1334 Auth Context.token
+P1335 从安全凭证库获取并注入
+P1336 分页
+P1337 Stream或多次Request
+P1338 适配器自动处理分页
+P1339 WebSocket事件
+P1340 Event消息
+P1341 适配器将WS帧转换为统一Event
+P1343 11.3  鉴权配置
+P1344 鉴权方式
+P1345 标识
+P1346 安全等级
+P1347 无鉴权
+P1348 none
+P1349 低
+P1350 API Key
+P1351 api_key
+P1352 中
+P1353 Bearer Token
+P1354 bearer_token
+P1355 中
+P1356 OAuth 2.0
+P1357 oauth2
+P1358 高
+P1359 Basic Auth
+P1360 basic
+P1361 低
+P1362 mTLS
+P1363 mtls
+P1364 高
+P1366 11.4  限流与熔断
+P1367 客户端限流：根据rate_limit配置限流，超限排队或快速失败；
+P1368 服务端限流感知：返回429时根据Retry-After头自动退避；
+P1369 熔断机制：错误率超50%或连续失败5次时熔断，冷却期30秒；
+P1370 半开恢复：冷却期后放行探测请求，成功则恢复；
+P1371 降级策略：非核心API可配置降级。
+P1373 12  资源注册与发现
+P1374 12.1  注册流程
+P1375 (1) 提交Manifest：资源方提交manifest.json，注册中心校验Schema完整性与resource_id唯一性；
+P1376 (2) 准入校验：静态校验接口可达性、权限需求、资源需求、评测标尺完整性；
+P1377 (3) 健康检查：向健康检查端点发送探测，确认资源可用；被测模型与Eval Kit按需执行；
+P1378 (4) 注册入库：校验通过后存入注册中心，状态置为active；
+P1379 (5) 事件通知：发布resource.registered事件，各组件刷新缓存。
+P1380 注册流程例外条款：Eval Kit由平台官方统一构建与分发，其Manifest由平台侧预置注册，无需外部企业自行提交。企业仅需接收并运行指定版本的Eval Kit即可。
+P1381 12.2  健康检查
+P1382 字段名
+P1383 类型
+P1384 必填
+P1385 说明
+P1386 type
+P1387 enum
+P1388 是
+P1389 http/tcp/exec/none
+P1390 endpoint
+P1391 string
+P1392 http时必填
+P1393 健康检查URL路径
+P1394 interval
+P1395 integer
+P1396 否
+P1397 检查间隔（秒），默认30
+P1398 timeout
+P1399 integer
+P1400 否
+P1401 检查超时（秒），默认5
+P1402 success_threshold
+P1403 integer
+P1404 否
+P1405 恢复健康需连续成功次数，默认1
+P1406 failure_threshold
+P1407 integer
+P1408 否
+P1409 判定不健康需连续失败次数，默认3
+P1411 12.3  版本管理与灰度
+P1412 多版本并存：同一resource_id可注册多个version，独立维护健康状态；
+P1413 版本策略：调用方指定pinned/stable/latest，默认stable；
+P1414 灰度发布：新版本状态为canary，仅对指定比例流量开放；
+P1415 版本回滚：灰度期间发现问题可一键回滚至上一稳定版本；
+P1416 版本退役：旧版本稳定运行一个评测周期后置为deprecated，通知期后下线。
+P1417 12.4  灰度转正评分稳定性指标
+P1418 评测类资源的灰度转正，必须监控评分稳定性（score_stability）指标，防止评分标准漂移。
+P1419 指标
+P1420 计算方式
+P1421 转正阈值
+P1422 异常处理
+P1423 score_stability
+P1424 新版本与基线版本在相同测试集上的评分差异率
+P1425 平均差异≤±5%，单条目差异≤±10%
+P1426 超出阈值自动触发回滚
+P1427 score_variance
+P1428 新版本评分方差
+P1429 ≤基线版本方差的1.2倍
+P1430 方差过大延长灰度期
+P1431 correlation_coefficient
+P1432 新旧版本评分的皮尔逊相关系数
+P1433 ≥0.95
+P1434 相关性过低说明评分逻辑偏差
+P1436 12.5  资源查询API
+P1437 接口
+P1438 方法
+P1439 用途
+P1440 资源列表
+P1441 GET /api/v1/resources
+P1442 查询资源列表（type、tag、status过滤）
+P1443 资源详情
+P1444 GET /api/v1/resources/{resource_id}
+P1445 获取完整Manifest
+P1446 能力匹配
+P1447 POST /api/v1/resources/match
+P1448 根据输入描述匹配可用资源
+P1449 健康状态
+P1450 GET /api/v1/resources/{resource_id}/health
+P1451 获取健康状态
+P1452 事件订阅
+P1453 GET /api/v1/resources/events
+P1454 订阅资源变更事件（SSE）
+P1457 13  安全与权限管控
+P1458 13.1  安全模型
+P1459 框架采用零信任安全模型，所有外部资源调用均经过身份认证、权限校验、数据脱敏与审计日志，由统一网关集中执行。
+P1460 13.2  身份认证
+P1461 认证方式
+P1462 说明
+P1463 适用场景
+P1464 服务凭证
+P1465 service_id + service_secret，网关验证
+P1466 资源调用框架内部接口
+P1467 Bearer Token
+P1468 短期JWT，含身份、权限、过期时间
+P1469 内部组件间调用
+P1470 API Key
+P1471 长期静态密钥，网关管理注入
+P1472 外部第三方API
+P1473 OAuth 2.0
+P1474 授权码/客户端凭证模式，管理token刷新
+P1475 需用户授权的外部服务
+P1476 mTLS
+P1477 双向TLS，基于证书的强认证
+P1478 高安全等级内部通信与外部企业对接
+P1480 13.3  权限控制
+P1481 采用RBAC+ABAC混合模型。资源在Manifest.permissions中声明需求，调用方携带权限列表，网关进行匹配校验。
+P1482 权限类型
+P1483 字段
+P1484 示例
+P1485 网络出口
+P1486 network_egress
+P1487 ["api.example.com"]
+P1488 数据访问
+P1489 data_access
+P1490 ["dataset:read"]
+P1491 工具调用
+P1492 tool_access
+P1493 ["eval/judge_tool"]
+P1494 资源配额
+P1495 resource_quota
+P1496 {"daily_calls": 1000}
+P1497 数据处理
+P1498 data_processing
+P1499 ["store","transmit"]
+P1501 13.4  数据安全
+P1502 传输加密：TLS 1.2+，禁止明文HTTP（本地stdio除外）；
+P1503 凭证保护：存储在安全凭证库，调用时网关注入，禁止在日志中输出；
+P1504 数据脱敏：敏感信息自动脱敏处理；
+P1505 数据驻留：根据合规要求限制数据跨境传输与存储区域；
+P1506 最小数据原则：只获取完成任务所需的最小数据集；
+P1507 评测数据集加密：离线Eval Kit场景下数据集AES-256加密，内存解密。
+P1508 13.5  运行时安全与副作用隔离
+P1509 沙箱隔离：本地执行的工具、MCP服务、Skill代码运行在独立沙箱中；
+P1510 资源限制：CPU、内存、磁盘IO、网络带宽受限；
+P1511 行为监控：监控文件访问、网络连接、系统调用，异常行为告警或终止；
+P1512 熔断终止：异常循环、资源超限、违规操作时SIGTERM优雅终止，超时后强制终止；
+P1513 安全扫描：容器镜像注册前通过Trivy扫描，高危漏洞0个；
+P1514 副作用隔离：根据Manifest.side_effects声明，框架自动启用沙箱隔离或Mock拦截。
+P1516 14  可观测性
+P1517 14.1  日志规范
+P1518 外部资源日志输出至stdout/stderr，推荐JSON结构化格式，必填字段：
+P1519 字段
+P1520 类型
+P1521 说明
+P1522 timestamp
+P1523 string
+P1524 ISO 8601格式含时区
+P1525 level
+P1526 enum
+P1527 DEBUG/INFO/WARN/ERROR/FATAL
+P1528 trace_id
+P1529 string
+P1530 全链路追踪ID
+P1531 span_id
+P1532 string
+P1533 当前跨度ID
+P1534 resource_id
+P1535 string
+P1536 产生日志的资源ID
+P1537 tenant_id
+P1538 string
+P1539 租户ID（多租户场景）
+P1540 message
+P1541 string
+P1542 日志消息
+P1543 context
+P1544 object
+P1545 附加上下文
+P1547 14.2  指标规范
+P1548 框架为每个资源自动采集标准指标（Prometheus格式）：
+P1549 指标名
+P1550 类型
+P1551 说明
+P1552 resource_calls_total
+P1553 Counter
+P1554 调用总次数（resource_id,version,status,caller）
+P1555 resource_call_duration_seconds
+P1556 Histogram
+P1557 调用耗时分布
+P1558 resource_errors_total
+P1559 Counter
+P1560 错误总次数（error_code）
+P1561 resource_concurrent_calls
+P1562 Gauge
+P1563 当前并发调用数
+P1564 resource_health_status
+P1565 Gauge
+P1566 健康状态（1=健康,0=不健康）
+P1567 resource_cpu_usage
+P1568 Gauge
+P1569 CPU使用率
+P1570 resource_memory_usage_bytes
+P1571 Gauge
+P1572 内存使用量
+P1573 gen_ai_usage_tokens_total
+P1574 Counter
+P1575 Token消耗总量（token_type=prompt/completion/total）
+P1576 gen_ai_cost_total
+P1577 Counter
+P1578 调用费用总量（单位：元）
+P1579 batch_eval_items_total
+P1580 Counter
+P1581 批量评测条目数（status=success/failed/skipped）
+P1582 eval_score_stability
+P1583 Gauge
+P1584 评分稳定性差异率
+P1586 14.3  链路追踪
+P1587 采用W3C Trace Context标准，trace_id贯穿全链路；
+P1588 HTTP调用通过traceparent头传播；
+P1589 每个Span记录resource_id、caller、call_mode、status、error_code；
+P1590 默认概率采样10%，ERROR状态强制采样；
+P1591 追踪数据接入Jaeger/Tempo，支持瀑布图展示与耗时分析。
+P1592 14.4  审计日志与数据血缘
+P1593 审计日志扩展数据流转轨迹记录，建立完整数据血缘链，支持隐私泄露与偏见传递的定责追踪。
+P1594 字段
+P1595 类型
+P1596 必填
+P1597 说明
+P1598 event_id
+P1599 string
+P1600 是
+P1601 审计事件唯一ID
+P1602 timestamp
+P1603 string
+P1604 是
+P1605 事件时间
+P1606 actor_id
+P1607 string
+P1608 是
+P1609 操作主体（用户/Agent/系统）
+P1610 action
+P1611 string
+P1612 是
+P1613 操作类型（call/register/modify/delete）
+P1614 resource_id
+P1615 string
+P1616 是
+P1617 目标资源ID
+P1618 trace_id
+P1619 string
+P1620 是
+P1621 关联的链路追踪ID
+P1622 parent_trace_id
+P1623 string
+P1624 否
+P1625 父级追踪ID，用于追溯数据来源链路
+P1626 data_subject
+P1627 enum
+P1628 否
+P1629 数据主体类型：user_prompt/model_output/third_party_api/dataset/system_internal
+P1630 data_classification
+P1631 enum
+P1632 否
+P1633 数据分类：public/internal/confidential/restricted
+P1634 tenant_id
+P1635 string
+P1636 否
+P1637 租户ID
+P1638 result
+P1639 string
+P1640 是
+P1641 操作结果（success/failure）
+P1642 failure_reason
+P1643 string
+P1644 failure时必填
+P1645 失败原因
+P1647 数据血缘追踪示例：当模型A的输出被灌入模型B，若最终输出发生隐私泄露，可通过parent_trace_id逐级追溯至原始用户提示词，定位泄露源头与传递路径。审计日志保留期不少于180天，restricted级数据保留不少于365天。
+P1649 15  接入交付与验收
+P1650 15.1  交付物清单
+P1651 15.1.1  底座内部资源交付物
+P1652 序号
+P1653 交付物
+P1654 类型
+P1655 必填
+P1656 说明
+P1657 1
+P1658 Manifest文件
+P1659 JSON
+P1660 是
+P1661 符合第3章规范
+P1662 2
+P1663 接口说明文档
+P1664 Markdown/PDF
+P1665 是
+P1666 详细接口说明、参数、响应、错误码
+P1667 3
+P1668 资源实现
+P1669 镜像/代码/服务
+P1670 是
+P1671 Docker镜像或可访问的服务端点
+P1672 4
+P1673 测试报告
+P1674 PDF/HTML
+P1675 是
+P1676 功能、性能、安全测试结果
+P1677 5
+P1678 安全对齐说明
+P1679 PDF/Markdown
+P1680 Agent必填
+P1681 覆盖内容安全、指令边界、数据安全
+P1682 6
+P1683 副作用声明清单
+P1684 JSON
+P1685 Agent/Tool必填
+P1686 side_effects_manifest.json
+P1687 7
+P1688 评测标尺定义
+P1689 JSON
+P1690 评测类必填
+P1691 evaluation_spec完整定义
+P1692 8
+P1693 接入信息表
+P1694 JSON/表单
+P1695 是
+P1696 资源名称、版本、资源声明、联系人
+P1698 15.1.2  外部企业被测模型交付物
+P1699 序号
+P1700 交付物
+P1701 类型
+P1702 必填
+P1703 说明
+P1704 1
+P1705 被测模型Manifest
+P1706 JSON
+P1707 是
+P1708 符合第10.3节规范
+P1709 2
+P1710 接口连通性说明
+P1711 文档
+P1712 是
+P1713 endpoint、端口、鉴权方式、并发参数
+P1714 3
+P1715 加密通道配置
+P1716 文档/证书
+P1717 是
+P1718 mTLS证书（或VPN/API网关配置说明）、平台出口IP白名单已配置确认
+P1719 4
+P1720 模型能力声明
+P1721 文档
+P1722 是
+P1723 上下文长度、支持能力、场景适配说明
+P1724 5
+P1725 网络与环境就绪确认单
+P1726 表单
+P1727 是
+P1728 端口开放、防火墙规则、GPU资源、网络延迟测试确认
+P1729 6
+P1730 对接联系人信息
+P1731 表单
+P1732 是
+P1733 技术负责人、运维联系人、评测期间7×8小时响应方式
+P1735 15.2  分级准入测试
+P1736 针对不同接入对象与阶段，执行分级验收，降低首次接入门槛。
+P1737 15.2.1  基础级（首次接入试评）
+P1738 适用于外部企业首次接入、内部新模型试跑，通过后可进入试点评测。
+P1739 测试项
+P1740 测试内容
+P1741 通过标准
+P1742 Manifest校验
+P1743 Schema完整性、字段合法性、resource_id唯一性
+P1744 无错误，必填字段完整
+P1745 加密通道连通性测试
+P1746 mTLS/VPN/API网关加密通道建立、证书校验、IP白名单验证
+P1747 通道建立成功，双向认证通过，延迟≤100ms
+P1748 接口连通性测试
+P1749 模型接口可正常访问，鉴权通过
+P1750 连续3次成功，响应<2秒
+P1751 功能测试
+P1752 标准测试用例调用，验证输入输出符合Schema
+P1753 核心用例通过
+P1754 错误处理测试
+P1755 非法参数、超时场景，验证错误返回
+P1756 返回标准error对象，不崩溃
+P1757 信封协议校验
+P1758 消息格式、trace_id、usage字段符合规范
+P1759 符合第4章要求
+P1761 15.2.2  完整级（正式全量开放）
+P1762 适用于正式纳入常态化评测的资源，全量验证保障稳定性。
+P1763 测试项
+P1764 测试内容
+P1765 通过标准
+P1766 性能测试
+P1767 资源限制内压力测试，测量耗时、吞吐量
+P1768 响应符合声明，内存<limits的90%
+P1769 安全测试
+P1770 镜像漏洞扫描、鉴权绕过、输入注入
+P1771 高危漏洞0个，鉴权不可绕过
+P1772 幂等性测试
+P1773 重复发送相同correlation_id请求
+P1774 不产生重复副作用
+P1775 鲁棒性测试
+P1776 极端输入载荷、越狱注入、特殊Unicode
+P1777 不崩溃、不挂起，返回标准错误码
+P1778 评测标尺验证
+P1779 标准测试集验证评分准确性与稳定性
+P1780 评分与人工标注一致率≥90%，评分稳定性差异≤±5%
+P1781 副作用验证
+P1782 副作用在评测环境中被正确Mock或沙箱隔离
+P1783 无真实外部状态变更
+P1784 可观测性验证
+P1785 日志格式、指标暴露、trace_id传播
+P1786 符合规范
+P1788 15.3  验收流程
+P1789 (1) 提交申请：通过接入管理平台提交交付物；
+P1790 (2) 材料审核：5个工作日内完成完整性与规范性审核；
+P1791 (3) 基础级测试：1-2个工作日，通过后可启动试点评测；
+P1792 (4) 问题整改：不通过项反馈整改，整改后重测；
+P1793 (5) 完整级测试：3-5个工作日，含鲁棒性与标尺验证；
+P1794 (6) 灰度上线：默认5%流量，持续7天，监控评分稳定性；
+P1795 (7) 正式接入：灰度期间指标达标且无严重问题，正式全量开放。
+P1796 试点评测阶段规则：基础级测试通过后，资源进入试点评测阶段，具体规则如下：
+P1797 试点期默认持续14个自然日；
+P1798 试点期间仅限≤5%的评测任务量；
+P1799 试点期内如出现≥3次P0级故障，或评分稳定性偏差＞±5%，试点期重置或终止；
+P1800 试点期结束后，须通过完整级测试方可转为正式全量开放。
+P1801 15.4  运维责任
+P1802 责任方
+P1803 职责
+P1804 资源接入方
+P1805 功能开发维护、Bug修复、版本迭代、安全漏洞修复、故障响应、技术支持
+P1806 外部企业方
+P1807 模型服务可用性保障、接口稳定、配合故障排查、版本变更提前通知
+P1808 框架运维团队
+P1809 注册中心维护、网关运维、准入测试执行、监控告警、健康管理、灰度协调、安全审计
+P1810 框架平台团队
+P1811 规范制定更新、网关与适配器开发、可观测性平台维护、Eval Kit版本迭代
+P1814 附录A  资源Manifest完整JSON Schema
+P1815 以下为Manifest完整JSON Schema（Draft 2020-12），版本对应v1.3。
+P1816 {  "$schema": "https://json-schema.org/draft/2020-12/schema",  "$id": "https://eval-platform.example.com/schemas/manifest-v1.3.json",  "title": "Eval Platform Resource Manifest V1.3",  "type": "object",  "required": ["spec_version","resource_id","resource_type","name","version",               "description","owner","capabilities","interfaces"],  "properties": {    "spec_version": {"type":"string","pattern":"^\\d+\\.\\d+\\.\\d+$"},    "resource_id": {      "type":"string",      "pattern":"^[a-z0-9]{1,32}/[a-z0-9_]{1,64}$",      "description": "namespace<=32 chars, name<=64 chars"    },    "resource_type": {"type":"string","enum":["tool","agent","mcp","skill","datasource","api","model","agent_mut","eval_kit"]},    "name": {"type":"string","minLength":1,"maxLength":100},    "version": {"type":"string","pattern":"^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9]+)?$"},    "description": {"type":"string","minLength":1,"maxLength":500},    "owner": {"type":"object","required":["name","contact"],      "properties":{"name":{"type":"string"},"contact":{"type":"string"},"email":{"type":"string","format":"email"}}},    "tags": {"type":"array","items":{"type":"string"},"maxItems":20},    "capabilities": {"type":"object","required":["input_schema","output_schema","call_mode","idempotent","timeout"],      "properties":{        "input_schema":{"type":"object"},"output_schema":{"type":"object"},        "call_mode":{"type":"string","enum":["sync","async","stream","batch"]},        "idempotent":{"type":"boolean"},"timeout":{"type":"integer","minimum":1,"maximum":3600},        "retryable":{"type":"boolean","default":false},"max_concurrency":{"type":"integer","minimum":1}}},    "evaluation_spec": {"type":"object","description":"Evaluation spec (required for eval resources)",      "required":["judge_type","metric_names"],      "properties":{        "judge_type":{"type":"string","enum":["llm_judge","regex","exact_match","fuzzy","custom"]},        "reference_output":{"type":"object"},        "metric_names":{"type":"array","items":{"type":"string"}},        "judge_prompt_template":{"type":"string"},        "judge_model":{"type":"string"},        "pass_threshold":{"type":"object","description":"Keys MUST strictly match metric_names array elements"},        "scoring_rubric":{"type":"string"}}},    "interfaces": {"type":"object"},    "permissions": {"type":"object","properties":{      "network_egress":{"type":"array","items":{"type":"string"}},      "data_access":{"type":"array","items":{"type":"string"}},      "tool_access":{"type":"array","items":{"type":"string"}},      "resource_quota":{"type":"object"}}},    "side_effects": {"type":"array","items":{"type":"object",      "required":["type","description","reversible"],      "properties":{        "type":{"type":"string","enum":["write_fs","http_call","email","db_write","payment","other"]},        "description":{"type":"string"},"target":{"type":"string"},        "reversible":{"type":"boolean"},        "mock_strategy":{"type":"string","enum":["dry_run","stub","record"]}}}},    "resources": {"type":"object","properties":{      "cpu":{"type":"string"},"memory":{"type":"string"},"gpu":{"type":"string"},"timeout":{"type":"integer"}}},    "lifecycle": {"type":"object","properties":{      "health_check":{"type":"object"},      "graceful_shutdown":{"type":"object","properties":{"timeout":{"type":"integer","default":30}}}}},    "metadata": {"type":"object"}  }}
+P1818 附录B  消息信封完整定义
+P1819 信封版本1.3，Response.metadata.usage为条件必填（涉及大模型调用时必填）。
+P1820 {  "$schema": "https://json-schema.org/draft/2020-12/schema",  "title": "Message Envelope V1.3",  "type": "object",  "required": ["header","trace","auth","body"],  "properties": {    "header": {"type":"object","required":["message_id","message_type","version","timestamp","source","destination"],      "properties":{        "message_id":{"type":"string","format":"uuid"},        "message_type":{"type":"string","enum":["request","response","event","stream"]},        "version":{"type":"string","const":"1.3"},        "timestamp":{"type":"string","format":"date-time"},        "source":{"type":"string"},"destination":{"type":"string"},        "correlation_id":{"type":"string"},        "priority":{"type":"string","enum":["low","normal","high"],"default":"normal"},        "ttl":{"type":"integer","minimum":1,"default":300},        "tenant_id":{"type":"string"}}},    "trace": {"type":"object","required":["trace_id","span_id"],      "properties":{"trace_id":{"type":"string"},"span_id":{"type":"string"},        "parent_span_id":{"type":"string"},"tenant_id":{"type":"string"}}},    "auth": {"type":"object","required":["caller_id"],      "properties":{"caller_id":{"type":"string"},"token":{"type":"string"},        "permissions":{"type":"array","items":{"type":"string"}}}},    "body": {"type":"object","description":"Fields vary by message_type"}  }}
+P1822 附录C  统一错误码体系
+P1823 错误码格式：{资源类型}_{错误类别}_{具体错误}。
+P1824 C.1  错误类别
+P1825 错误类别
+P1826 前缀
+P1827 HTTP映射
+P1828 说明
+P1829 参数错误
+P1830 INVALID_INPUT/VALIDATION
+P1831 400
+P1832 输入参数缺失、格式错误、Schema校验失败
+P1833 认证错误
+P1834 UNAUTHORIZED/AUTH_FAILED
+P1835 401
+P1836 凭证缺失、无效、过期
+P1837 权限错误
+P1838 FORBIDDEN/PERMISSION_DENIED
+P1839 403
+P1840 无权限访问资源或操作
+P1841 资源不存在
+P1842 NOT_FOUND
+P1843 404
+P1844 资源、任务、会话不存在
+P1845 限流错误
+P1846 RATE_LIMITED
+P1847 429
+P1848 超过调用频率或并发限制
+P1849 资源冲突
+P1850 CONFLICT
+P1851 409
+P1852 资源已存在、状态冲突
+P1853 超时错误
+P1854 TIMEOUT
+P1855 504
+P1856 调用超时、上游响应超时
+P1857 不可用
+P1858 UNAVAILABLE
+P1859 503
+P1860 资源不健康、熔断中、维护中
+P1861 内部错误
+P1862 INTERNAL_ERROR
+P1863 500
+P1864 内部异常、未处理错误
+P1865 依赖失败
+P1866 DEPENDENCY_FAILED
+P1867 502
+P1868 下游服务调用失败
+P1870 C.2  通用资源错误码
+P1871 错误码
+P1872 说明
+P1873 可重试
+P1874 TOOL_INVALID_INPUT
+P1875 工具输入参数校验失败
+P1876 否
+P1877 TOOL_TIMEOUT
+P1878 工具执行超时
+P1879 是（retryable=true时）
+P1880 TOOL_INTERNAL_ERROR
+P1881 工具内部异常
+P1882 视情况
+P1883 AGENT_MAX_ITERATIONS_EXCEEDED
+P1884 Agent超过最大规划迭代次数
+P1885 否
+P1886 AGENT_CONTENT_SAFETY_BLOCKED
+P1887 Agent输出被内容安全拦截
+P1888 否
+P1889 AGENT_TOOL_PERMISSION_DENIED
+P1890 Agent尝试调用未授权工具
+P1891 否
+P1892 MCP_CONNECTION_FAILED
+P1893 MCP服务连接失败
+P1894 是
+P1895 MCP_PROTOCOL_ERROR
+P1896 MCP协议交互错误
+P1897 否
+P1898 MCP_TOOL_NOT_FOUND
+P1899 MCP工具不存在
+P1900 否
+P1901 SKILL_EXECUTION_FAILED
+P1902 Skill执行失败
+P1903 视情况
+P1904 API_AUTH_FAILED
+P1905 外部API认证失败
+P1906 否
+P1907 API_RATE_LIMITED
+P1908 外部API限流
+P1909 是（按Retry-After退避）
+P1910 TASK_HEARTBEAT_LOST
+P1911 长时任务心跳丢失
+P1912 否（需人工介入）
+P1913 INPUT_TOO_LONG
+P1914 输入超过最大长度限制
+P1915 否
+P1916 BUDGET_EXHAUSTED
+P1917 评测预算（Token/费用）耗尽
+P1918 否（需增加预算）
+P1920 C.3  评测专属错误码
+P1921 错误码
+P1922 说明
+P1923 可重试
+P1924 EVAL_JUDGE_TIMEOUT
+P1925 裁判模型调用超时
+P1926 是（retryable=true时）
+P1927 EVAL_JUDGE_INVALID_OUTPUT
+P1928 裁判模型输出不符合评分Schema
+P1929 是
+P1930 DATASET_LOAD_FAILED
+P1931 数据集加载失败
+P1932 否（需检查数据集）
+P1933 DATASET_SCHEMA_MISMATCH
+P1934 数据条目不符合数据集Schema定义
+P1935 否（跳过该条目并记录）
+P1936 BATCH_PARTIAL_FAILURE
+P1937 批量任务部分条目失败
+P1938 —（可单独重试失败条目）
+P1939 MODEL_OUTPUT_INVALID
+P1940 模型输出格式无效，无法解析评分
+P1941 否
+P1942 EVAL_SCORE_DRIFT
+P1943 灰度版本评分稳定性超出阈值
+P1944 否（自动回滚）
+P1945 EVAL_REFERENCE_MISSING
+P1946 评测标尺中缺少参考输出或裁判提示词
+P1947 否
+P1948 EVAL_KIT_VERSION_MISMATCH
+P1949 评测工具包版本不兼容
+P1950 否（需使用指定版本）
+P1951 RESULT_SIGNATURE_INVALID
+P1952 结果包签名校验失败
+P1953 否（结果不可信）
+P1956 附录D  被测大模型Manifest与接口Schema
+P1957 D.1  被测模型Manifest Schema
+P1958 {  "$schema": "https://json-schema.org/draft/2020-12/schema",  "title": "Model Under Test Manifest V1.3",  "type": "object",  "required": ["model_id","model_name","model_type","scene_white_list",               "max_context_tokens","support_stream","version","parallel_limit"],  "properties": {    "model_id": {"type":"string","pattern":"^[a-z0-9]{1,32}/[a-z0-9_]{1,64}$"},    "model_name": {"type":"string"},    "model_type": {"type":"string","enum":["internal","external"]},    "scene_white_list": {"type":"array","items":{"type":"string"}},    "max_context_tokens": {"type":"integer","minimum":1},    "support_stream": {"type":"boolean"},    "support_function_call": {"type":"boolean","default":false},    "version": {"type":"string"},    "parallel_limit": {"type":"integer","minimum":1},    "enterprise_name": {"type":"string"},    "enterprise_model_code": {"type":"string"},    "endpoint": {"type":"string","format":"uri"},    "auth_type": {"type":"string","enum":["bearer_token","api_key","mtls"]},    "source_type": {"type":"string","enum":["open_source","self_dev","fine_tune"]},    "base_model": {"type":"string"},    "deploy_cluster": {"type":"string"}  },  "allOf": [    {      "if": {"properties": {"model_type": {"const": "external"}}},      "then": {"required": ["enterprise_name","enterprise_model_code"]}    },    {      "if": {"properties": {"model_type": {"const": "internal"}}},      "then": {"required": ["source_type","base_model","deploy_cluster"]}    }  ]}
+P1959 D.2  /v1/chat/completions 接口Schema
+P1960 请求体（OpenAI兼容标准）：
+P1961 {  "model": "string (required, model identifier)",  "messages": [{"role": "system|user|assistant", "content": "string"}],  "temperature": "number (required, 0-2)",  "max_tokens": "integer (required, max generation length)",  "stream": "boolean (required, whether to stream output)"}
+P1962 响应体：
+P1963 {  "id": "string",  "model": "string",  "choices": [{"index": 0, "message": {"role": "assistant", "content": "string"}, "finish_reason": "stop|length|content_filter|tool_calls"}],  "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+P1965 附录E  企业接入FAQ与问题清单
+P1966 E.1  接入背景
+P1967 Q1：为什么必须统一接口？不能直接用企业原有接口吗？
+P1968 A：平台需要对50+外部模型、50+内部模型做同数据集、同标尺横向对标。为保证评测公平性与结果可比，必须使用统一接口契约。企业可部署轻量适配层转换，无需改造模型内核。
+P1969 Q2：远程加密访问模式下，平台会获取企业模型的权重吗？
+P1970 A：不会。平台仅通过加密通道调用模型推理接口（/v1/chat/completions），不接触模型权重、训练数据；模型始终部署在企业本地环境，权重不出域。
+P1971 Q3：评测数据集会传输到企业环境吗？
+P1972 A：不会。评测数据集、裁判模型、评分逻辑均部署在四院平台侧，仅单条评测question通过加密通道发送至企业模型，模型返回推理输出后由平台侧评分。
+P1973 E.2  接口与协议
+P1974 Q4：单样本接口超时是多少？
+P1975 A：单样本60秒，为平台固定阈值；超时判定为样本失败，计入失分。批量评测由平台侧自动调度，企业无需实现批量接口。
+P1976 Q5：finish_reason必须严格对齐枚举吗？
+P1977 A：必须对齐stop/length/content_filter/tool_calls。平台依据该字段识别截断与过滤，错误值会导致评分失真。
+P1978 Q6：企业模型接口不兼容OpenAI格式怎么办？
+P1979 A：企业可在模型服务前部署轻量适配层（如Nginx反向代理+Lua脚本、或Python FastAPI适配服务），将企业自有接口转换为/v1/chat/completions格式，无需改造模型内核。
+P1980 E.3  加密通道与网络
+P1981 Q7：支持哪些加密通道方式？
+P1982 A：支持mTLS双向认证（默认推荐）、VPN专线、API网关加密、SSH隧道四种方式。企业可根据自身安全等级选择，平台均支持对接。
+P1983 Q8：企业需要开放哪些端口？
+P1984 A：默认开放443端口（HTTPS），可自定义但须提前告知平台。企业须配置平台出口IP白名单，仅允许平台评测系统IP访问。
+P1985 Q9：平台出口IP是固定的吗？
+P1986 A：是的，平台侧出口IP固定，企业可在接入前获取并配置防火墙规则。评测期间IP不变更。
+P1987 Q10：网络延迟要求是多少？
+P1988 A：专线≤20ms，公网mTLS≤100ms。延迟过高将影响评测效率，平台侧具备超时重试机制，但单样本超时仍计入失分。
+P1989 E.4  安全与数据
+P1990 Q11：传输过程中数据会被窃听吗？
+P1991 A：所有跨单位调用强制TLS 1.3 + mTLS双向认证，传输全程加密。mTLS证书由平台统一签发或企业自签（须提供CA根证书），双向认证确保通信双方身份可信。
+P1992 Q12：Token统计必须返回吗？
+P1993 A：必须返回prompt_tokens/completion_tokens/total_tokens。平台用于成本统计与模型效率分析；缺失则准入测试不通过。
+P1994 Q13：企业模型输出会被用于训练吗？
+P1995 A：不会。企业模型输出仅用于本次评测评分与报告生成，平台承诺不用于任何模型训练或其他用途，全链路审计日志可追溯。
+P1996 E.5  常见问题
+P1997 接口个别样本异常直接返回500导致批量中断 → 单条失败不影响整体，返回标准error对象即可
+P1998 finish_reason随意填写 → 严格使用stop/length/content_filter/tool_calls枚举值
+P1999 parallel_limit填过高导致模型过载 → 按实际压测安全值填写，建议≤50并发
+P2000 永久静态API Key鉴权 → 使用短期Token或mTLS证书，定期轮换
+P2001 不返回usage字段 → 每个推理结果必须携带usage对象
+P2002 mTLS证书过期未及时更新 → 设置证书过期提醒，提前30天续签
+P2003 IP白名单未配置平台出口IP → 接入前确认平台出口IP并配置防火墙规则
+P2004 模型版本变更未提前通知 → 版本变更须提前3个工作日通知平台，避免评测中途接口变更

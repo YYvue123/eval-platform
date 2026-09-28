@@ -1,0 +1,26 @@
+E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+test_login_and_dashboard (tests.test_auth.AuthSmokeTest.test_login_and_dashboard) ... ok
+test_agent_orchestration (tests.test_eval_flow.EvalFlowTest.test_agent_orchestration) ... ok
+test_builtin_judge (tests.test_eval_flow.EvalFlowTest.test_builtin_judge) ... ok
+test_envelope_batch_and_match (tests.test_eval_flow.EvalFlowTest.test_envelope_batch_and_match) ... ok
+test_field_mapping_and_quality_gate (tests.test_eval_flow.EvalFlowTest.test_field_mapping_and_quality_gate) ... 2026-09-28 16:37:51 | WARNING  | app.exceptions:http_exception_handler:22 | HTTPException | path=/api/tasks | method=POST | status=400 | detail=质量不合格或检测失败的数据不能进入正式评测，请先清洗或勾选仅测试
+2026-09-28 16:37:51 | WARNING  | app.request:logging_middleware:72 | [7dca7dbb9e88] <<< POST /api/tasks | status=400 | duration=12.27ms
+ok
+test_health_metrics_tls_ops (tests.test_eval_flow.EvalFlowTest.test_health_metrics_tls_ops) ... 2026-09-28 16:37:51 | WARNING  | app.exceptions:http_exception_handler:22 | HTTPException | path=/api/ops/status | method=GET | status=401 | detail=Not authenticated
+2026-09-28 16:37:51 | WARNING  | app.request:logging_middleware:72 | [65aade7a6c37] <<< GET /api/ops/status | status=401 | duration=1.17ms
+ok
+test_leaderboard_and_services (tests.test_eval_flow.EvalFlowTest.test_leaderboard_and_services) ... ok
+test_manifests_valid (tests.test_eval_flow.EvalFlowTest.test_manifests_valid) ... ok
+test_model_mapping_acl_and_scene (tests.test_eval_flow.EvalFlowTest.test_model_mapping_acl_and_scene) ... 2026-09-28 16:37:54 | WARNING  | app.exceptions:http_exception_handler:22 | HTTPException | path=/api/tasks | method=POST | status=400 | detail=场景 qa 不在模型白名单中
+2026-09-28 16:37:54 | WARNING  | app.request:logging_middleware:72 | [ee5b1ed9b639] <<< POST /api/tasks | status=400 | duration=10.98ms
+ok
+test_parser_and_quality (tests.test_eval_flow.EvalFlowTest.test_parser_and_quality) ... ok
+test_prompt_generate_audit_and_optimize (tests.test_eval_flow.EvalFlowTest.test_prompt_generate_audit_and_optimize) ... 2026-09-28 16:37:54 | WARNING  | app.exceptions:http_exception_handler:22 | HTTPException | path=/api/prompts | method=POST | status=400 | detail=提示词名称已存在
+2026-09-28 16:37:54 | WARNING  | app.request:logging_middleware:72 | [3be1d9a15585] <<< POST /api/prompts | status=400 | duration=23.46ms
+ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 9.090s
+
+OK

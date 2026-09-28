@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Message Envelope V1.3",
+  "type": "object",
+  "required": [
+    "header",
+    "trace",
+    "auth",
+    "body"
+  ],
+  "properties": {
+    "header": {
+      "type": "object",
+      "required": [
+        "message_id",
+        "message_type",
+        "version",
+        "timestamp",
+        "source",
+        "destination"
+      ],
+      "properties": {
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "message_type": {
+          "type": "string",
+          "enum": [
+            "request",
+            "response",
+            "event",
+            "stream"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "const": "1.3"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "correlation_id": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "normal",
+            "high"
+          ],
+          "default": "normal"
+        },
+        "ttl": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 300
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "required": [
+        "trace_id",
+        "span_id"
+      ],
+      "properties": {
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": "string"
+        },
+        "parent_span_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "caller_id"
+      ],
+      "properties": {
+        "caller_id": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "body": {
+      "type": "object",
+      "description": "Fields vary by message_type"
+    }
+  }
+}

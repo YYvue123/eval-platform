@@ -1,0 +1,1697 @@
+E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+test_auth (unittest.loader._FailedTest.test_auth) ... ERROR
+test_agent_orchestration (test_eval_flow.EvalFlowTest.test_agent_orchestration) ... ERROR
+test_builtin_judge (test_eval_flow.EvalFlowTest.test_builtin_judge) ... ok
+test_end_to_end_eval (test_eval_flow.EvalFlowTest.test_end_to_end_eval) ... ERROR
+test_envelope_batch_and_match (test_eval_flow.EvalFlowTest.test_envelope_batch_and_match) ... ERROR
+test_field_mapping_and_quality_gate (test_eval_flow.EvalFlowTest.test_field_mapping_and_quality_gate) ... ERROR
+test_health_metrics_tls_ops (test_eval_flow.EvalFlowTest.test_health_metrics_tls_ops) ... ERROR
+test_leaderboard_and_services (test_eval_flow.EvalFlowTest.test_leaderboard_and_services) ... ERROR
+test_manifests_valid (test_eval_flow.EvalFlowTest.test_manifests_valid) ... ok
+test_model_mapping_acl_and_scene (test_eval_flow.EvalFlowTest.test_model_mapping_acl_and_scene) ... ERROR
+test_parser_and_quality (test_eval_flow.EvalFlowTest.test_parser_and_quality) ... ok
+test_prompt_generate_audit_and_optimize (test_eval_flow.EvalFlowTest.test_prompt_generate_audit_and_optimize) ... ERROR
+test_task_templates_queue_and_report (test_eval_flow.EvalFlowTest.test_task_templates_queue_and_report) ... ERROR
+
+======================================================================
+ERROR: test_auth (unittest.loader._FailedTest.test_auth)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_auth
+Traceback (most recent call last):
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 70, in _initialize
+    from greenlet import getcurrent
+ModuleNotFoundError: No module named 'greenlet'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\unittest\loader.py", line 396, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\unittest\loader.py", line 339, in _get_module_from_name
+    __import__(name)
+  File "E:\eval-platform\backend\tests\test_auth.py", line 5, in <module>
+    from app.main import app
+  File "E:\eval-platform\backend\app\main.py", line 9, in <module>
+    from app.api import auth, users, dashboard, notifications, roles, audit
+  File "E:\eval-platform\backend\app\api\auth.py", line 3, in <module>
+    from sqlalchemy.ext.asyncio import AsyncSession
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\__init__.py", line 28, in <module>
+    concurrency._concurrency_shim._initialize()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 79, in _initialize
+    raise ImportError(_ERROR_MESSAGE) from e
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+
+======================================================================
+ERROR: test_agent_orchestration (test_eval_flow.EvalFlowTest.test_agent_orchestration)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 415, in test_agent_orchestration
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_end_to_end_eval (test_eval_flow.EvalFlowTest.test_end_to_end_eval)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 35, in test_end_to_end_eval
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_envelope_batch_and_match (test_eval_flow.EvalFlowTest.test_envelope_batch_and_match)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 266, in test_envelope_batch_and_match
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_field_mapping_and_quality_gate (test_eval_flow.EvalFlowTest.test_field_mapping_and_quality_gate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 106, in test_field_mapping_and_quality_gate
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_health_metrics_tls_ops (test_eval_flow.EvalFlowTest.test_health_metrics_tls_ops)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 448, in test_health_metrics_tls_ops
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_leaderboard_and_services (test_eval_flow.EvalFlowTest.test_leaderboard_and_services)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 367, in test_leaderboard_and_services
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_model_mapping_acl_and_scene (test_eval_flow.EvalFlowTest.test_model_mapping_acl_and_scene)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 176, in test_model_mapping_acl_and_scene
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_prompt_generate_audit_and_optimize (test_eval_flow.EvalFlowTest.test_prompt_generate_audit_and_optimize)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 225, in test_prompt_generate_audit_and_optimize
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+======================================================================
+ERROR: test_task_templates_queue_and_report (test_eval_flow.EvalFlowTest.test_task_templates_queue_and_report)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\eval-platform\backend\tests\test_eval_flow.py", line 310, in test_task_templates_queue_and_report
+    with TestClient(app) as client:
+         ^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 517, in __enter__
+    portal.call(self.wait_startup)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 340, in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 552, in wait_startup
+    await receive()
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 543, in receive
+    self.task.result()
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\anyio\from_thread.py", line 265, in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\testclient.py", line 533, in lifespan
+    await self.app(scope, self.stream_receive.receive, self.stream_send.send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\applications.py", line 96, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\cors.py", line 79, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\base.py", line 103, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\middleware\exceptions.py", line 49, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 676, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 2726, in app
+    await self.lifespan(scope, receive, send)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\starlette\routing.py", line 654, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\fastapi\routing.py", line 240, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\backend\app\main.py", line 35, in lifespan
+    await init_db()
+  File "E:\eval-platform\backend\app\database.py", line 70, in init_db
+    async with engine.begin() as conn:
+               ^^^^^^^^^^^^^^
+  File "C:\Users\wzyma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 1088, in begin
+    async with conn:
+               ^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\ext\asyncio\engine.py", line 283, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 191, in greenlet_spawn
+    fn, _concurrency_shim.getcurrent()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\eval-platform\docs\implementation-plan-2026-09-28\verification\backend-deps\sqlalchemy\util\concurrency.py", line 47, in _not_implemented
+    raise ImportError(_ERROR_MESSAGE)
+ImportError: The SQLAlchemy asyncio module requires that the Python 'greenlet' library is installed.  In order to ensure this dependency is available, use the 'sqlalchemy[asyncio]' install target:  'pip install sqlalchemy[asyncio]'
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.239s
+
+FAILED (errors=10)

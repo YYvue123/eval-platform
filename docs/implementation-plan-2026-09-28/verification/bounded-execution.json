@@ -1,0 +1,8 @@
+{
+  "subset": "execution",
+  "timeout_seconds": 45,
+  "data_directory": "E:\\eval-platform\\docs\\implementation-plan-2026-09-28\\verification",
+  "production_database_access": false,
+  "status": "timeout",
+  "exit_code": null
+}

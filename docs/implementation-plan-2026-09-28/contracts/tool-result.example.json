@@ -1,0 +1,9 @@
+{
+  "status": "success",
+  "invocation_id": "db80ba7d-90a3-42f9-ad68-8e8657972892",
+  "data": {"experiment_id": "fixture-experiment", "run_ids": ["fixture-run"]},
+  "error": null,
+  "evidence_refs": ["fixture:approval:001"],
+  "artifact_refs": [],
+  "usage": null
+}

@@ -1,0 +1,13 @@
+# 契约使用说明
+
+source-manifest、source-envelope、source-model Schema分别来自接口原文P1816、P1820、P1958，保持原文语义；原文字段约束不充分，必须叠加04说明的规则。agent-plan与tool-result为本项目目标契约。
+
+agent-plan中资源id是对外opaque string；现有整数ID通过服务端适配映射，不得强制重建所有历史主键。budget.max_cost_micros单位为微元（1元=1,000,000微元），scope身份由服务端注入，不接受模型产出tenant或凭证。risk是模型建议，服务端PolicyEngine重新计算。
+
+Schema之外必须校验：resource key/node_id唯一；引用存在且kind匹配；depends_on为无环图；input_nodes必须属于依赖祖先；版本属于对象；权限/状态/质检/预算；模型与标尺能力；formal禁止demo。格式通过不代表可执行或已授权。样例中的ID和hash都是测试夹具，不能直接发到生产执行。
+
+Plan预算是该计划产生的Agent与评测任务的合计Token/费用上限，执行时分配子额度；max_tool_calls只限制Agent发起的业务工具调用次数，样本级模型/裁判调用另外受样本数、任务并发和Token预算约束，不能因为100个样本就误触40次Agent工具上限。预算消耗不能在子Agent或新attempt重置。
+
+ToolResult是平台内部返回对象，网关需转成规范body.status/result/error/metadata。LLM调用usage必填，measured时三个token必须非null且total=input+output；pending_reconciliation不允许把null转成0。工具状态pending必须data包含后台job_id和状态查询引用，实际业务adapter负责细化data Schema。
+
+下一个AI应将这些Schema复制或生成到后端正式schemas目录，再增加对应业务Pydantic模型与语义校验。不要把文档目录作为生产运行时依赖。

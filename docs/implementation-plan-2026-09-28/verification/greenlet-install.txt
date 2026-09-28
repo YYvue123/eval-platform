@@ -1,0 +1,5 @@
+Collecting greenlet
+  Downloading greenlet-3.5.6-cp312-cp312-win_amd64.whl.metadata (3.9 kB)
+Downloading greenlet-3.5.6-cp312-cp312-win_amd64.whl (324 kB)
+Installing collected packages: greenlet
+Successfully installed greenlet-3.5.6

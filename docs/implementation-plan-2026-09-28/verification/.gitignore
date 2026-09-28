@@ -1,0 +1,9 @@
+frontend-dist/
+uploads/
+logs/
+backups/
+*.db
+*.db-*
+__pycache__/
+deps/
+backend-deps/

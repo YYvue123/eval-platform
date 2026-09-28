@@ -1,0 +1,8 @@
+{
+  "subset": "smoke",
+  "timeout_seconds": 90,
+  "data_directory": "E:\\eval-platform\\docs\\implementation-plan-2026-09-28\\verification",
+  "production_database_access": false,
+  "status": "finished",
+  "exit_code": 0
+}
