@@ -26,6 +26,8 @@
         <el-button
           v-if="userStore.hasPermission('dataset:audit') && detail.status !== 'published'"
           type="success"
+          :disabled="!canPublish"
+          :title="canPublish ? '' : '需质检通过(passed)后才能发布'"
           @click="publish"
         >直接发布</el-button>
         <el-dropdown v-if="userStore.hasPermission('dataset:export')" @command="exportFile">
@@ -135,7 +137,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { datasetsApi, qualityApi } from '@/api'
@@ -162,6 +164,8 @@ const mapFields = [
   { key: 'difficulty_level', label: '难度' },
   { key: 'data_label', label: '标签' }
 ]
+
+const canPublish = computed(() => ['passed', 'ok', 'good'].includes(detail.value?.quality_status))
 
 function qualityLabel(s) {
   return ({
@@ -235,6 +239,10 @@ async function audit(action) {
 }
 
 async function publish() {
+  if (!canPublish.value) {
+    ElMessage.warning('请先运行质量检测并达到「合格(passed)」后再发布')
+    return
+  }
   await datasetsApi.publish(route.params.id)
   ElMessage.success('已发布')
   loadDetail()

@@ -20,6 +20,8 @@ async def init_db():
     from sqlalchemy import text
     from app.models import (  # noqa: F401
         User,
+        Tenant,
+        TenantMembership,
         Notification,
         NotificationRead,
         Role,
@@ -42,12 +44,17 @@ async def init_db():
         PromptVersion,
         PromptCallLog,
         PromptTestRun,
+        PromptExperiment,
         BaseResource,
         ResourceCallLog,
         ResourceEvent,
+        ResourceVersion,
+        IdempotencyRecord,
         BatchSnapshot,
         BatchJob,
         BatchShardResult,
+        UsageReservation,
+        UsageLedger,
         EvalTask,
         EvalResult,
         EvalLineage,
@@ -56,16 +63,28 @@ async def init_db():
         QualityIssue,
         EvalServiceRequest,
         TaskTemplate,
+        BenchmarkSuite,
         TaskEvent,
         TaskSubtask,
         AlertPolicy,
         EvalWorkspace,
         LeaderboardWeight,
         LeaderboardSnapshot,
+        LeaderboardRelease,
+        ReportJob,
         KnowledgeEntry,
         AgentSession,
         AgentMessage,
         AgentSuggestion,
+        AgentRun,
+        AgentEvent,
+        AgentApproval,
+        AgentDelegation,
+        AgentMonitorState,
+        KnowledgeCandidate,
+        OpsTicket,
+        OpsDrillRecord,
+        DataAuthorization,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -119,12 +138,55 @@ async def init_db():
             ("eval_service_requests", "report_path", "ALTER TABLE eval_service_requests ADD COLUMN report_path VARCHAR(500) DEFAULT ''"),
             ("eval_service_requests", "production_version", "ALTER TABLE eval_service_requests ADD COLUMN production_version VARCHAR(40) DEFAULT 'v1'"),
             ("eval_service_requests", "shadow_json", "ALTER TABLE eval_service_requests ADD COLUMN shadow_json TEXT DEFAULT '{}'"),
+            ("eval_service_requests", "quote_version", "ALTER TABLE eval_service_requests ADD COLUMN quote_version VARCHAR(40) DEFAULT ''"),
+            ("eval_service_requests", "previous_stable", "ALTER TABLE eval_service_requests ADD COLUMN previous_stable VARCHAR(40) DEFAULT ''"),
+            ("eval_service_requests", "delivery_settled", "ALTER TABLE eval_service_requests ADD COLUMN delivery_settled BOOLEAN DEFAULT 0"),
+            ("eval_service_requests", "traffic_pct", "ALTER TABLE eval_service_requests ADD COLUMN traffic_pct FLOAT DEFAULT 0"),
+            ("eval_service_requests", "shadow_started_at", "ALTER TABLE eval_service_requests ADD COLUMN shadow_started_at DATETIME"),
             ("base_resources", "last_heartbeat", "ALTER TABLE base_resources ADD COLUMN last_heartbeat DATETIME"),
             ("audit_logs", "tenant_id", "ALTER TABLE audit_logs ADD COLUMN tenant_id VARCHAR(64) DEFAULT ''"),
             ("audit_logs", "trace_id", "ALTER TABLE audit_logs ADD COLUMN trace_id VARCHAR(64) DEFAULT ''"),
             ("audit_logs", "parent_trace_id", "ALTER TABLE audit_logs ADD COLUMN parent_trace_id VARCHAR(64) DEFAULT ''"),
             ("eval_results", "finish_reason", "ALTER TABLE eval_results ADD COLUMN finish_reason VARCHAR(32) DEFAULT ''"),
             ("eval_results", "error_code", "ALTER TABLE eval_results ADD COLUMN error_code VARCHAR(64) DEFAULT ''"),
+            ("eval_results", "execution_status", "ALTER TABLE eval_results ADD COLUMN execution_status VARCHAR(32) DEFAULT 'legacy_unverified'"),
+            ("eval_results", "score_status", "ALTER TABLE eval_results ADD COLUMN score_status VARCHAR(32) DEFAULT 'legacy_unverified'"),
+            ("eval_results", "simulation", "ALTER TABLE eval_results ADD COLUMN simulation BOOLEAN DEFAULT 0"),
+            ("eval_tasks", "simulation", "ALTER TABLE eval_tasks ADD COLUMN simulation BOOLEAN DEFAULT 0"),
+            ("users", "tenant_id", "ALTER TABLE users ADD COLUMN tenant_id INTEGER"),
+            ("users", "status", "ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'active'"),
+            ("datasets", "tenant_id", "ALTER TABLE datasets ADD COLUMN tenant_id INTEGER"),
+            ("datasets", "visibility", "ALTER TABLE datasets ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("eval_models", "tenant_id", "ALTER TABLE eval_models ADD COLUMN tenant_id INTEGER"),
+            ("eval_models", "visibility", "ALTER TABLE eval_models ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("prompt_templates", "tenant_id", "ALTER TABLE prompt_templates ADD COLUMN tenant_id INTEGER"),
+            ("prompt_templates", "visibility", "ALTER TABLE prompt_templates ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("eval_tasks", "tenant_id", "ALTER TABLE eval_tasks ADD COLUMN tenant_id INTEGER"),
+            ("eval_tasks", "visibility", "ALTER TABLE eval_tasks ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("knowledge_entries", "tenant_id", "ALTER TABLE knowledge_entries ADD COLUMN tenant_id INTEGER"),
+            ("knowledge_entries", "visibility", "ALTER TABLE knowledge_entries ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("agent_sessions", "tenant_id", "ALTER TABLE agent_sessions ADD COLUMN tenant_id INTEGER"),
+            ("agent_sessions", "visibility", "ALTER TABLE agent_sessions ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("batch_snapshots", "tenant_id", "ALTER TABLE batch_snapshots ADD COLUMN tenant_id INTEGER"),
+            ("batch_snapshots", "visibility", "ALTER TABLE batch_snapshots ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+            ("batch_snapshots", "creator_id", "ALTER TABLE batch_snapshots ADD COLUMN creator_id INTEGER"),
+            ("eval_workspaces", "tenant_id", "ALTER TABLE eval_workspaces ADD COLUMN tenant_id INTEGER"),
+            ("eval_workspaces", "visibility", "ALTER TABLE eval_workspaces ADD COLUMN visibility VARCHAR(20) DEFAULT 'shared'"),
+            ("dataset_versions", "content_checksum", "ALTER TABLE dataset_versions ADD COLUMN content_checksum VARCHAR(64) DEFAULT ''"),
+            ("eval_tasks", "lease_owner", "ALTER TABLE eval_tasks ADD COLUMN lease_owner VARCHAR(120) DEFAULT ''"),
+            ("eval_tasks", "lease_until", "ALTER TABLE eval_tasks ADD COLUMN lease_until DATETIME"),
+            ("eval_tasks", "fencing_token", "ALTER TABLE eval_tasks ADD COLUMN fencing_token INTEGER DEFAULT 0"),
+            ("eval_tasks", "cancel_requested", "ALTER TABLE eval_tasks ADD COLUMN cancel_requested BOOLEAN DEFAULT 0"),
+            ("eval_tasks", "attempt", "ALTER TABLE eval_tasks ADD COLUMN attempt INTEGER DEFAULT 0"),
+            ("batch_jobs", "tokens_reserved", "ALTER TABLE batch_jobs ADD COLUMN tokens_reserved INTEGER DEFAULT 0"),
+            ("batch_jobs", "tenant_id", "ALTER TABLE batch_jobs ADD COLUMN tenant_id INTEGER"),
+            ("batch_shard_results", "content_hash", "ALTER TABLE batch_shard_results ADD COLUMN content_hash VARCHAR(64) DEFAULT ''"),
+            ("batch_shard_results", "immutable", "ALTER TABLE batch_shard_results ADD COLUMN immutable BOOLEAN DEFAULT 1"),
+            ("agent_sessions", "active_run_id", "ALTER TABLE agent_sessions ADD COLUMN active_run_id INTEGER"),
+            ("agent_sessions", "row_version", "ALTER TABLE agent_sessions ADD COLUMN row_version INTEGER DEFAULT 0"),
+            ("knowledge_entries", "source_hash", "ALTER TABLE knowledge_entries ADD COLUMN source_hash VARCHAR(64) DEFAULT ''"),
+            ("knowledge_entries", "review_status", "ALTER TABLE knowledge_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'approved'"),
+            ("knowledge_entries", "valid_until", "ALTER TABLE knowledge_entries ADD COLUMN valid_until DATETIME"),
         ]:
             try:
                 r = await conn.execute(text(f"PRAGMA table_info({table})"))
@@ -149,7 +211,7 @@ async def seed_rbac(db):
     await db.flush()
     admin_role = Role(code="admin", name="管理员", data_scope="all")
     researcher_role = Role(code="researcher", name="评测人员", data_scope="own")
-    viewer_role = Role(code="viewer", name="访客", data_scope="all")
+    viewer_role = Role(code="viewer", name="访客", data_scope="shared")
     db.add_all([admin_role, researcher_role, viewer_role])
     await db.flush()
     from app.services.rbac import RESEARCHER_PERMISSIONS, VIEWER_PERMISSIONS
@@ -328,12 +390,103 @@ async def seed_leaderboard_weights(db):
 
 async def seed_default_workspace(db):
     from sqlalchemy import select
-    from app.models import EvalWorkspace
+    from app.models import EvalWorkspace, Tenant
 
+    tenant = await db.scalar(select(Tenant).where(Tenant.code == "default"))
     exists = await db.scalar(select(EvalWorkspace.id).where(EvalWorkspace.code == "default"))
     if not exists:
-        db.add(EvalWorkspace(name="默认工作空间", code="default", quota_tokens=1000000, quota_calls=100000))
+        db.add(EvalWorkspace(
+            name="默认工作空间",
+            code="default",
+            quota_tokens=1000000,
+            quota_calls=100000,
+            tenant_id=tenant.id if tenant else None,
+            visibility="shared",
+        ))
         await db.flush()
+    elif tenant:
+        ws = await db.scalar(select(EvalWorkspace).where(EvalWorkspace.code == "default"))
+        if ws and getattr(ws, "tenant_id", None) is None:
+            ws.tenant_id = tenant.id
+            await db.flush()
+
+
+async def seed_tenants_and_backfill(db):
+    """创建默认租户并把历史对象/用户回填；不明归属标 isolated。"""
+    from sqlalchemy import select, text, update
+    from app.models import (
+        Tenant,
+        TenantMembership,
+        User,
+        Dataset,
+        EvalModel,
+        PromptTemplate,
+        EvalTask,
+        KnowledgeEntry,
+        AgentSession,
+        BatchSnapshot,
+        EvalWorkspace,
+        Role,
+    )
+
+    default = await db.scalar(select(Tenant).where(Tenant.code == "default"))
+    if not default:
+        default = Tenant(code="default", name="默认租户", status="active")
+        db.add(default)
+        await db.flush()
+
+    # viewer 角色若仍是 all，收紧为 shared（不强制改已手工调整的）
+    viewer = await db.scalar(select(Role).where(Role.code == "viewer"))
+    if viewer and (viewer.data_scope or "") == "all":
+        viewer.data_scope = "shared"
+
+    users = (await db.execute(select(User))).scalars().all()
+    for u in users:
+        if getattr(u, "status", None) in (None, ""):
+            u.status = "active"
+        if getattr(u, "tenant_id", None) is None:
+            u.tenant_id = default.id
+        mem = await db.scalar(
+            select(TenantMembership.id).where(
+                TenantMembership.tenant_id == default.id,
+                TenantMembership.user_id == u.id,
+            )
+        )
+        if not mem:
+            db.add(TenantMembership(tenant_id=default.id, user_id=u.id))
+    await db.flush()
+
+    scoped_models = [
+        (Dataset, "datasets"),
+        (EvalModel, "eval_models"),
+        (PromptTemplate, "prompt_templates"),
+        (EvalTask, "eval_tasks"),
+        (KnowledgeEntry, "knowledge_entries"),
+        (AgentSession, "agent_sessions"),
+        (BatchSnapshot, "batch_snapshots"),
+        (EvalWorkspace, "eval_workspaces"),
+    ]
+    for model, _table in scoped_models:
+        rows = (await db.execute(select(model))).scalars().all()
+        for row in rows:
+            if getattr(row, "tenant_id", None) is None:
+                row.tenant_id = default.id
+            vis = getattr(row, "visibility", None)
+            if not vis:
+                row.visibility = "shared" if model is EvalWorkspace else "private"
+            creator = getattr(row, "creator_id", None)
+            owner = getattr(row, "owner_id", None) if hasattr(row, "owner_id") else None
+            if creator is None and owner is None and model is not EvalWorkspace:
+                # 不明归属进入隔离，禁止普通范围读取
+                if getattr(row, "visibility", "private") == "private" and model is not BatchSnapshot:
+                    # 内置数据包等系统对象：标 shared 便于同租户只读
+                    if model is Dataset and getattr(row, "data_source", "") == "builtin":
+                        row.visibility = "shared"
+                    elif model is KnowledgeEntry and not creator:
+                        row.visibility = "shared"
+                    else:
+                        row.visibility = "isolated"
+    await db.flush()
 
 
 async def seed_knowledge(db):
@@ -372,39 +525,59 @@ async def seed_knowledge(db):
 
 async def seed_db():
     from sqlalchemy import select
-    from app.models import User, Role
+    from app.models import User, Role, Tenant
     from app.utils.auth import get_password_hash
 
     async with async_session() as db:
         await seed_rbac(db)
         await sync_permissions(db)
+        await seed_tenants_and_backfill(db)
         await seed_builtin_resources(db)
         await seed_quality_rules(db)
         await seed_task_templates(db)
+        from app.api.benchmarks import sync_benchmark_suites
+        await sync_benchmark_suites(db)
         from app.services.eval_packs import seed_eval_packs
         await seed_eval_packs(db)
         await seed_alert_policies(db)
         await seed_leaderboard_weights(db)
         await seed_default_workspace(db)
         await seed_knowledge(db)
+        await seed_tenants_and_backfill(db)
         r = await db.execute(select(Role).where(Role.code == "admin"))
         admin_role = r.scalar_one_or_none()
+        default_tenant = await db.scalar(select(Tenant).where(Tenant.code == "default"))
         r = await db.execute(select(User).where(User.username == "admin"))
         admin = r.scalar_one_or_none()
         if not admin:
-            db.add(User(
-                username="admin",
-                password_hash=get_password_hash("admin123"),
-                role="admin",
-                role_id=admin_role.id if admin_role else None,
-                email="admin@example.com",
-            ))
-            await db.commit()
+            from app.services.prod_guards import bootstrap_admin_password
+
+            bootstrap_pw = bootstrap_admin_password()
+            if bootstrap_pw:
+                db.add(User(
+                    username="admin",
+                    password_hash=get_password_hash(bootstrap_pw),
+                    role="admin",
+                    role_id=admin_role.id if admin_role else None,
+                    email="admin@example.com",
+                    tenant_id=default_tenant.id if default_tenant else None,
+                    status="active",
+                ))
+                await db.commit()
+            else:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "production: skip default admin seed; set ADMIN_BOOTSTRAP_PASSWORD"
+                )
         else:
             if getattr(admin, "role", None) != "admin":
                 admin.role = "admin"
             if admin_role and getattr(admin, "role_id", None) is None:
                 admin.role_id = admin_role.id
+            if getattr(admin, "tenant_id", None) is None and default_tenant:
+                admin.tenant_id = default_tenant.id
+            if not getattr(admin, "status", None):
+                admin.status = "active"
             await db.commit()
         r_roles = await db.execute(select(Role))
         roles_by_code = {ro.code: ro.id for ro in r_roles.scalars().all()}
@@ -415,7 +588,8 @@ async def seed_db():
                 code = "viewer"
             if code in roles_by_code:
                 u.role_id = roles_by_code[code]
-            await db.commit()
+        await seed_tenants_and_backfill(db)
+        await db.commit()
 
 
 async def get_db():

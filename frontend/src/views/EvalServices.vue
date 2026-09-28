@@ -3,24 +3,49 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">评测服务</h2>
-        <p class="page-desc">需求 → 自动/专家报价 → 确认创建 → 执行 → 报告交付。配额按工作空间隔离。</p>
+        <p class="page-desc">报价版本快照 → 审批执行 → 有报告才可交付（幂等结算）→ 影子灰度四门禁后转正/回滚。</p>
       </div>
       <el-button v-if="userStore.hasPermission('service:create')" type="primary" @click="openCreate">提交需求</el-button>
     </div>
     <el-row :gutter="12" class="kanban">
       <el-col v-for="(n, k) in buckets" :key="k" :span="4">
-        <el-card shadow="never"><div class="k-label">{{ k }}</div><div class="k-val">{{ n }}</div></el-card>
+        <el-card shadow="never" class="k-card">
+          <div class="k-label">{{ k }}</div>
+          <div class="k-val">{{ n }}</div>
+        </el-card>
       </el-col>
     </el-row>
     <el-card>
       <el-table v-loading="loading" :data="items" stripe>
-        <el-table-column prop="title" label="标题" min-width="160" />
+        <el-table-column prop="title" label="标题" min-width="140" />
         <el-table-column prop="industry" label="行业" width="90" />
-        <el-table-column prop="status" label="状态" width="110" />
-        <el-table-column prop="quote_amount" label="报价" width="90" />
-        <el-table-column prop="quote_mode" label="报价模式" width="100" />
-        <el-table-column prop="report_summary" label="交付摘要" min-width="180" show-overflow-tooltip />
-        <el-table-column v-if="userStore.hasPermission('service:edit')" label="办理" width="520">
+        <el-table-column prop="status" label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag size="small" :type="statusType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="报价" width="120">
+          <template #default="{ row }">
+            <div>{{ row.quote_amount }}</div>
+            <div class="sub">{{ row.quote_version || '—' }} · {{ row.quote_mode }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="灰度" min-width="160">
+          <template #default="{ row }">
+            <div>prod {{ row.production_version || 'v1' }}</div>
+            <div class="sub">gray {{ row.gray_version || '—' }} · {{ Math.round((row.traffic_pct || 0) * 100) }}%</div>
+            <el-tag v-if="row.shadow?.status" size="small" :type="row.shadow.status === 'ready' ? 'success' : row.shadow.status === 'inconclusive' ? 'warning' : 'info'">
+              {{ row.shadow.status }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="结算" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.delivery_settled ? 'success' : 'info'">{{ row.delivery_settled ? '已结' : '未结' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="report_summary" label="交付摘要" min-width="140" show-overflow-tooltip />
+        <el-table-column v-if="userStore.hasPermission('service:edit')" label="办理" width="560">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="quote(row, 'auto')">自动报价</el-button>
             <el-button link type="primary" size="small" @click="quote(row, 'expert')">专家报价</el-button>
@@ -28,10 +53,10 @@
             <el-button link type="primary" size="small" @click="setStatus(row, 'running')">执行</el-button>
             <el-button link type="success" size="small" @click="setStatus(row, 'delivered')">交付</el-button>
             <el-button v-if="row.task_id || row.report_path" link size="small" @click="download(row, 'json')">JSON</el-button>
-            <el-button v-if="row.task_id || row.report_path" link size="small" @click="download(row, 'xlsx')">Excel</el-button>
             <el-button link size="small" @click="shadow(row)">影子</el-button>
             <el-button link size="small" @click="promote(row)">转正</el-button>
             <el-button link size="small" @click="rollback(row)">回滚</el-button>
+            <el-button link size="small" @click="showShadow(row)">门禁</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -53,6 +78,22 @@
         <el-button type="primary" @click="submit">提交</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="gateDrawer" title="影子门禁详情" size="420px">
+      <template v-if="gateRow">
+        <p>返回始终为 production；candidate 失败不影响生产。</p>
+        <p>流量 {{ Math.round((gateRow.traffic_pct || 0) * 100) }}% · 证据 {{ gateRow.shadow?.evidence_days ?? 0 }} / {{ gateRow.shadow?.evidence_required_days || 7 }} 天</p>
+        <el-table :data="gateRow.shadow?.gates || []" size="small">
+          <el-table-column prop="code" label="门禁" />
+          <el-table-column label="结果" width="80">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.ok ? 'success' : 'danger'">{{ row.ok ? '通过' : '未过' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="detail" label="详情" />
+        </el-table>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -68,7 +109,16 @@ const items = ref([])
 const workspaces = ref([])
 const buckets = ref({})
 const showForm = ref(false)
+const gateDrawer = ref(false)
+const gateRow = ref(null)
 const form = ref({ title: '', industry: 'general', requirement: '', workspace_id: null })
+
+function statusType(s) {
+  if (s === 'delivered') return 'success'
+  if (s === 'rejected') return 'danger'
+  if (s === 'running') return 'warning'
+  return 'info'
+}
 
 async function loadData() {
   loading.value = true
@@ -93,7 +143,7 @@ function openCreate() {
 
 async function submit() {
   await servicesApi.create(form.value)
-  ElMessage.success('已提交并生成自动报价')
+  ElMessage.success('已提交并生成自动报价版本')
   showForm.value = false
   loadData()
 }
@@ -115,8 +165,13 @@ async function confirm(row) {
 }
 
 async function setStatus(row, status) {
-  await servicesApi.updateStatus(row.id, { status })
-  loadData()
+  try {
+    await servicesApi.updateStatus(row.id, { status })
+    ElMessage.success(status === 'delivered' ? '已交付（幂等结算）' : '状态已更新')
+    loadData()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '更新失败')
+  }
 }
 
 async function download(row, fmt = 'json') {
@@ -132,23 +187,33 @@ async function download(row, fmt = 'json') {
 async function shadow(row) {
   await servicesApi.shadow(row.id, {
     gray_version: 'v-next',
-    production: { score: 0.9, latency_ms: 100 },
-    candidate: { score: 0.91, latency_ms: 105 }
+    traffic_pct: 0.05,
+    production: { score: 0.9, latency_ms: 100, samples: [0.9, 0.91, 0.89] },
+    candidate: { score: 0.91, latency_ms: 105, samples: [0.91, 0.92, 0.9] }
   })
-  ElMessage.success('影子测试已记录（仅返回生产结果）')
+  ElMessage.success('影子双路已记录（仅返回生产结果，流量 5%）')
   loadData()
 }
 
 async function promote(row) {
-  await servicesApi.promote(row.id)
-  ElMessage.success('已转正')
-  loadData()
+  try {
+    await servicesApi.promote(row.id)
+    ElMessage.success('已转正')
+    loadData()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '转正失败')
+  }
 }
 
 async function rollback(row) {
   await servicesApi.rollback(row.id)
-  ElMessage.success('已回滚灰度')
+  ElMessage.success('已回滚至 previous_stable，候选流量关闭')
   loadData()
+}
+
+function showShadow(row) {
+  gateRow.value = row
+  gateDrawer.value = true
 }
 
 onMounted(loadData)
@@ -156,6 +221,8 @@ onMounted(loadData)
 
 <style scoped>
 .kanban { margin-bottom: 12px; }
-.k-label { color: var(--el-text-color-secondary); font-size: 12px; }
-.k-val { font-size: 20px; font-weight: 600; margin-top: 4px; }
+.k-card { border-radius: 12px; }
+.k-label { color: var(--text-secondary); font-size: 12px; text-transform: lowercase; }
+.k-val { font-size: 22px; font-weight: 600; margin-top: 4px; color: var(--text-primary); }
+.sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 </style>

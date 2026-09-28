@@ -9,6 +9,8 @@ from app.config import settings
 def httpx_tls_kwargs(channel_type: str = "https") -> dict:
     ch = (channel_type or "https").lower()
     if ch == "plain":
+        if (settings.APP_ENV or "").lower() == "production":
+            raise RuntimeError("生产环境禁止明文通道(channel_type=plain)")
         return {"verify": False}
     if ch == "mtls":
         cert = (settings.MTLS_CERT_FILE or "").strip()

@@ -1,0 +1,69 @@
+{
+  "case_id": "L3-LIVE-DEEPSEEK",
+  "level": "L3",
+  "started_at": "2026-09-28T14:10:41.128649+00:00",
+  "env": "staging",
+  "api_url": "https://api.deepseek.com",
+  "api_key_fingerprint": "ea50e8d774deeddc",
+  "models": [
+    "deepseek-flash",
+    "deepseek-v4-pro"
+  ],
+  "channel": "https",
+  "steps": [
+    {
+      "code": "direct_chat:deepseek-flash",
+      "ok": true,
+      "matched_l3ok": false,
+      "status": 200,
+      "latency_ms": 1139,
+      "preview_hash": "6cecf3f5b3c5334e"
+    },
+    {
+      "code": "direct_chat:deepseek-v4-pro",
+      "ok": true,
+      "matched_l3ok": false,
+      "status": 200,
+      "latency_ms": 968,
+      "preview_hash": "6cecf3f5b3c5334e"
+    },
+    {
+      "code": "mcp_echo_direct",
+      "ok": true,
+      "endpoint": "http://127.0.0.1:8765/mcp"
+    },
+    {
+      "code": "login",
+      "ok": true,
+      "via": "bootstrap"
+    },
+    {
+      "code": "platform_mcp_probe",
+      "ok": true,
+      "register_status": 200,
+      "probe_status": 200
+    },
+    {
+      "code": "model_health_api",
+      "ok": true,
+      "status": 200,
+      "latency_ms": 265,
+      "detail": "HTTP 200"
+    },
+    {
+      "code": "platform_trial_task",
+      "ok": true,
+      "task_id": 3,
+      "import_ok": true,
+      "run_status": "success",
+      "run_http": 200
+    },
+    {
+      "code": "ready",
+      "ok": true,
+      "status": 200
+    }
+  ],
+  "ok": true,
+  "finished_at": "2026-09-28T14:10:51.578785+00:00"
+}

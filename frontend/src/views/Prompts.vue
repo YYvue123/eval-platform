@@ -93,6 +93,32 @@
           <el-table-column prop="sample_count" label="样本" width="70" />
           <el-table-column prop="created_at" label="时间" />
         </el-table>
+        <h4>提示词实验（develop/holdout）</h4>
+        <el-form inline>
+          <el-form-item>
+            <el-select v-model="expForm.dataset_id" placeholder="数据集" filterable style="width: 160px">
+              <el-option v-for="d in datasets" :key="d.id" :label="d.name" :value="d.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button v-if="userStore.hasPermission('prompt:edit')" type="primary" :loading="expLoading" @click="runExperiment">跑实验</el-button>
+          </el-form-item>
+        </el-form>
+        <el-table :data="experiments" size="small">
+          <el-table-column prop="id" label="#" width="60" />
+          <el-table-column label="holdout差" width="100">
+            <template #default="{ row }">{{ row.pair_stats?.avg_diff }}</template>
+          </el-table-column>
+          <el-table-column label="建议发布" width="90">
+            <template #default="{ row }">{{ row.publish_recommended ? '是' : '否' }}</template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="110" />
+          <el-table-column width="120">
+            <template #default="{ row }">
+              <el-button v-if="userStore.hasPermission('prompt:publish')" link type="primary" size="small" @click="publishExp(row)">尝试发布</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
         <h4>版本</h4>
         <el-table :data="detail.versions || []" size="small">
           <el-table-column prop="version_code" label="版本" width="80" />
@@ -140,6 +166,9 @@ const datasets = ref([])
 const models = ref([])
 const testing = ref(false)
 const testForm = ref({ dataset_id: null, model_id: null })
+const experiments = ref([])
+const expLoading = ref(false)
+const expForm = ref({ dataset_id: null })
 
 async function loadData() {
   loading.value = true
@@ -187,14 +216,44 @@ async function openDetail(row) {
   stats.value = await promptsApi.stats(row.id)
   tests.value = await promptsApi.tests(row.id)
   logs.value = await promptsApi.logs(row.id)
-  const [ds, ms] = await Promise.all([
+  const [ds, ms, ex] = await Promise.all([
     datasetsApi.list({ page_size: 50 }),
-    modelsApi.list({ page_size: 50 })
+    modelsApi.list({ page_size: 50 }),
+    promptsApi.experiments(row.id),
   ])
   datasets.value = ds.items || []
   models.value = ms.items || []
+  experiments.value = ex.items || []
   testForm.value = { dataset_id: datasets.value[0]?.id, model_id: models.value[0]?.id }
+  expForm.value = { dataset_id: datasets.value[0]?.id }
   showDetail.value = true
+}
+
+async function runExperiment() {
+  if (!detail.value.id || !expForm.value.dataset_id) return
+  expLoading.value = true
+  try {
+    const res = await promptsApi.createExperiment(detail.value.id, {
+      dataset_id: expForm.value.dataset_id,
+      holdout_ratio: 0.3,
+      token_budget: 5000,
+    })
+    ElMessage.success(res.publish_recommended ? '有显著收益，可尝试发布' : '无显著收益，默认不自动发布')
+    const ex = await promptsApi.experiments(detail.value.id)
+    experiments.value = ex.items || []
+    detail.value = await promptsApi.get(detail.value.id)
+  } finally {
+    expLoading.value = false
+  }
+}
+
+async function publishExp(row) {
+  const res = await promptsApi.publishExperiment(detail.value.id, row.id, { force: false })
+  if (res.published) ElMessage.success('已发布候选版本')
+  else ElMessage.warning(res.reason === 'no_significant_gain' ? '无显著收益，未自动发布' : '未发布')
+  const ex = await promptsApi.experiments(detail.value.id)
+  experiments.value = ex.items || []
+  loadData()
 }
 
 async function submit() {

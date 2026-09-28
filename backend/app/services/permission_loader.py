@@ -10,11 +10,14 @@ ACTION_NAMES = {
     "edit": "编辑",
     "delete": "删除",
     "export": "导出",
+    "export_sensitive": "敏感导出",
     "invoke": "调用",
     "publish": "发布",
     "audit": "审核",
     "confirm": "确认",
     "backup": "备份",
+    "admit": "准入",
+    "ticket": "工单",
     "run": "执行",
 }
 

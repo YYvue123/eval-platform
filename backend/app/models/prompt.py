@@ -23,6 +23,8 @@ class PromptTemplate(Base):
     constraints: Mapped[str] = mapped_column(Text, default="")
     review_comment: Mapped[str] = mapped_column(Text, default="")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    visibility: Mapped[str] = mapped_column(String(20), default="private")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -71,3 +73,26 @@ class PromptTestRun(Base):
     result_json: Mapped[str] = mapped_column(Text, default="{}")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PromptExperiment(Base):
+    __tablename__ = "prompt_experiments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    prompt_id: Mapped[int] = mapped_column(Integer, index=True)
+    baseline_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    candidate_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dataset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # dataset version
+    holdout_ratio: Mapped[float] = mapped_column(Float, default=0.3)
+    token_budget: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), default="draft")  # draft|running|done|rejected_publish
+    develop_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    holdout_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    pair_stats_json: Mapped[str] = mapped_column(Text, default="{}")
+    publish_recommended: Mapped[int] = mapped_column(Integer, default=0)  # 0/1
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

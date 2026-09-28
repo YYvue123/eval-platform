@@ -99,7 +99,10 @@ export const promptsApi = {
   runTest: (id, data) => request.post(`/prompts/${id}/tests`, data),
   tests: (id) => request.get(`/prompts/${id}/tests`),
   stats: (id) => request.get(`/prompts/${id}/stats`),
-  logs: (id) => request.get(`/prompts/${id}/logs`)
+  logs: (id) => request.get(`/prompts/${id}/logs`),
+  createExperiment: (id, data) => request.post(`/prompts/${id}/experiments`, data),
+  experiments: (id) => request.get(`/prompts/${id}/experiments`),
+  publishExperiment: (id, eid, data) => request.post(`/prompts/${id}/experiments/${eid}/publish`, data || {}),
 }
 
 export const resourcesApi = {
@@ -107,6 +110,7 @@ export const resourcesApi = {
   get: (id) => request.get(`/resources/${encodeURIComponent(id)}`),
   register: (manifest) => request.post('/resources/register', { manifest }),
   invoke: (data) => request.post('/resources/invoke', data),
+  mcpProbe: (data) => request.post('/resources/mcp/probe', data),
   offline: (id) => request.post(`/resources/${encodeURIComponent(id)}/offline`),
   match: (data) => request.post('/resources/match', data),
   events: (params) => request.get('/resources/events', { params }),
@@ -120,7 +124,8 @@ export const batchApi = {
   status: (id) => request.get(`/batch/status/${id}`),
   cancel: (id) => request.delete(`/batch/${id}`),
   shard: (id, shardId, params) => request.get(`/batch/${id}/shards/${shardId}`, { params }),
-  putResults: (id, shardId, data) => request.put(`/batch/${id}/shards/${shardId}/results`, data)
+  putResults: (id, shardId, data) => request.put(`/batch/${id}/shards/${shardId}/results`, data),
+  results: (id, params) => request.get(`/batch/${id}/results`, { params, responseType: 'blob' })
 }
 
 export const qualityApi = {
@@ -133,6 +138,33 @@ export const qualityApi = {
   download: (id) => request.get(`/quality/${id}/download`, { responseType: 'blob' })
 }
 
+export const benchmarksApi = {
+  list: (params) => request.get('/benchmarks', { params }),
+  metrics: () => request.get('/benchmarks/metrics'),
+  packs: () => request.get('/benchmarks/packs'),
+  pack: (code) => request.get(`/benchmarks/packs/${encodeURIComponent(code)}`),
+  simulators: () => request.get('/benchmarks/simulators'),
+  simulate: (data) => request.post('/benchmarks/simulate', data),
+  get: (code) => request.get(`/benchmarks/${encodeURIComponent(code)}`),
+  markReady: (code, data) => request.post(`/benchmarks/${encodeURIComponent(code)}/mark-ready`, data || {}),
+  checkMutTool: (data) => request.post('/benchmarks/mut/check-tool', data),
+  validateSample: (data) => request.post('/benchmarks/validate-sample', data),
+}
+
+export const safetyApi = {
+  categories: () => request.get('/safety/categories'),
+  getSet: (category, params) => request.get(`/safety/sets/${encodeURIComponent(category)}`, { params }),
+  score: (data) => request.post('/safety/score', data),
+  adaptiveNext: (data) => request.post('/safety/adaptive/next', data),
+  calibrate: () => request.post('/safety/calibrate'),
+  calibrateOne: (category, params) => request.post(`/safety/calibrate/${encodeURIComponent(category)}`, null, { params }),
+  reviews: (params) => request.get('/safety/reviews', { params }),
+  createReview: (data) => request.post('/safety/reviews', data),
+  resolveReview: (id, data) => request.post(`/safety/reviews/${encodeURIComponent(id)}/resolve`, data),
+  candidates: () => request.get('/safety/candidates'),
+  validateCandidate: (id) => request.post(`/safety/candidates/${encodeURIComponent(id)}/validate`),
+}
+
 export const tasksApi = {
   list: (params) => request.get('/tasks', { params }),
   get: (id) => request.get(`/tasks/${id}`),
@@ -140,6 +172,7 @@ export const tasksApi = {
   results: (id, params) => request.get(`/tasks/${id}/results`, { params }),
   run: (id) => request.post(`/tasks/${id}/run`),
   cancel: (id) => request.post(`/tasks/${id}/cancel`),
+  retry: (id) => request.post(`/tasks/${id}/retry`),
   catalog: () => request.get('/tasks/catalog'),
   templates: (params) => request.get('/tasks/templates', { params }),
   submit: (id) => request.post(`/tasks/${id}/submit`),
@@ -147,6 +180,8 @@ export const tasksApi = {
   events: (id) => request.get(`/tasks/${id}/events`),
   subtasks: (id) => request.get(`/tasks/${id}/subtasks`),
   report: (id, params) => request.get(`/tasks/${id}/report`, { params, responseType: 'blob' }),
+  reportStatus: (id) => request.get(`/tasks/${id}/report-status`),
+  renderReport: (id) => request.post(`/tasks/${id}/report/render`),
   lineage: (id) => request.get(`/tasks/${id}/lineage`),
   alerts: () => request.get('/tasks/alerts'),
   patchAlert: (id, data) => request.put(`/tasks/alerts/${id}`, data)
@@ -161,7 +196,10 @@ export const leaderboardApi = {
   costs: () => request.get('/leaderboard/costs'),
   putCost: (id, data) => request.put(`/leaderboard/costs/${id}`, data),
   radar: (params) => request.get('/leaderboard/radar', { params }),
-  trend: (params) => request.get('/leaderboard/trend', { params })
+  trend: (params) => request.get('/leaderboard/trend', { params }),
+  currentRelease: (params) => request.get('/leaderboard/releases/current', { params }),
+  publish: (params, data) => request.post('/leaderboard/releases/publish', data || {}, { params }),
+  rollback: (params) => request.post('/leaderboard/releases/rollback', null, { params }),
 }
 
 export const servicesApi = {
@@ -185,17 +223,45 @@ export const agentsApi = {
   sessions: () => request.get('/agents/sessions'),
   createSession: (data) => request.post('/agents/sessions', data),
   getSession: (id) => request.get(`/agents/sessions/${id}`),
+  clarify: (id, data) => request.post(`/agents/sessions/${id}/clarify`, data),
+  approve: (id, data) => request.post(`/agents/sessions/${id}/approve`, data || {}),
   confirm: (id, data) => request.post(`/agents/sessions/${id}/confirm`, data),
   monitor: (id) => request.get(`/agents/sessions/${id}/monitor`),
   diagnose: (id) => request.post(`/agents/sessions/${id}/diagnose`),
-  actSuggestion: (id, data) => request.post(`/agents/suggestions/${id}/act`, data)
+  collaborate: (id, data) => request.post(`/agents/sessions/${id}/collaborate`, data || {}),
+  delegations: (id) => request.get(`/agents/sessions/${id}/delegations`),
+  knowledgeCandidates: (params) => request.get('/agents/knowledge/candidates', { params }),
+  reviewKnowledge: (id, data) => request.post(`/agents/knowledge/candidates/${id}/review`, data),
+  actSuggestion: (id, data) => request.post(`/agents/suggestions/${id}/act`, data),
+  startRun: (sid, data) => request.post(`/agents/sessions/${sid}/runs`, data),
+  getRun: (rid) => request.get(`/agents/runs/${rid}`),
+  runEvents: (rid, params) => request.get(`/agents/runs/${rid}/events`, { params }),
+  cancelRun: (rid) => request.post(`/agents/runs/${rid}/cancel`),
+  resumeRun: (rid) => request.post(`/agents/runs/${rid}/resume`),
 }
 
 export const opsApi = {
   health: () => request.get('/health'),
+  live: () => request.get('/live'),
+  ready: () => request.get('/ready'),
   metrics: () => request.get('/metrics', { responseType: 'text' }),
   status: () => request.get('/ops/status'),
   backup: () => request.post('/ops/backup'),
+  restoreDrill: (backupPath) =>
+    request.post('/ops/restore-drill', null, { params: backupPath ? { backup_path: backupPath } : {} }),
   acceptance: () => request.get('/ops/acceptance'),
-  gcSnapshots: () => request.post('/ops/gc-snapshots')
+  admissionRun: (level = 'basic') => request.post('/ops/admission/run', { level }),
+  admissionLatest: () => request.get('/ops/admission/latest'),
+  fault: (body) => request.post('/ops/fault', body),
+  gcSnapshots: () => request.post('/ops/gc-snapshots'),
+  tickets: (params) => request.get('/ops/tickets', { params }),
+  createTicket: (data) => request.post('/ops/tickets', data),
+  patchTicket: (id, data) => request.patch(`/ops/tickets/${id}`, data),
+  drills: () => request.get('/ops/drills'),
+  createDrill: (data) => request.post('/ops/drills', data),
+  authorizations: (params) => request.get('/ops/authorizations', { params }),
+  createAuthorization: (data) => request.post('/ops/authorizations', data),
+  disableAuthorization: (id) => request.post(`/ops/authorizations/${id}/disable`),
+  report: () => request.get('/ops/report'),
+  policy: () => request.get('/ops/policy')
 }

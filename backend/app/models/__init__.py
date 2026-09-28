@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.tenant import Tenant, TenantMembership
 from app.models.notification import Notification, NotificationRead
 from app.models.role import Role, Permission
 from app.models.audit_log import AuditLog
@@ -13,15 +14,18 @@ from app.models.eval_model import (
     ModelHealthSample,
     ModelCost,
 )
-from app.models.prompt import PromptTemplate, PromptVersion, PromptCallLog, PromptTestRun
+from app.models.prompt import PromptTemplate, PromptVersion, PromptCallLog, PromptTestRun, PromptExperiment
 from app.models.resource import (
     BaseResource,
     ResourceCallLog,
     ResourceEvent,
+    ResourceVersion,
+    IdempotencyRecord,
     BatchSnapshot,
     BatchJob,
     BatchShardResult,
 )
+from app.models.usage import UsageReservation, UsageLedger
 from app.models.eval_task import (
     EvalTask,
     EvalResult,
@@ -31,17 +35,34 @@ from app.models.eval_task import (
     QualityIssue,
     EvalServiceRequest,
     TaskTemplate,
+    BenchmarkSuite,
     TaskEvent,
     TaskSubtask,
     AlertPolicy,
     EvalWorkspace,
     LeaderboardWeight,
     LeaderboardSnapshot,
+    LeaderboardRelease,
+    ReportJob,
 )
-from app.models.agent import KnowledgeEntry, AgentSession, AgentMessage, AgentSuggestion
+from app.models.agent import (
+    KnowledgeEntry,
+    AgentSession,
+    AgentMessage,
+    AgentSuggestion,
+    AgentRun,
+    AgentEvent,
+    AgentApproval,
+    AgentDelegation,
+    AgentMonitorState,
+    KnowledgeCandidate,
+)
+from app.models.ops_governance import OpsTicket, OpsDrillRecord, DataAuthorization
 
 __all__ = [
     "User",
+    "Tenant",
+    "TenantMembership",
     "Notification",
     "NotificationRead",
     "Role",
@@ -64,12 +85,17 @@ __all__ = [
     "PromptVersion",
     "PromptCallLog",
     "PromptTestRun",
+    "PromptExperiment",
     "BaseResource",
     "ResourceCallLog",
     "ResourceEvent",
+    "ResourceVersion",
+    "IdempotencyRecord",
     "BatchSnapshot",
     "BatchJob",
     "BatchShardResult",
+    "UsageReservation",
+    "UsageLedger",
     "EvalTask",
     "EvalResult",
     "EvalLineage",
@@ -78,14 +104,26 @@ __all__ = [
     "QualityIssue",
     "EvalServiceRequest",
     "TaskTemplate",
+    "BenchmarkSuite",
     "TaskEvent",
     "TaskSubtask",
     "AlertPolicy",
     "EvalWorkspace",
     "LeaderboardWeight",
     "LeaderboardSnapshot",
+    "LeaderboardRelease",
+    "ReportJob",
     "KnowledgeEntry",
     "AgentSession",
     "AgentMessage",
     "AgentSuggestion",
+    "AgentRun",
+    "AgentEvent",
+    "AgentApproval",
+    "AgentDelegation",
+    "AgentMonitorState",
+    "KnowledgeCandidate",
+    "OpsTicket",
+    "OpsDrillRecord",
+    "DataAuthorization",
 ]

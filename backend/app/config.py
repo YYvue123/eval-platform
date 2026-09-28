@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     AUDIT_RETENTION_DAYS: int = 180
     AUDIT_RETENTION_RESTRICTED_DAYS: int = 365
     BACKUP_DIR: str = "./backups"
+    # L3 / 预发真实模型（仅环境变量注入，勿写入默认密钥）
+    L3_MODEL_API_URL: str = ""
+    L3_MODEL_API_KEY: str = ""
+    L3_MODEL_PRIMARY: str = ""
+    L3_MODEL_SECONDARY: str = ""
+    L3_MODEL_CHANNEL: str = "https"
+    L3_MCP_ENDPOINT: str = "http://127.0.0.1:8765/mcp"
 
 
 settings = Settings()

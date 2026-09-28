@@ -33,6 +33,8 @@ class UserUpdate(BaseModel):
     role: str | None = None
     role_id: int | None = None
     password: str | None = None
+    status: str | None = None
+    tenant_id: int | None = None
 
 
 async def _resolve_role_code(db: AsyncSession, u: User) -> str:
@@ -132,6 +134,8 @@ def _user_to_dict(u: User, role_code: str | None = None) -> dict:
         "email": u.email or "",
         "role": role_code or getattr(u, "role", None) or "viewer",
         "role_id": getattr(u, "role_id", None),
+        "tenant_id": getattr(u, "tenant_id", None),
+        "status": getattr(u, "status", None) or "active",
         "created_at": u.created_at.isoformat(),
         "updated_at": getattr(u, "updated_at", u.created_at).isoformat() if getattr(u, "updated_at", None) else u.created_at.isoformat(),
     }
@@ -284,6 +288,7 @@ async def create_user(
     role_code = data.role or "viewer"
     if role_code == "admin":
         role_code = "admin"
+    from app.models import Tenant, TenantMembership
     u = User(
         username=data.username,
         password_hash=get_password_hash(data.password),
@@ -292,8 +297,13 @@ async def create_user(
         created_by=current.id,
         role=role_code,
         role_id=role_id,
+        tenant_id=getattr(current, "tenant_id", None),
+        status="active",
     )
     db.add(u)
+    await db.flush()
+    if u.tenant_id:
+        db.add(TenantMembership(tenant_id=u.tenant_id, user_id=u.id))
     await db.commit()
     await db.refresh(u)
     await log_audit(db, "user", "create", user_id=current.id, username=current.username, target_id=u.id, detail=u.username, ip=get_client_ip(request))
@@ -341,6 +351,12 @@ async def update_user(
             ro = r.scalar_one_or_none()
             if ro:
                 u.role_id = ro.id
+        if data.status is not None:
+            if data.status not in ("active", "disabled"):
+                raise HTTPException(400, "status 必须为 active 或 disabled")
+            u.status = data.status
+        if data.tenant_id is not None:
+            u.tenant_id = data.tenant_id
         if data.password:
             try:
                 validate_password_strength(data.password)

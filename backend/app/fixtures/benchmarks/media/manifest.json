@@ -1,0 +1,34 @@
+{
+  "suite_code": "bench.media.video",
+  "version": "1.0.0",
+  "license": "internal-eval",
+  "oracle_type": "human",
+  "string_only_media": false,
+  "samples": [
+    {
+      "id": "media-vid-001",
+      "media_uri": "fixture://media/sample.mp4",
+      "media_type": "video",
+      "prompt": "描述视频主题（夹具为最小可解析容器）。",
+      "reference": "fixture-video",
+      "human_gold": true
+    },
+    {
+      "id": "media-img-001",
+      "media_uri": "fixture://media/sample.png",
+      "media_type": "image",
+      "prompt": "图像中主色近似？",
+      "reference": "black",
+      "human_gold": true
+    },
+    {
+      "id": "media-aud-001",
+      "media_uri": "fixture://media/sample.wav",
+      "media_type": "audio",
+      "prompt": "音频是否为可解码 WAV？",
+      "reference": "yes",
+      "transcript": "",
+      "human_gold": true
+    }
+  ]
+}

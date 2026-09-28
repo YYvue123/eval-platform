@@ -20,6 +20,7 @@
     {"resource": "dataset", "action": "edit", "name": "数据集编辑"},
     {"resource": "dataset", "action": "delete", "name": "数据集删除"},
     {"resource": "dataset", "action": "export", "name": "数据集导出"},
+    {"resource": "dataset", "action": "export_sensitive", "name": "敏感数据集导出"},
     {"resource": "dataset", "action": "audit", "name": "数据集审核"},
     {"resource": "model", "action": "list", "name": "模型列表"},
     {"resource": "model", "action": "view", "name": "模型详情"},
@@ -62,6 +63,8 @@
     {"resource": "agent", "action": "invoke", "name": "编排Agent调用"},
     {"resource": "agent", "action": "confirm", "name": "编排关键操作确认"},
     {"resource": "ops", "action": "view", "name": "运行支撑查看"},
-    {"resource": "ops", "action": "backup", "name": "备份与审计清理"}
+    {"resource": "ops", "action": "backup", "name": "备份与审计清理"},
+    {"resource": "ops", "action": "admit", "name": "运行准入验收"},
+    {"resource": "ops", "action": "ticket", "name": "运维工单与授权"}
   ]
 }

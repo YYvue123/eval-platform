@@ -8,6 +8,8 @@ __pycache__/
 .Python
 venv/
 .venv/
+.venv-*/
+backend/tests/_isolated/
 env/
 .env/
 *.egg-info/

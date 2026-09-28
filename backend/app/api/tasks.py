@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_permission, require_actor
 from app.database import get_db
 from app.models import (
     AlertPolicy,
@@ -28,12 +28,24 @@ from app.models import (
     User,
 )
 from app.api.models import _acl_allows
+from app.services.actor_context import ActorContext, effective_tenant_id
+from app.services.object_policy import apply_object_scope, get_visible_or_404, object_is_visible
 from app.services.audit import get_client_ip, log_audit
 from app.services.serializers import task_out
-from app.services.leaderboard import compute_board, last_snapshot, radar_payload, save_snapshot
+from app.services.leaderboard import (
+    compute_board,
+    current_release,
+    last_snapshot,
+    publish_release,
+    radar_payload,
+    release_out,
+    rollback_release,
+    save_snapshot,
+)
 from app.services.task_catalog import find_template, industry_options, scene_options
 from app.services.task_events import emit_event
 from app.services.task_queue import dispatch_queue, enqueue_task
+from app.services.task_service import detect_dependency_cycle, request_cancel, retry_task
 from app.utils.jsonutil import dumps, iso, loads
 
 router = APIRouter()
@@ -185,9 +197,10 @@ async def list_tasks(
     status: str = Query(""),
     search: str = Query(""),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("task:list")),
+    actor: ActorContext = Depends(require_actor("task:list")),
 ):
     q = select(EvalTask)
+    q = apply_object_scope(q, EvalTask, actor)
     if status:
         q = q.where(EvalTask.status == status)
     if search:
@@ -202,27 +215,40 @@ async def create_task(
     body: TaskCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("task:create")),
+    actor: ActorContext = Depends(require_actor("task:create")),
 ):
-    ds = await db.get(Dataset, body.dataset_id)
-    if not ds or ds.status == "deleted":
+    current = await db.get(User, actor.user_id)
+    ds = await get_visible_or_404(db, Dataset, body.dataset_id, actor, not_found="数据集不存在或无权访问")
+    if ds.status == "deleted":
         raise HTTPException(400, "数据集不存在")
-    blocked = {"failed", "check_failed"}
-    if not body.trial_run and ds.quality_status in blocked:
-        raise HTTPException(400, "质量不合格或检测失败的数据不能进入正式评测，请先清洗或勾选仅测试")
-    model = await db.get(EvalModel, body.model_id)
-    if not model or model.status == "deleted":
+    if not body.trial_run:
+        if ds.status != "published":
+            raise HTTPException(400, "正式评测要求数据集已发布；请先质检并发布，或勾选仅测试(trial_run)")
+        bad_q = {"unchecked", "failed", "check_failed", "checking", "needs_clean"}
+        if ds.quality_status in bad_q:
+            raise HTTPException(400, "正式评测要求质检通过(passed)；请先清洗/质检或勾选仅测试(trial_run)")
+    model = await get_visible_or_404(db, EvalModel, body.model_id, actor, not_found="被测模型不存在或无权访问")
+    if model.status == "deleted":
         raise HTTPException(400, "被测模型不存在")
     if model.status in {"disabled", "archived"}:
         raise HTTPException(400, "模型已停用或归档")
+    if not body.trial_run and not (model.api_url or "").strip():
+        raise HTTPException(400, "正式执行拒绝无 endpoint 模型；请配置 api_url 或勾选仅测试(trial_run)")
     if not await _acl_allows(db, model.id, current):
         raise HTTPException(403, "没有该模型的调用权限")
     if body.prompt_id:
         prompt = await db.get(PromptTemplate, body.prompt_id)
-        if not prompt:
-            raise HTTPException(400, "提示词不存在")
+        if not prompt or not object_is_visible(prompt, actor):
+            raise HTTPException(400, "提示词不存在或无权访问")
+        if not body.trial_run and prompt.status != "published":
+            raise HTTPException(400, "正式评测要求提示词已发布，或勾选仅测试(trial_run)")
     data = body.model_dump()
     weights = data.pop("metric_weights", None)
+    claimed = data.pop("tenant_id", None) if "tenant_id" in data else None
+    if body.prompt_id and not data.get("prompt_version_id"):
+        prompt = await db.get(PromptTemplate, body.prompt_id)
+        if prompt:
+            data["prompt_version_id"] = prompt.current_version_id
     tpl_code = (data.get("template_code") or "").strip()
     if tpl_code:
         tpl = await db.scalar(select(TaskTemplate).where(TaskTemplate.code == tpl_code))
@@ -250,14 +276,22 @@ async def create_task(
             raise HTTPException(400, "依赖任务不存在")
         if body.depends_on_id == 0:
             data["depends_on_id"] = None
+        elif await detect_dependency_cycle(db, None, body.depends_on_id):
+            # 创建时尚未有 id；仅检查依赖链是否自环不合理，真正成环在挂到自身后
+            pass
     data["dataset_version_id"] = body.dataset_version_id or ds.current_version_id
     data["model_version_id"] = body.model_version_id or model.current_version_id
     data["metric_weights_json"] = dumps(weights or {})
-    t = EvalTask(**data, creator_id=current.id)
+    data["tenant_id"] = effective_tenant_id(actor, claimed)
+    data["visibility"] = "private"
+    t = EvalTask(**data, creator_id=actor.user_id)
     db.add(t)
     await db.flush()
+    if t.depends_on_id and await detect_dependency_cycle(db, t.id, t.depends_on_id):
+        await db.delete(t)
+        raise HTTPException(400, "任务依赖存在环，已拒绝创建")
     await emit_event(db, t.id, "created", {"template_code": tpl_code})
-    await log_audit(db, "task", "create", user_id=current.id, username=current.username, target_id=t.id, ip=get_client_ip(request))
+    await log_audit(db, "task", "create", user_id=actor.user_id, username=actor.username, target_id=t.id, ip=get_client_ip(request))
     return task_out(t)
 
 
@@ -265,11 +299,9 @@ async def create_task(
 async def get_task(
     task_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("task:view")),
+    actor: ActorContext = Depends(require_actor("task:view")),
 ):
-    t = await db.get(EvalTask, task_id)
-    if not t:
-        raise HTTPException(404, "任务不存在")
+    t = await get_visible_or_404(db, EvalTask, task_id, actor, not_found="任务不存在或无权访问")
     return task_out(t)
 
 
@@ -353,7 +385,7 @@ async def download_task_report(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("task:view")),
 ):
-    from app.services.report_archive import report_file
+    from app.services.report_archive import report_file, report_formats_status
     t = await db.get(EvalTask, task_id)
     if not t:
         raise HTTPException(404, "任务不存在")
@@ -361,7 +393,9 @@ async def download_task_report(
     if not path.exists() and t.report_path and Path(t.report_path).exists() and fmt == "json":
         path = Path(t.report_path)
     if not path.exists():
-        raise HTTPException(404, "报告文件不存在")
+        status = report_formats_status(task_id)
+        fmt_st = (status.get("formats") or {}).get(fmt) or {}
+        raise HTTPException(404, f"报告文件不存在（{fmt}:{fmt_st.get('status') or 'missing'} {fmt_st.get('error') or ''}）".strip())
     media = {
         "json": "application/json",
         "csv": "text/csv",
@@ -372,6 +406,60 @@ async def download_task_report(
         "md": "text/markdown",
     }.get(fmt, "application/octet-stream")
     return FileResponse(path, filename=path.name, media_type=media)
+
+
+@router.get("/{task_id}/report-status")
+async def task_report_status(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("task:view")),
+):
+    from app.models import ReportJob
+    from app.services.report_archive import report_formats_status
+    t = await db.get(EvalTask, task_id)
+    if not t:
+        raise HTTPException(404, "任务不存在")
+    status = report_formats_status(task_id)
+    job = await db.scalar(select(ReportJob).where(ReportJob.task_id == task_id).order_by(ReportJob.id.desc()).limit(1))
+    return {
+        **status,
+        "job": None if not job else {
+            "id": job.id,
+            "status": job.status,
+            "error_message": job.error_message,
+            "formats": loads(job.formats_json, {}),
+            "evidence": loads(job.evidence_json, []),
+        },
+    }
+
+
+@router.post("/{task_id}/report/render")
+async def render_task_report(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("task:edit")),
+):
+    from app.services.report_archive import render_report_job
+    t = await db.get(EvalTask, task_id)
+    if not t:
+        raise HTTPException(404, "任务不存在")
+    results = (await db.execute(select(EvalResult).where(EvalResult.task_id == task_id).order_by(EvalResult.item_no))).scalars().all()
+    extra = {
+        "results": [
+            {"id": r.id, "item_no": r.item_no, "score": r.score, "passed": r.passed}
+            for r in results
+        ]
+    }
+    job = await render_report_job(db, t, extra)
+    await db.commit()
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "error_message": job.error_message,
+        "formats": loads(job.formats_json, {}),
+        "evidence": loads(job.evidence_json, []),
+        "report_path": t.report_path,
+    }
 
 
 @router.get("/{task_id}/lineage")
@@ -431,6 +519,9 @@ async def task_results(
                 "metrics": loads(r.metrics_json, {}),
                 "error_message": r.error_message,
                 "latency_ms": r.latency_ms,
+                "execution_status": getattr(r, "execution_status", "unknown") or "unknown",
+                "score_status": getattr(r, "score_status", "legacy_unverified") or "legacy_unverified",
+                "simulation": bool(getattr(r, "simulation", False)),
             }
             for r in rows
         ],
@@ -467,11 +558,25 @@ async def cancel_task(
     t = await db.get(EvalTask, task_id)
     if not t:
         raise HTTPException(404, "任务不存在")
-    if t.status in {"success", "failed", "cancelled"}:
-        raise HTTPException(400, "任务已结束")
-    t.status = "cancelled"
-    t.finished_at = datetime.utcnow()
-    await emit_event(db, t.id, "cancelled", {})
+    await request_cancel(db, t)
+    return task_out(t)
+
+
+@router.post("/{task_id}/retry")
+async def retry_task_api(
+    task_id: int,
+    background: BackgroundTasks,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_permission("task:run")),
+):
+    t = await db.get(EvalTask, task_id)
+    if not t:
+        raise HTTPException(404, "任务不存在")
+    await retry_task(db, t, clear_results=True)
+    await db.commit()
+    background.add_task(dispatch_queue, t.id)
+    await log_audit(db, "task", "retry", user_id=current.id, username=current.username, target_id=t.id, ip=get_client_ip(request))
     return task_out(t)
 
 
@@ -580,6 +685,48 @@ async def refresh_leaderboard(
     return payload
 
 
+class ReleaseIn(BaseModel):
+    note: str = ""
+
+
+@leaderboard_router.get("/releases/current")
+async def get_current_release(
+    board: str = Query("overall"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("leaderboard:view")),
+):
+    rel = await current_release(db, board)
+    if not rel:
+        return {"board": board, "release": None}
+    return {"board": board, "release": release_out(rel)}
+
+
+@leaderboard_router.post("/releases/publish")
+async def publish_board_release(
+    board: str = Query("overall"),
+    body: ReleaseIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("leaderboard:edit")),
+):
+    rel = await publish_release(db, board, note=(body.note if body else "") or "publish")
+    await db.commit()
+    return release_out(rel)
+
+
+@leaderboard_router.post("/releases/rollback")
+async def rollback_board_release(
+    board: str = Query("overall"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("leaderboard:edit")),
+):
+    try:
+        rel = await rollback_release(db, board)
+        await db.commit()
+        return release_out(rel)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @leaderboard_router.get("/export")
 async def export_leaderboard(
     board: str = Query("overall"),
@@ -589,11 +736,11 @@ async def export_leaderboard(
     _: User = Depends(require_permission("leaderboard:view")),
 ):
     payload = await compute_board(db, board, industry, scene)
-    lines = ["rank,model_name,industry,scene,avg_score,pass_rate,norm_score,task_id"]
+    lines = ["rank,model_name,industry,scene,avg_score,pass_rate,norm_score,task_id,cohort_id"]
     for row in payload.get("items") or []:
         lines.append(
             f"{row.get('rank')},{row.get('model_name')},{row.get('industry')},{row.get('scene')},"
-            f"{row.get('avg_score')},{row.get('pass_rate')},{row.get('norm_score')},{row.get('task_id')}"
+            f"{row.get('avg_score')},{row.get('pass_rate')},{row.get('norm_score')},{row.get('task_id')},{row.get('cohort_id')}"
         )
     data = ("\n".join(lines) + "\n").encode("utf-8-sig")
     return StreamingResponse(iter([data]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=leaderboard-{board}.csv"})
@@ -604,6 +751,7 @@ async def leaderboard(
     board: str = Query("overall"),
     industry: str = Query(""),
     scene: str = Query(""),
+    cohort_id: str = Query(""),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("leaderboard:view")),
 ):
@@ -611,7 +759,7 @@ async def leaderboard(
     if board not in allowed:
         raise HTTPException(400, "未知榜单类型")
     try:
-        payload = await compute_board(db, board, industry, scene)
+        payload = await compute_board(db, board, industry, scene, cohort_id=cohort_id or None)
         payload["stale"] = False
         payload["message"] = ""
         return payload
@@ -623,7 +771,6 @@ async def leaderboard(
             data["message"] = "数据更新异常，展示上次快照"
             return data
         raise HTTPException(500, "榜单计算失败且无可用快照")
-
 
 def _service_out(s: EvalServiceRequest):
     return {
@@ -637,12 +784,17 @@ def _service_out(s: EvalServiceRequest):
         "quote_mode": getattr(s, "quote_mode", "auto") or "auto",
         "quote_amount": getattr(s, "quote_amount", 0) or 0,
         "quote_detail": loads(getattr(s, "quote_detail_json", None) or "{}", {}),
+        "quote_version": getattr(s, "quote_version", "") or "",
         "workspace_id": getattr(s, "workspace_id", None),
         "dataset_id": getattr(s, "dataset_id", None),
         "model_id": getattr(s, "model_id", None),
         "scene": getattr(s, "scene", "") or "",
         "gray_version": getattr(s, "gray_version", "") or "",
         "production_version": getattr(s, "production_version", "") or "v1",
+        "previous_stable": getattr(s, "previous_stable", "") or "",
+        "delivery_settled": bool(getattr(s, "delivery_settled", False)),
+        "traffic_pct": float(getattr(s, "traffic_pct", 0) or 0),
+        "shadow_started_at": iso(getattr(s, "shadow_started_at", None)),
         "shadow": loads(getattr(s, "shadow_json", None) or "{}", {}),
         "report_path": getattr(s, "report_path", "") or "",
         "created_at": iso(s.created_at),
@@ -654,7 +806,31 @@ def _auto_quote(industry: str, requirement: str) -> dict:
     extra = min(len(requirement or "") * 0.5, 400)
     factor = 1.2 if industry in {"finance", "medical", "legal", "金融", "医疗", "司法"} else 1.0
     amount = round((base + extra) * factor, 2)
-    return {"mode": "auto", "amount": amount, "base": base, "extra": extra, "factor": factor}
+    return {
+        "mode": "auto",
+        "amount": amount,
+        "base": base,
+        "extra": extra,
+        "factor": factor,
+        "currency": "CNY",
+        "items": [
+            {"code": "base", "name": "基础评测", "qty": 1, "unit_price": base},
+            {"code": "complexity", "name": "需求复杂度", "qty": 1, "unit_price": round(extra * factor, 2)},
+        ],
+    }
+
+
+def _bump_quote_version(s: EvalServiceRequest) -> str:
+    raw = (getattr(s, "quote_version", "") or "").strip()
+    n = 1
+    if raw.startswith("Q"):
+        try:
+            n = int(raw[1:]) + 1
+        except ValueError:
+            n = 1
+    ver = f"Q{n:03d}"
+    s.quote_version = ver
+    return ver
 
 
 async def _quota_guard(db: AsyncSession, workspace_id: int | None):
@@ -736,7 +912,7 @@ async def create_service(
     current: User = Depends(require_permission("service:create")),
 ):
     await _quota_guard(db, body.workspace_id)
-    quote = _auto_quote(body.industry, body.requirement) if body.quote_mode != "expert" else {"mode": "expert", "amount": 0}
+    quote = _auto_quote(body.industry, body.requirement) if body.quote_mode != "expert" else {"mode": "expert", "amount": 0, "items": [], "currency": "CNY"}
     data = body.model_dump()
     s = EvalServiceRequest(
         **data,
@@ -744,6 +920,9 @@ async def create_service(
         quote_detail_json=dumps(quote),
         creator_id=current.id,
     )
+    _bump_quote_version(s)
+    quote["version"] = s.quote_version
+    s.quote_detail_json = dumps(quote)
     db.add(s)
     await db.flush()
     await log_audit(db, "service", "create", user_id=current.id, username=current.username, target_id=s.id, ip=get_client_ip(request))
@@ -763,9 +942,16 @@ async def quote_service(
     if body.mode == "expert":
         if body.amount is None:
             raise HTTPException(400, "专家报价需要金额")
-        quote = {"mode": "expert", "amount": float(body.amount)}
+        quote = {
+            "mode": "expert",
+            "amount": float(body.amount),
+            "currency": "CNY",
+            "items": [{"code": "expert", "name": "专家报价", "qty": 1, "unit_price": float(body.amount)}],
+        }
     else:
         quote = _auto_quote(s.industry, s.requirement)
+    _bump_quote_version(s)
+    quote["version"] = s.quote_version
     s.quote_mode = quote["mode"]
     s.quote_amount = quote["amount"]
     s.quote_detail_json = dumps(quote)
@@ -791,6 +977,7 @@ class ShadowBody(BaseModel):
     gray_version: str = "v-next"
     production: dict = {}
     candidate: dict = {}
+    traffic_pct: float = 0.05
 
 
 @service_router.post("/{sid}/shadow")
@@ -800,25 +987,22 @@ async def shadow_service(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("service:edit")),
 ):
+    from datetime import datetime
+    from app.services.shadow_router import evaluate_shadow
     s = await db.get(EvalServiceRequest, sid)
     if not s:
         raise HTTPException(404, "评测服务单不存在")
-    prod = body.production or {}
-    cand = body.candidate or {}
-    ps, cs = float(prod.get("score") or 0), float(cand.get("score") or 0)
-    pl, cl = float(prod.get("latency_ms") or 0), float(cand.get("latency_ms") or 0)
-    diff = abs(cs - ps) / ps if ps else (cs if cs else 0)
-    lat_diff = abs(cl - pl) / pl if pl else 0
-    stable = diff <= 0.05 and lat_diff <= 0.2
+    if not s.shadow_started_at:
+        s.shadow_started_at = datetime.utcnow()
     s.gray_version = body.gray_version
-    s.shadow_json = dumps({
-        "production": prod,
-        "candidate": cand,
-        "score_diff_rate": round(diff, 4),
-        "latency_diff_rate": round(lat_diff, 4),
-        "stable": stable,
-        "returned": "production",
-    })
+    s.traffic_pct = float(body.traffic_pct or 0.05)
+    result = evaluate_shadow(
+        body.production,
+        body.candidate,
+        traffic_pct=s.traffic_pct,
+        started_at=s.shadow_started_at,
+    )
+    s.shadow_json = dumps(result)
     return _service_out(s)
 
 
@@ -828,14 +1012,18 @@ async def promote_service(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("service:edit")),
 ):
+    from app.services.shadow_router import can_promote
     s = await db.get(EvalServiceRequest, sid)
     if not s:
         raise HTTPException(404, "评测服务单不存在")
     shadow = loads(s.shadow_json, {})
-    if shadow and not shadow.get("stable", True):
-        raise HTTPException(400, "影子测试未达稳定性阈值，禁止转正")
+    ok, reason = can_promote(shadow, started_at=s.shadow_started_at)
+    if not ok:
+        raise HTTPException(400, f"影子测试未达转正门禁：{reason}")
+    s.previous_stable = s.production_version or "v1"
     if s.gray_version:
         s.production_version = s.gray_version
+    s.traffic_pct = 1.0
     return _service_out(s)
 
 
@@ -848,7 +1036,17 @@ async def rollback_service(
     s = await db.get(EvalServiceRequest, sid)
     if not s:
         raise HTTPException(404, "评测服务单不存在")
+    prev = (s.previous_stable or "").strip()
+    if prev:
+        s.production_version = prev
     s.gray_version = ""
+    s.traffic_pct = 0.0
+    # 关闭候选流量，保留 shadow 证据供审计
+    shadow = loads(s.shadow_json, {})
+    if shadow:
+        shadow["traffic_pct"] = 0.0
+        shadow["candidate_closed"] = True
+        s.shadow_json = dumps(shadow)
     return _service_out(s)
 
 
@@ -881,6 +1079,7 @@ async def update_service_status(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("service:edit")),
 ):
+    from app.services.service_billing import settle_service_delivery
     s = await db.get(EvalServiceRequest, sid)
     if not s:
         raise HTTPException(404, "评测服务单不存在")
@@ -889,19 +1088,14 @@ async def update_service_status(
         raise HTTPException(400, "非法状态")
     if status in {"approved", "running", "configuring"}:
         await _quota_guard(db, s.workspace_id)
-    s.status = status
-    if gray_version:
-        s.gray_version = gray_version
     if report_summary:
         s.report_summary = report_summary
-    if status == "delivered" and s.task_id:
-        t = await db.get(EvalTask, s.task_id)
-        if t:
-            s.report_summary = s.report_summary or t.report_summary
-            s.report_path = t.report_path or s.report_path
-            if s.workspace_id:
-                ws = await db.get(EvalWorkspace, s.workspace_id)
-                if ws:
-                    ws.used_tokens += int(getattr(t, "tokens_used", 0) or 0)
-                    ws.used_calls += 1
+    if gray_version:
+        s.gray_version = gray_version
+    if status == "delivered":
+        try:
+            await settle_service_delivery(db, s)
+        except ValueError as exc:
+            raise HTTPException(400, "服务单不能无报告直接 delivered") from exc
+    s.status = status
     return _service_out(s)

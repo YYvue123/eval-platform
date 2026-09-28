@@ -26,6 +26,8 @@ class Dataset(Base):
     security_level: Mapped[str] = mapped_column(String(32), default="internal")
     review_comment: Mapped[str] = mapped_column(Text, default="")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    visibility: Mapped[str] = mapped_column(String(20), default="private")  # private|shared|isolated
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -41,6 +43,7 @@ class DatasetVersion(Base):
     file_path: Mapped[str] = mapped_column(String(500), default="")
     data_count: Mapped[int] = mapped_column(Integer, default=0)
     checksum: Mapped[str] = mapped_column(String(64), default="")
+    content_checksum: Mapped[str] = mapped_column(String(64), default="")  # 条目内容规范 hash
     quality_score: Mapped[float | None] = mapped_column(nullable=True)
     quality_status: Mapped[str] = mapped_column(String(32), default="unchecked")
     status: Mapped[str] = mapped_column(String(32), default="available")

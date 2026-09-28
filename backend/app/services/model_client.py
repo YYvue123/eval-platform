@@ -192,7 +192,7 @@ async def health_check(model: EvalModel) -> dict:
         async with httpx.AsyncClient(timeout=10, **httpx_tls_kwargs(model.channel_type)) as client:
             resp = await client.get(url.rsplit("/chat/completions", 1)[0] + "/models", headers=headers)
             latency = int((time.perf_counter() - started) * 1000)
-            if resp.status_code < 500:
+            if resp.status_code >= 200 and resp.status_code < 300:
                 return {"ok": True, "status": "online", "detail": f"HTTP {resp.status_code}", "latency_ms": latency}
             return {"ok": False, "status": "abnormal", "detail": f"HTTP {resp.status_code}", "latency_ms": latency}
     except Exception as exc:

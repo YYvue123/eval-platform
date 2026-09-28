@@ -95,8 +95,8 @@ async def update_role(
         raise HTTPException(400, "管理员角色不可修改")
 
     if data.data_scope is not None:
-        if data.data_scope not in ("all", "own"):
-            raise HTTPException(400, "data_scope 必须为 all 或 own")
+        if data.data_scope not in ("all", "own", "shared"):
+            raise HTTPException(400, "data_scope 必须为 all、own 或 shared")
         ro.data_scope = data.data_scope
 
     if data.permission_codes is not None:

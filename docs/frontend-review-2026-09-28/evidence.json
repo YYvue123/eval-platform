@@ -1,0 +1,43 @@
+{
+  "executed_at": "2026-09-28T14:23:04.842242+00:00",
+  "scope": "Pure function probes and source hashes only. No database, network, app startup, or browser.",
+  "shadow_client_named_score": {
+    "input": {
+      "score": 0.9,
+      "latency_ms": 100,
+      "samples": [
+        0.89,
+        0.9,
+        0.91
+      ]
+    },
+    "status": "ready",
+    "promotable": true,
+    "can_promote_after_8_days": [
+      true,
+      ""
+    ]
+  },
+  "shadow_empty_observations": {
+    "status": "ready",
+    "promotable": true,
+    "can_promote_after_8_days": [
+      true,
+      ""
+    ]
+  },
+  "view_count": 24,
+  "source_sha256": {
+    "frontend/src/views/Agents.vue": "48e4c14220cc922f5ce5a18e668e8ac80e2e4522f08b41ee2b94c2da93a37076",
+    "frontend/src/views/Resources.vue": "37bc09732825b7f773ba6ad3761bdc893e3096bcf1f62bc81c25702e602dddd8",
+    "frontend/src/views/EvalServices.vue": "8681c9dd2afab58549da60ff5a301fdfd6af6d1175624dd9b0855844b4e98599",
+    "frontend/src/views/Ops.vue": "8d893a8198d99c7557b7e81d51e0cd3eb54f396869cd8f002fe78a15683b8e6f",
+    "frontend/src/views/Safety.vue": "05303808728c91bd02e10d26dd8551deb4d36b550dddcfad23ee68f4a4878f94",
+    "backend/app/services/agent_runtime.py": "1e84f64259b6c535855f136684574f8c286a55b7599c11a45a38a71942a13c92",
+    "backend/app/services/shadow_router.py": "d019d428ef24fa93388863afd04529effe3b7bc3acb89d669808ac970820006d",
+    "backend/app/api/resources.py": "73d0da1239b583087c8e8011dbcea8a42cc6a6026cd67bf0cb72b85f26ca0876",
+    "backend/app/api/tasks.py": "9f6bd07b918ad6494c3592a7c5afc566cba68e848fcc800a2ca053905a5846c9",
+    "backend/app/services/scenario_simulators.py": "580b07564383b640e8f873104d762cbd2cd56cd4997e57ab6fab41146da43390",
+    "backend/app/services/media_adapter.py": "a4a5b6f132a81f07ff6b8debead7e0813900a1e70276769dd09b06cad4fd0e14"
+  }
+}

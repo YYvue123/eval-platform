@@ -7,7 +7,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api import auth, users, dashboard, notifications, roles, audit
-from app.api import datasets, models, prompts, resources, tasks, quality, batch, agents, ops
+from app.api import datasets, models, prompts, resources, tasks, quality, batch, agents, ops, benchmarks, safety
 from app.database import init_db, seed_db
 from app.config import settings
 from app.exceptions import register_exception_handlers
@@ -29,6 +29,9 @@ async def lifespan(_app: FastAPI):
     import logging
     import os
     log = logging.getLogger(__name__)
+    from app.services.prod_guards import assert_production_safe
+
+    assert_production_safe()
     log.info("启动中: 创建目录、初始化数据库...")
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     os.makedirs(settings.LOG_DIR, exist_ok=True)
@@ -80,6 +83,8 @@ app.include_router(resources.router, prefix="/api/resources", tags=["工具底�
 app.include_router(batch.router, prefix="/api/batch", tags=["批量评测"])
 app.include_router(quality.router, prefix="/api/quality", tags=["数据质量"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["评测任务"])
+app.include_router(benchmarks.router, prefix="/api/benchmarks", tags=["基准套件"])
+app.include_router(safety.router, prefix="/api/safety", tags=["安全可信"])
 app.include_router(tasks.leaderboard_router, prefix="/api/leaderboard", tags=["模型榜单"])
 app.include_router(tasks.service_router, prefix="/api/services", tags=["评测服务"])
 app.include_router(agents.router, prefix="/api/agents", tags=["编排Agent"])

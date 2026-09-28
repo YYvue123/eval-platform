@@ -39,7 +39,7 @@ def _admin_permissions():
 RESEARCHER_PERMISSIONS = [
     "dashboard:view",
     "notification:view_mine",
-    "dataset:list", "dataset:view", "dataset:create", "dataset:edit", "dataset:export",
+    "dataset:list", "dataset:view", "dataset:create", "dataset:edit", "dataset:export", "dataset:export_sensitive",
     "model:list", "model:view", "model:create", "model:edit", "model:invoke",
     "prompt:list", "prompt:view", "prompt:create", "prompt:edit", "prompt:publish",
     "resource:list", "resource:view", "resource:invoke",
@@ -48,7 +48,7 @@ RESEARCHER_PERMISSIONS = [
     "leaderboard:view",
     "service:list", "service:view", "service:create",
     "agent:list", "agent:view", "agent:invoke", "agent:confirm",
-    "ops:view",
+    "ops:view", "ops:ticket",
 ]
 
 VIEWER_PERMISSIONS = [

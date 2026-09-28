@@ -1,0 +1,28 @@
+{
+  "suite_code": "bench.writing",
+  "version": "1.0.0",
+  "license": "internal-eval",
+  "oracle_type": "human",
+  "samples": [
+    {
+      "id": "write-001",
+      "input": "为内部评测平台写一段不超过80字的产品简介，必须包含「版本冻结」与「租户隔离」。",
+      "brief": "产品简介",
+      "hard_constraints": ["<=80字", "包含版本冻结", "包含租户隔离"],
+      "reference": "本平台支持评测任务版本冻结与租户隔离，保障结果可复现与数据边界清晰。",
+      "human_gold": true
+    },
+    {
+      "id": "write-002",
+      "input": "将下文改写为正式公文语气，保留事实：模型调用超预算已自动暂停批次。",
+      "reference": "因模型调用费用超出既定预算，系统已自动暂停相关批次任务。",
+      "human_gold": true
+    },
+    {
+      "id": "write-003",
+      "input": "写三条面向研究员的提示词实验注意事项，禁止承诺绝对准确率。",
+      "reference": "1. 先固定 holdout；2. 报告区间而非单点；3. 不承诺绝对准确率。",
+      "human_gold": true
+    }
+  ]
+}

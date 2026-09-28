@@ -11,6 +11,7 @@ from app.api.deps import require_permission
 from app.config import settings
 from app.database import get_db
 from app.models import Dataset, DatasetItem, DatasetVersion, QualityIssue, QualityReport, QualityRule, User
+from app.services.dataset_revision import apply_item_changes
 from app.services.quality_checker import check_items
 from app.utils.jsonutil import dumps, iso, loads
 
@@ -30,7 +31,100 @@ class IssueHandle(BaseModel):
     note: str = ""
     input_content: str | None = None
     reference_answer: str | None = None
+    recheck: bool = True
 
+
+def _rules_payload(rule_rows) -> list[dict]:
+    return [
+        {
+            "code": r.code,
+            "name": r.name,
+            "category": r.category,
+            "severity": r.severity,
+            "description": r.description,
+            "config": loads(r.config_json, {}),
+            "enabled": bool(r.enabled),
+        }
+        for r in rule_rows
+    ]
+
+
+async def _execute_quality_check(
+    db: AsyncSession,
+    d: Dataset,
+    *,
+    version_id: int | None,
+    user_id: int | None,
+) -> dict:
+    vid = version_id or d.current_version_id
+    if not vid:
+        raise HTTPException(400, "请先导入数据")
+    d.quality_status = "checking"
+    items = (await db.execute(
+        select(DatasetItem).where(DatasetItem.version_id == vid, DatasetItem.status != "deleted").order_by(DatasetItem.item_no)
+    )).scalars().all()
+    payload = [
+        {
+            "id": x.id,
+            "item_no": x.item_no,
+            "input_content": x.input_content,
+            "reference_answer": x.reference_answer,
+        }
+        for x in items
+    ]
+    rule_rows = (await db.execute(select(QualityRule))).scalars().all()
+    rules = _rules_payload(rule_rows) or None
+    try:
+        result = check_items(payload, rules)
+    except Exception as exc:
+        d.quality_status = "check_failed"
+        raise HTTPException(500, f"检测失败：{exc}") from exc
+    flags = result.pop("flags")
+    issue_records = result.pop("issue_records", [])
+    for item, flag in zip(items, flags):
+        item.quality_flag = flag
+    ver = await db.get(DatasetVersion, vid)
+    if ver:
+        ver.quality_score = result["score"]
+        ver.quality_status = result["status"]
+    d.quality_status = result["status"]
+    report = QualityReport(
+        dataset_id=d.id,
+        version_id=vid,
+        status=result["status"],
+        score=result["score"],
+        report_json=dumps(result),
+        issue_count=len(issue_records),
+        creator_id=user_id,
+    )
+    db.add(report)
+    await db.flush()
+    dest = Path(settings.UPLOAD_DIR) / "quality"
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / f"report-{report.id}.json"
+    path.write_text(dumps({**result, "issue_records": issue_records}), encoding="utf-8")
+    report.report_path = str(path)
+    for rec in issue_records:
+        db.add(QualityIssue(
+            report_id=report.id,
+            dataset_id=d.id,
+            version_id=vid,
+            item_id=rec.get("item_id"),
+            item_no=rec.get("item_no") or 0,
+            rule_code=rec.get("rule_code") or "",
+            issue_type=rec.get("issue_type") or "",
+            severity=rec.get("severity") or "warning",
+            description=rec.get("description") or "",
+        ))
+    await db.flush()
+    return {
+        "id": report.id,
+        "score": result["score"],
+        "status": result["status"],
+        "issue_count": len(issue_records),
+        "report": result,
+        "version_id": vid,
+    }
 
 def _rule_out(r: QualityRule) -> dict:
     return {
@@ -64,23 +158,6 @@ def _issue_out(i: QualityIssue) -> dict:
         "created_at": iso(i.created_at),
         "updated_at": iso(i.updated_at),
     }
-
-
-def _rules_payload(rows: list[QualityRule]) -> list[dict]:
-    out = []
-    for r in rows:
-        if not r.enabled:
-            continue
-        out.append({
-            "code": r.code,
-            "name": r.name,
-            "category": r.category,
-            "description": r.description,
-            "severity": r.severity,
-            "enabled": True,
-            "config": loads(r.config_json, {}),
-        })
-    return out
 
 
 @router.get("")
@@ -181,16 +258,58 @@ async def handle_issue(
     if action == "fix":
         if not item:
             raise HTTPException(400, "找不到对应条目")
+        d = await db.get(Dataset, issue.dataset_id)
+        if not d:
+            raise HTTPException(404, "数据集不存在")
+        # 若条目不在当前版本（曾修订），按 item_no 定位当前副本
+        if d.current_version_id and item.version_id != d.current_version_id:
+            cur = await db.scalar(
+                select(DatasetItem).where(
+                    DatasetItem.version_id == d.current_version_id,
+                    DatasetItem.item_no == item.item_no,
+                )
+            )
+            if not cur:
+                raise HTTPException(400, "当前版本找不到对应条目")
+            item = cur
+        changes = {"quality_flag": "normal"}
         if body.input_content is not None:
-            item.input_content = body.input_content
+            changes["input_content"] = body.input_content
         if body.reference_answer is not None:
-            item.reference_answer = body.reference_answer
-        item.quality_flag = "normal"
+            changes["reference_answer"] = body.reference_answer
+        new_item = await apply_item_changes(
+            db,
+            dataset=d,
+            source_item_id=item.id,
+            changes=changes,
+            creator_id=current.id,
+            change_desc=f"质检修复 issue#{issue.id}",
+        )
+        issue.item_id = new_item.id
         issue.status = "fixed"
     elif action == "delete":
         if item:
-            item.status = "deleted"
-            item.quality_flag = "deleted"
+            d = await db.get(Dataset, issue.dataset_id)
+            if not d:
+                raise HTTPException(404, "数据集不存在")
+            if d.current_version_id and item.version_id != d.current_version_id:
+                cur = await db.scalar(
+                    select(DatasetItem).where(
+                        DatasetItem.version_id == d.current_version_id,
+                        DatasetItem.item_no == item.item_no,
+                    )
+                )
+                if cur:
+                    item = cur
+            new_item = await apply_item_changes(
+                db,
+                dataset=d,
+                source_item_id=item.id,
+                changes={"status": "deleted", "quality_flag": "deleted"},
+                creator_id=current.id,
+                change_desc=f"质检删除 issue#{issue.id}",
+            )
+            issue.item_id = new_item.id
         issue.status = "deleted"
     elif action == "ignore":
         issue.status = "ignored"
@@ -198,7 +317,13 @@ async def handle_issue(
         issue.status = "review"
     issue.handler = current.username
     issue.handle_note = body.note
-    return _issue_out(issue)
+    out = {"issue": _issue_out(issue)}
+    if body.recheck and action in {"fix", "delete"}:
+        d = await db.get(Dataset, issue.dataset_id)
+        if d:
+            out["recheck"] = await _execute_quality_check(db, d, version_id=d.current_version_id, user_id=current.id)
+            out["version_id"] = d.current_version_id
+    return out
 
 
 @router.get("/{report_id}/download")
@@ -225,65 +350,4 @@ async def run_quality(
     d = await db.get(Dataset, dataset_id)
     if not d or d.status == "deleted":
         raise HTTPException(404, "数据集不存在")
-    vid = version_id or d.current_version_id
-    if not vid:
-        raise HTTPException(400, "请先导入数据")
-    d.quality_status = "checking"
-    items = (await db.execute(
-        select(DatasetItem).where(DatasetItem.version_id == vid, DatasetItem.status != "deleted").order_by(DatasetItem.item_no)
-    )).scalars().all()
-    payload = [
-        {
-            "id": x.id,
-            "item_no": x.item_no,
-            "input_content": x.input_content,
-            "reference_answer": x.reference_answer,
-        }
-        for x in items
-    ]
-    rule_rows = (await db.execute(select(QualityRule))).scalars().all()
-    rules = _rules_payload(rule_rows) or None
-    try:
-        result = check_items(payload, rules)
-    except Exception as exc:
-        d.quality_status = "check_failed"
-        raise HTTPException(500, f"检测失败：{exc}") from exc
-    flags = result.pop("flags")
-    issue_records = result.pop("issue_records", [])
-    for item, flag in zip(items, flags):
-        item.quality_flag = flag
-    ver = await db.get(DatasetVersion, vid)
-    if ver:
-        ver.quality_score = result["score"]
-        ver.quality_status = result["status"]
-    d.quality_status = result["status"]
-    report = QualityReport(
-        dataset_id=d.id,
-        version_id=vid,
-        status=result["status"],
-        score=result["score"],
-        report_json=dumps(result),
-        issue_count=len(issue_records),
-        creator_id=current.id,
-    )
-    db.add(report)
-    await db.flush()
-    dest = Path(settings.UPLOAD_DIR) / "quality"
-    dest.mkdir(parents=True, exist_ok=True)
-    path = dest / f"report-{report.id}.json"
-    path.write_text(dumps({**result, "issue_records": issue_records}), encoding="utf-8")
-    report.report_path = str(path)
-    for rec in issue_records:
-        db.add(QualityIssue(
-            report_id=report.id,
-            dataset_id=d.id,
-            version_id=vid,
-            item_id=rec.get("item_id"),
-            item_no=rec.get("item_no") or 0,
-            rule_code=rec.get("rule_code") or "",
-            issue_type=rec.get("issue_type") or "",
-            severity=rec.get("severity") or "warning",
-            description=rec.get("description") or "",
-        ))
-    await db.flush()
-    return {"id": report.id, "score": result["score"], "status": result["status"], "issue_count": len(issue_records), "report": result}
+    return await _execute_quality_check(db, d, version_id=version_id, user_id=current.id)

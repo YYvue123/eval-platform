@@ -1,0 +1,39 @@
+{
+  "suite_code": "bench.table",
+  "version": "1.0.0",
+  "license": "internal-eval",
+  "oracle_type": "reference",
+  "samples": [
+    {
+      "id": "table-001",
+      "table": {
+        "columns": ["季度", "营收", "成本"],
+        "rows": [["Q1", 120, 70], ["Q2", 150, 80], ["Q3", 130, 75]]
+      },
+      "question": "三季度合计利润是多少？",
+      "reference": "175",
+      "tolerance": 0,
+      "formula_hint": "sum(revenue-cost)"
+    },
+    {
+      "id": "table-002",
+      "table": {
+        "columns": ["产品", "销量", "单价"],
+        "rows": [["A", 10, 5.5], ["B", 8, 12], ["C", 3, 20]]
+      },
+      "question": "总销售额？",
+      "reference": "211",
+      "tolerance": 0.01
+    },
+    {
+      "id": "table-003",
+      "table": {
+        "columns": ["部门", "预算", "实际"],
+        "rows": [["研发", 100, 95], ["市场", 60, 72]]
+      },
+      "question": "哪个部门超支？超支多少？",
+      "reference": "市场超支12",
+      "tolerance": 0
+    }
+  ]
+}

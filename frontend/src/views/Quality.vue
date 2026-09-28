@@ -43,6 +43,7 @@
               <template #default="{ row }">
                 <el-button v-if="row.status === 'open'" link type="primary" size="small" @click="handle(row, 'ignore')">忽略</el-button>
                 <el-button v-if="row.status === 'open'" link type="primary" size="small" @click="handle(row, 'review')">复核</el-button>
+                <el-button v-if="row.status === 'open'" link type="success" size="small" @click="handle(row, 'fix')">修复并复检</el-button>
                 <el-button v-if="row.status === 'open'" link type="danger" size="small" @click="handle(row, 'delete')">删除条目</el-button>
               </template>
             </el-table-column>
@@ -116,8 +117,17 @@ function openIssues(row) {
 }
 
 async function handle(row, action) {
-  await qualityApi.handleIssue(row.id, { action, note: action })
-  ElMessage.success('已处理')
+  const payload = { action, note: action, recheck: action === 'fix' || action === 'delete' }
+  if (action === 'fix') {
+    payload.input_content = row.description?.includes('输入') ? '已修复输入' : undefined
+  }
+  const res = await qualityApi.handleIssue(row.id, payload)
+  if (res.recheck) {
+    ElMessage.success(`已修复并复检：${res.recheck.status} / ${res.recheck.score}`)
+    loadReports()
+  } else {
+    ElMessage.success('已处理')
+  }
   loadIssues({ report_id: row.report_id })
 }
 

@@ -1,0 +1,47 @@
+{
+  "suite_code": "bench.code",
+  "version": "1.0.0",
+  "license": "internal-eval",
+  "oracle_type": "unit_tests",
+  "host_exec_forbidden": true,
+  "samples": [
+    {
+      "id": "code-001",
+      "prompt": "实现函数 add(a, b) 返回两数之和。",
+      "language": "python",
+      "entrypoint": "add",
+      "reference": "def add(a, b):\n    return a + b\n",
+      "tests": [
+        {"args": [1, 2], "expected": 3},
+        {"args": [0, 0], "expected": 0},
+        {"args": [-1, 5], "expected": 4}
+      ],
+      "execute_on_host": false
+    },
+    {
+      "id": "code-002",
+      "prompt": "实现 is_even(n) 判断偶数。",
+      "language": "python",
+      "entrypoint": "is_even",
+      "reference": "def is_even(n):\n    return n % 2 == 0\n",
+      "tests": [
+        {"args": [2], "expected": true},
+        {"args": [3], "expected": false}
+      ],
+      "execute_on_host": false
+    },
+    {
+      "id": "code-003",
+      "prompt": "实现 clamp(x, lo, hi)。",
+      "language": "python",
+      "entrypoint": "clamp",
+      "reference": "def clamp(x, lo, hi):\n    return max(lo, min(hi, x))\n",
+      "tests": [
+        {"args": [5, 0, 10], "expected": 5},
+        {"args": [-1, 0, 10], "expected": 0},
+        {"args": [99, 0, 10], "expected": 10}
+      ],
+      "execute_on_host": false
+    }
+  ]
+}

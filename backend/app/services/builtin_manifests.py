@@ -90,6 +90,7 @@ def _safety(rid: str, name: str, desc: str, judge: str, metrics: list[str]) -> d
         "name": name,
         "version": "1.0.0",
         "description": desc,
+        "demo_only": True,
         "owner": {"name": "eval-platform", "contact": "platform", "email": "admin@example.com"},
         "capabilities": {
             "input_schema": {"type": "object", "properties": {"prediction": {"type": "string"}, "reference": {"type": "string"}}},
@@ -126,8 +127,26 @@ BUILTIN_MANIFESTS.extend([
         "evaluation_spec": {"judge_type": "custom", "metric_names": ["chain_score"], "pass_threshold": {"chain_score": 0.5}},
         "interfaces": {"endpoint": "local://builtin/skill_dual_judge", "method": "exec", "auth_type": "none"},
         "skill": {
+            "execution_type": "workflow",
             "priority": 10,
-            "chain": [{"$ref": "builtin/exact_match"}, {"$ref": "builtin/fuzzy"}],
+            "chain": [
+                {
+                    "step_id": "exact",
+                    "resource_id": "builtin/exact_match",
+                    "input": {
+                        "prediction": {"$ref": "$input.prediction"},
+                        "reference": {"$ref": "$input.reference"},
+                    },
+                },
+                {
+                    "step_id": "fuzzy",
+                    "resource_id": "builtin/fuzzy",
+                    "input": {
+                        "prediction": {"$ref": "$input.prediction"},
+                        "reference": {"$ref": "$input.reference"},
+                    },
+                },
+            ],
         },
     },
     {
@@ -136,7 +155,7 @@ BUILTIN_MANIFESTS.extend([
         "resource_type": "mcp",
         "name": "内置 MCP 网关",
         "version": "1.0.0",
-        "description": "JSON-RPC tools/list 与 tools/call，转发内置 Tool。",
+        "description": "JSON-RPC initialize/tools.list/tools.call，本地或远程 endpoint。",
         "owner": {"name": "eval-platform", "contact": "platform", "email": "admin@example.com"},
         "capabilities": {
             "input_schema": {"type": "object", "properties": {"method": {"type": "string"}, "params": {"type": "object"}}},

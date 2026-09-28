@@ -4,15 +4,15 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_permission, require_actor
 from app.database import get_db
 from app.models import BaseResource, ResourceCallLog, ResourceEvent, User
+from app.services.actor_context import ActorContext
 from app.services.audit import get_client_ip, log_audit
-from app.services.builtin_tools import run_builtin_tool
-from app.services.gateway import check_gateway, record_gateway
-from app.services.skill_runtime import run_mcp, run_skill
-from app.services.protocol import make_envelope, make_response, validate_manifest
+from app.services.http_adapter import health_http_tool
+from app.services.protocol import validate_manifest
 from app.services.serializers import now
+from app.services.tool_gateway import ensure_resource_version, invoke_tool
 from app.utils.jsonutil import dumps, iso, loads
 
 router = APIRouter()
@@ -218,6 +218,7 @@ async def register_resource(
         )
         db.add(r)
         await db.flush()
+    await ensure_resource_version(db, r, creator_id=current.id)
     await _emit(db, "resource.registered" if created else "resource.updated", rid, {"version": r.version})
     await log_audit(db, "resource", "register", user_id=current.id, username=current.username, target_id=r.id, ip=get_client_ip(request), detail=rid)
     return resource_out(r)
@@ -227,52 +228,55 @@ async def register_resource(
 async def invoke_resource(
     body: InvokeBody,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("resource:invoke")),
+    actor: ActorContext = Depends(require_actor("resource:invoke")),
 ):
-    r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == body.resource_id))).scalar_one_or_none()
-    if not r or r.status not in {"online", "pending"}:
-        raise HTTPException(404, "资源不可用")
-    check_gateway(r.resource_id)
-    req = make_envelope(
-        "platform",
-        body.resource_id,
-        body.body,
-        tenant_id=body.tenant_id,
+    # body.tenant_id 不可覆盖会话租户（WP01/WP02）
+    return await invoke_tool(
+        db,
+        actor=actor,
+        resource_id=body.resource_id,
+        body=body.body,
         correlation_id=body.correlation_id,
-        priority=body.priority,
+        caller_id="gateway",
     )
-    manifest = loads(r.manifest_json, {})
-    caps = manifest.get("capabilities") or {}
-    if caps.get("side_effects") and caps.get("side_effects") not in {"none", False}:
-        result = {"mocked": True, "message": "副作用已沙箱 Mock"}
-        record_gateway(r.resource_id, True)
-        r.call_count += 1
-        return make_response(req, "ok", result, usage={"total_tokens": 0})
+
+
+class McpProbeBody(BaseModel):
+    endpoint: str = ""
+    resource_id: str = ""
+    method: str = "initialize"
+    params: dict = {}
+    token: str = ""
+    egress_allowlist: list[str] = []
+
+
+@router.post("/mcp/probe")
+async def mcp_probe(
+    body: McpProbeBody,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("resource:invoke")),
+):
+    """探测远程或已注册 MCP：initialize / tools/list / tools/call。"""
+    from app.services.skill_runtime import run_mcp
+
+    manifest: dict = {}
+    if body.resource_id:
+        r = await _load_resource(db, body.resource_id)
+        if not r:
+            raise HTTPException(404, "资源不存在")
+        manifest = loads(r.manifest_json, {})
+    else:
+        if not body.endpoint.startswith("http"):
+            raise HTTPException(400, "请提供 HTTP endpoint 或 resource_id")
+        interfaces = {"endpoint": body.endpoint, "auth": {"token": body.token} if body.token else {}}
+        if body.egress_allowlist:
+            interfaces["egress_allowlist"] = body.egress_allowlist
+        manifest = {"interfaces": interfaces, "capabilities": {"timeout": 30}}
     try:
-        if r.resource_type == "skill":
-            result = run_skill(manifest, body.body)
-        elif r.resource_type == "mcp":
-            result = run_mcp(body.body)
-        elif r.resource_id.startswith("builtin/") or r.builtin:
-            result = run_builtin_tool(r.resource_id, body.body)
-        else:
-            result = await invoke_http_tool(manifest, req)
-        r.call_count += 1
-        r.fail_count = r.fail_count
-        r.consecutive_fail = 0
-        r.health_status = "online"
-        record_gateway(r.resource_id, True)
-        db.add(ResourceCallLog(resource_id=r.resource_id, status="success", correlation_id=req["header"]["correlation_id"]))
-        usage = result.get("usage") if isinstance(result, dict) else None
-        return make_response(req, "ok", result if isinstance(result, dict) else {"result": result}, usage=usage)
-    except HTTPException:
-        raise
+        result = await run_mcp(manifest, {"method": body.method, "params": body.params or {}, "id": 1})
     except Exception as exc:
-        r.fail_count += 1
-        r.consecutive_fail = int(r.consecutive_fail or 0) + 1
-        record_gateway(r.resource_id, False)
-        db.add(ResourceCallLog(resource_id=r.resource_id, status="failed", error_message=str(exc)[:2000], correlation_id=req["header"]["correlation_id"]))
-        return make_response(req, "error", {}, error={"code": "TOOL_EXEC_FAILED", "message": str(exc)})
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "result": result}
 
 
 @router.post("/{rid:path}/health")

@@ -1,4 +1,4 @@
-# 编译、规范检查、单测与安全扫描（规格 5.1）。制品为前端 dist + 后端包；本仓库默认 SQLite 单机部署。
+# 编译、全量单测、密钥扫描、SBOM、前端构建
 name: ci
 
 on:
@@ -22,7 +22,7 @@ jobs:
       - name: Compile
         run: python -m compileall -q app tests
       - name: Unit tests
-        run: python -m unittest tests.test_eval_flow -v
+        run: python -m unittest discover -s tests -v
       - name: Secret scan
         working-directory: .
         run: |
@@ -31,6 +31,9 @@ jobs:
             exit 1
           fi
           python -c "import pathlib; p=pathlib.Path('backend/app/config.py'); t=p.read_text(encoding='utf-8'); assert 'SECRET_KEY' in t"
+      - name: SBOM
+        working-directory: .
+        run: python deploy/generate_sbom.py sbom.json
 
   frontend:
     runs-on: ubuntu-latest

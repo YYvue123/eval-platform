@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_permission, require_actor
 from app.database import get_db
 from app.models import (
     Dataset,
@@ -12,11 +12,14 @@ from app.models import (
     EvalModel,
     EvalTask,
     PromptCallLog,
+    PromptExperiment,
     PromptTemplate,
     PromptTestRun,
     PromptVersion,
     User,
 )
+from app.services.actor_context import ActorContext, effective_tenant_id
+from app.services.object_policy import apply_object_scope, get_visible_or_404, object_is_visible
 from app.services.audit import get_client_ip, log_audit
 from app.services.builtin_tools import run_builtin_tool
 from app.services.model_client import invoke_model
@@ -116,9 +119,10 @@ async def list_prompts(
     search: str = Query(""),
     status: str = Query(""),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("prompt:list")),
+    actor: ActorContext = Depends(require_actor("prompt:list")),
 ):
     q = select(PromptTemplate).where(PromptTemplate.status != "deleted")
+    q = apply_object_scope(q, PromptTemplate, actor)
     if search:
         q = q.where(or_(PromptTemplate.name.contains(search), PromptTemplate.description.contains(search)))
     if status:
@@ -141,11 +145,15 @@ async def create_prompt(
     body: PromptCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("prompt:create")),
+    actor: ActorContext = Depends(require_actor("prompt:create")),
 ):
     if not (body.prompt_content or "").strip():
         raise HTTPException(400, "提示词内容不能为空")
-    exists = await db.scalar(select(PromptTemplate.id).where(PromptTemplate.name == body.name, PromptTemplate.status != "deleted"))
+    exists = await db.scalar(select(PromptTemplate.id).where(
+        PromptTemplate.name == body.name,
+        PromptTemplate.status != "deleted",
+        PromptTemplate.tenant_id == actor.tenant_id,
+    ))
     if exists:
         raise HTTPException(400, "提示词名称已存在")
     p = PromptTemplate(
@@ -157,7 +165,9 @@ async def create_prompt(
         description=body.description,
         tags=dumps(body.tags),
         constraints=body.constraints,
-        creator_id=current.id,
+        creator_id=actor.user_id,
+        tenant_id=effective_tenant_id(actor, None),
+        visibility="private",
     )
     db.add(p)
     await db.flush()
@@ -168,12 +178,12 @@ async def create_prompt(
         prompt_content=body.prompt_content,
         variable_config=dumps(variables),
         output_format=body.output_format,
-        creator_id=current.id,
+        creator_id=actor.user_id,
     )
     db.add(ver)
     await db.flush()
     p.current_version_id = ver.id
-    await log_audit(db, "prompt", "create", user_id=current.id, username=current.username, target_id=p.id, ip=get_client_ip(request))
+    await log_audit(db, "prompt", "create", user_id=actor.user_id, username=actor.username, target_id=p.id, ip=get_client_ip(request))
     return {**prompt_out(p), "prompt_content": ver.prompt_content, "variables": variables}
 
 
@@ -181,9 +191,11 @@ async def create_prompt(
 async def get_prompt(
     prompt_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("prompt:view")),
+    actor: ActorContext = Depends(require_actor("prompt:view")),
 ):
-    p = await _require_prompt(db, prompt_id)
+    p = await get_visible_or_404(db, PromptTemplate, prompt_id, actor, not_found="提示词不存在或无权访问")
+    if p.status == "deleted":
+        raise HTTPException(404, "提示词不存在或无权访问")
     versions = (await db.execute(select(PromptVersion).where(PromptVersion.prompt_id == prompt_id).order_by(PromptVersion.id.desc()))).scalars().all()
     current = await db.get(PromptVersion, p.current_version_id) if p.current_version_id else None
     used = (await db.scalar(select(func.count()).select_from(EvalTask).where(EvalTask.prompt_id == prompt_id))) or 0
@@ -243,7 +255,27 @@ async def update_prompt(
     elif variable_config is not None and p.current_version_id:
         ver = await db.get(PromptVersion, p.current_version_id)
         if ver:
-            ver.variable_config = dumps(variable_config)
+            if ver.status == "published" or p.status == "published":
+                # 已发布版本禁止原地改：复制新版本
+                code = _next_version(p.current_version)
+                nv = PromptVersion(
+                    prompt_id=p.id,
+                    version_code=code,
+                    prompt_content=ver.prompt_content,
+                    variable_config=dumps(variable_config),
+                    output_format=ver.output_format,
+                    change_desc=change_desc or "变量配置变更",
+                    creator_id=current.id,
+                    status="draft",
+                )
+                db.add(nv)
+                await db.flush()
+                p.current_version = code
+                p.current_version_id = nv.id
+                if p.status in {"published", "pending"}:
+                    p.status = "draft"
+            else:
+                ver.variable_config = dumps(variable_config)
     await log_audit(db, "prompt", "update", user_id=current.id, username=current.username, target_id=p.id, ip=get_client_ip(request))
     return prompt_out(p)
 
@@ -591,6 +623,67 @@ async def prompt_logs(
         }
         for lg in rows
     ]
+
+
+
+
+class ExperimentIn(BaseModel):
+    dataset_id: int
+    holdout_ratio: float = 0.3
+    token_budget: int = 500
+
+
+class ExperimentPublishIn(BaseModel):
+    force: bool = False
+
+
+@router.post("/{prompt_id}/experiments")
+async def create_prompt_experiment(
+    prompt_id: int,
+    body: ExperimentIn,
+    db: AsyncSession = Depends(get_db),
+    actor: ActorContext = Depends(require_actor("prompt:edit")),
+):
+    from app.services import prompt_experiment as pexp
+    prompt = await get_visible_or_404(db, PromptTemplate, prompt_id, actor, not_found="提示词不存在或无权访问")
+    exp = await pexp.create_and_run_experiment(
+        db,
+        prompt=prompt,
+        dataset_id=body.dataset_id,
+        holdout_ratio=body.holdout_ratio,
+        token_budget=body.token_budget,
+        creator_id=actor.user_id,
+        tenant_id=actor.tenant_id,
+    )
+    return pexp.experiment_out(exp)
+
+
+@router.get("/{prompt_id}/experiments")
+async def list_prompt_experiments(
+    prompt_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: ActorContext = Depends(require_actor("prompt:view")),
+):
+    from app.services import prompt_experiment as pexp
+    await get_visible_or_404(db, PromptTemplate, prompt_id, actor, not_found="提示词不存在或无权访问")
+    rows = (await db.execute(select(PromptExperiment).where(PromptExperiment.prompt_id == prompt_id).order_by(PromptExperiment.id.desc()).limit(20))).scalars().all()
+    return {"items": [pexp.experiment_out(e) for e in rows], "total": len(rows)}
+
+
+@router.post("/{prompt_id}/experiments/{eid}/publish")
+async def publish_prompt_experiment(
+    prompt_id: int,
+    eid: int,
+    body: ExperimentPublishIn,
+    db: AsyncSession = Depends(get_db),
+    actor: ActorContext = Depends(require_actor("prompt:publish")),
+):
+    from app.services import prompt_experiment as pexp
+    prompt = await get_visible_or_404(db, PromptTemplate, prompt_id, actor, not_found="提示词不存在或无权访问")
+    exp = await db.get(PromptExperiment, eid)
+    if not exp or exp.prompt_id != prompt_id:
+        raise HTTPException(404, "实验不存在")
+    return await pexp.try_publish_from_experiment(db, exp, prompt, force=body.force)
 
 
 @router.delete("/{prompt_id}")

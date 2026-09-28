@@ -1,0 +1,45 @@
+# 本地/预发参考编排。生产金丝雀：先起 backend-canary（5% 流量），再滚动切主。
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile
+    environment:
+      APP_ENV: production
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?set bootstrap password}
+      DATABASE_URL: sqlite+aiosqlite:///./data/eval_platform.db
+      BACKUP_DIR: ./data/backups
+      UPLOAD_DIR: ./data/uploads
+      LOG_DIR: ./data/logs
+    volumes:
+      - eval-data:/app/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  backend-canary:
+    profiles: ["canary"]
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile
+    environment:
+      APP_ENV: production
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?set bootstrap password}
+      DATABASE_URL: sqlite+aiosqlite:///./data/eval_platform.db
+      BACKUP_DIR: ./data/backups
+      UPLOAD_DIR: ./data/uploads
+      LOG_DIR: ./data/logs
+    volumes:
+      - eval-data:/app/data
+    ports:
+      - "8001:8000"
+
+volumes:
+  eval-data:

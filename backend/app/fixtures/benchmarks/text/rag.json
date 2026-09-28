@@ -1,0 +1,37 @@
+{
+  "suite_code": "bench.rag",
+  "version": "1.0.0",
+  "license": "internal-eval",
+  "oracle_type": "reference",
+  "samples": [
+    {
+      "id": "rag-001",
+      "question": "租户隔离失败时任务应如何处理？",
+      "contexts": [
+        {"doc_id": "kb-tenant-01", "text": "跨租户访问必须拒绝并审计；不得降级为同租户近似资源。"},
+        {"doc_id": "kb-budget-02", "text": "预算耗尽时任务进入 paused_budget。"}
+      ],
+      "reference": "拒绝并审计，不得降级近似资源。",
+      "must_cite": ["kb-tenant-01"]
+    },
+    {
+      "id": "rag-002",
+      "question": "代码评测能否在 API 宿主机直接执行用户代码？",
+      "contexts": [
+        {"doc_id": "kb-code-01", "text": "代码用例仅允许在隔离执行器中运行，禁止宿主执行。"},
+        {"doc_id": "kb-media-01", "text": "媒体输入必须提供可解码 URI。"}
+      ],
+      "reference": "不能，只能在隔离执行器运行。",
+      "must_cite": ["kb-code-01"]
+    },
+    {
+      "id": "rag-003",
+      "question": "预算耗尽后批次状态是什么？",
+      "contexts": [
+        {"doc_id": "kb-budget-02", "text": "预算耗尽时任务进入 paused_budget。"}
+      ],
+      "reference": "paused_budget",
+      "must_cite": ["kb-budget-02"]
+    }
+  ]
+}

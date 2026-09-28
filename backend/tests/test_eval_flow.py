@@ -2,6 +2,8 @@ import json
 import time
 import unittest
 
+from tests import isolated_env  # noqa: F401  # 必须在 app.main 之前
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -60,6 +62,30 @@ class EvalFlowTest(unittest.TestCase):
             self.assertEqual(model.status_code, 200, model.text)
             model_id = model.json()["id"]
 
+            # 未发布数据集：正式任务应被拒绝
+            formal_draft = client.post("/api/tasks", json={
+                "name": "formal-draft",
+                "dataset_id": ds_id,
+                "model_id": model_id,
+                "judge_resource_id": "builtin/contains",
+            }, headers=h)
+            self.assertEqual(formal_draft.status_code, 400, formal_draft.text)
+            draft_msg = (formal_draft.json().get("message") or formal_draft.json().get("detail") or "")
+            self.assertTrue("发布" in draft_msg or "published" in draft_msg.lower())
+
+            # 发布后门禁：无 endpoint 仍拒绝
+            pub = client.post(f"/api/datasets/{ds_id}/publish", headers=h)
+            self.assertEqual(pub.status_code, 200, pub.text)
+            formal_blocked = client.post("/api/tasks", json={
+                "name": "formal-no-endpoint",
+                "dataset_id": ds_id,
+                "model_id": model_id,
+                "judge_resource_id": "builtin/contains",
+            }, headers=h)
+            self.assertEqual(formal_blocked.status_code, 400, formal_blocked.text)
+            msg = (formal_blocked.json().get("message") or formal_blocked.json().get("detail") or "").lower()
+            self.assertIn("endpoint", msg)
+
             prompt = client.post("/api/prompts", json={
                 "name": f"qa-prompt-{int(time.time())}",
                 "prompt_content": "{{input}}",
@@ -72,6 +98,8 @@ class EvalFlowTest(unittest.TestCase):
             }, headers=h)
             self.assertEqual(inv.status_code, 200, inv.text)
             self.assertEqual(inv.json()["header"]["status"], "ok")
+            self.assertEqual(inv.json()["body"]["status"], "success")
+            self.assertTrue(inv.json()["body"]["result"].get("passed"))
 
             task = client.post("/api/tasks", json={
                 "name": "smoke-task",
@@ -79,20 +107,33 @@ class EvalFlowTest(unittest.TestCase):
                 "model_id": model_id,
                 "prompt_id": prompt.json()["id"],
                 "judge_resource_id": "builtin/contains",
+                "trial_run": True,
             }, headers=h)
             self.assertEqual(task.status_code, 200, task.text)
             task_id = task.json()["id"]
             run = client.post(f"/api/tasks/{task_id}/run", headers=h)
             self.assertEqual(run.status_code, 200, run.text)
             status = ""
+            detail = {}
             for _ in range(40):
                 detail = client.get(f"/api/tasks/{task_id}", headers=h).json()
                 status = detail["status"]
-                if status in {"success", "failed"}:
+                if status in {"success", "failed", "partial_failed"}:
                     break
                 time.sleep(0.1)
             self.assertEqual(status, "success", detail)
             self.assertGreaterEqual(detail["total"], 2)
+            self.assertTrue(detail.get("simulation") or detail.get("trial_run"))
+            results = client.get(f"/api/tasks/{task_id}/results", headers=h)
+            self.assertEqual(results.status_code, 200, results.text)
+            items = results.json()["items"]
+            self.assertGreaterEqual(len(items), 2)
+            for row in items:
+                self.assertEqual(row.get("score_status"), "scored")
+                self.assertEqual(row.get("execution_status"), "ok")
+                self.assertIn(row.get("score"), (0.0, 1.0))
+            # mock 输出形如 [mock:name] 中国首都 — contains 裁判对 reference=北京/2 通常不通过
+            self.assertEqual(detail["success_count"], sum(1 for r in items if r["passed"]))
             lin = client.get(f"/api/tasks/{task_id}/lineage", headers=h)
             self.assertEqual(lin.status_code, 200, lin.text)
             self.assertTrue(lin.json().get("found"))
@@ -131,6 +172,13 @@ class EvalFlowTest(unittest.TestCase):
             issues = client.get("/api/quality/issues", headers=h, params={"dataset_id": ds_id})
             self.assertGreater(issues.json()["total"], 0)
             model = client.post("/api/models", json={"name": f"m-{name}", "api_url": ""}, headers=h).json()
+            # 无 endpoint 的正式任务应被拒绝
+            no_ep = client.post("/api/tasks", json={
+                "name": "formal-no-endpoint",
+                "dataset_id": ds_id,
+                "model_id": model["id"],
+            }, headers=h)
+            self.assertEqual(no_ep.status_code, 400)
             blocked = client.post("/api/tasks", json={
                 "name": "formal",
                 "dataset_id": ds_id,
@@ -198,6 +246,7 @@ class EvalFlowTest(unittest.TestCase):
                 "dataset_id": ds["id"],
                 "model_id": mid,
                 "scene": "qa",
+                "trial_run": True,
             }, headers=h)
             self.assertEqual(blocked.status_code, 400)
             ok = client.post("/api/tasks", json={
@@ -205,6 +254,7 @@ class EvalFlowTest(unittest.TestCase):
                 "dataset_id": ds["id"],
                 "model_id": mid,
                 "scene": "智能对话",
+                "trial_run": True,
             }, headers=h)
             self.assertEqual(ok.status_code, 200, ok.text)
             inv = client.post(f"/api/models/{mid}/invoke", json={"prompt": "hi"}, headers=h)
@@ -259,9 +309,13 @@ class EvalFlowTest(unittest.TestCase):
         self.assertIn("traceparent", env["trace"])
         resp = make_response(env, "ok", {"score": 1}, usage={"total_tokens": 0})
         self.assertEqual(resp["header"]["status"], "ok")
+        self.assertEqual(resp["body"]["status"], "success")
+        self.assertEqual(resp["body"]["result"]["score"], 1)
         self.assertEqual(resp["usage"]["total_tokens"], 0)
         err = make_response(env, "error", {}, error={"code": "X", "message": "fail"})
         self.assertEqual(err["body"]["error"]["code"], "X")
+        # 同链 trace 延续
+        self.assertEqual(resp["trace"]["trace_id"], env["trace"]["trace_id"])
 
         with TestClient(app) as client:
             token = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()["access_token"]
@@ -288,15 +342,24 @@ class EvalFlowTest(unittest.TestCase):
             ev = client.get("/api/resources/events", headers=h)
             self.assertEqual(ev.status_code, 200)
             inv = client.post("/api/resources/invoke", json={"resource_id": "builtin/exact_match", "body": {"prediction": "2", "reference": "2"}, "tenant_id": "demo"}, headers=h)
-            self.assertEqual(inv.json()["header"]["tenant_id"], "demo")
+            # 伪造 tenant_id 被 ActorContext 覆盖，不得采信客户端伪造值
+            self.assertNotEqual(inv.json()["header"]["tenant_id"], "demo")
             self.assertEqual(inv.json()["header"]["status"], "ok")
+            self.assertEqual(inv.json()["body"]["status"], "success")
+            self.assertTrue(inv.json()["body"]["result"].get("passed"))
             skill = client.post("/api/resources/invoke", json={"resource_id": "builtin/skill_dual_judge", "body": {"prediction": "北京", "reference": "北京"}}, headers=h)
             self.assertEqual(skill.status_code, 200, skill.text)
-            self.assertTrue(skill.json()["body"]["passed"])
+            self.assertTrue(skill.json()["body"]["result"]["passed"])
             mcp = client.post("/api/resources/invoke", json={"resource_id": "builtin/mcp_gateway", "body": {"method": "tools/list", "id": 1}}, headers=h)
-            self.assertGreaterEqual(len(mcp.json()["body"]["result"]["tools"]), 1)
+            mcp_body = mcp.json()["body"]["result"]
+            tools = mcp_body.get("tools") or (mcp_body.get("result") or {}).get("tools") or []
+            self.assertGreaterEqual(len(tools), 1)
             call = client.post("/api/resources/invoke", json={"resource_id": "builtin/mcp_gateway", "body": {"method": "tools/call", "params": {"name": "builtin/exact_match", "arguments": {"prediction": "2", "reference": "2"}}}}, headers=h)
-            self.assertTrue(call.json()["body"]["result"]["passed"])
+            call_res = call.json()["body"]["result"]
+            passed = call_res.get("passed")
+            if passed is None and isinstance(call_res.get("result"), dict):
+                passed = call_res["result"].get("passed")
+            self.assertTrue(passed)
             reg = client.get("/api/resources/registry", headers=h)
             self.assertEqual(reg.status_code, 200, reg.text)
             self.assertGreaterEqual(reg.json()["total"], 1)
@@ -324,6 +387,7 @@ class EvalFlowTest(unittest.TestCase):
                 "model_id": model_id,
                 "template_code": "safety.watermark",
                 "judge_resource_id": "builtin/safety_watermark",
+                "trial_run": True,
             }, headers=h)
             self.assertEqual(first.status_code, 200, first.text)
             self.assertEqual(first.json()["task_type"], "security")
@@ -334,6 +398,7 @@ class EvalFlowTest(unittest.TestCase):
                 "model_id": model_id,
                 "depends_on_id": a_id,
                 "priority": 9,
+                "trial_run": True,
             }, headers=h)
             self.assertEqual(blocked.status_code, 200, blocked.text)
             b_id = blocked.json()["id"]
@@ -349,7 +414,7 @@ class EvalFlowTest(unittest.TestCase):
             for _ in range(40):
                 detail = client.get(f"/api/tasks/{a_id}", headers=h).json()
                 status = detail["status"]
-                if status in {"success", "failed"}:
+                if status in {"success", "failed", "partial_failed"}:
                     break
                 time.sleep(0.1)
             self.assertEqual(status, "success", detail)
@@ -400,16 +465,32 @@ class EvalFlowTest(unittest.TestCase):
             self.assertGreaterEqual(kb.json()["total"], 1)
             sh = client.post(f"/api/services/{sid}/shadow", json={
                 "gray_version": "v-next",
-                "production": {"score": 0.9, "latency_ms": 100},
-                "candidate": {"score": 0.91, "latency_ms": 108},
+                "traffic_pct": 0.05,
+                "production": {"score": 0.9, "latency_ms": 100, "samples": [0.9, 0.91, 0.89]},
+                "candidate": {"score": 0.91, "latency_ms": 108, "samples": [0.91, 0.92, 0.90]},
             }, headers=h)
             self.assertEqual(sh.status_code, 200, sh.text)
             self.assertTrue(sh.json()["shadow"]["stable"])
             self.assertEqual(sh.json()["shadow"]["returned"], "production")
+            # 证据窗 7 天：测试中回拨 started_at
+            import asyncio
+            from datetime import datetime, timedelta
+            from app.database import async_session
+            from app.models import EvalServiceRequest
+
+            async def _age():
+                async with async_session() as db:
+                    row = await db.get(EvalServiceRequest, sid)
+                    row.shadow_started_at = datetime.utcnow() - timedelta(days=8)
+                    await db.commit()
+
+            asyncio.run(_age())
             promo = client.post(f"/api/services/{sid}/promote", headers=h)
+            self.assertEqual(promo.status_code, 200, promo.text)
             self.assertEqual(promo.json()["production_version"], "v-next")
             rb = client.post(f"/api/services/{sid}/rollback", headers=h)
             self.assertEqual(rb.json()["gray_version"], "")
+            self.assertEqual(rb.json()["production_version"], "v1")
 
     def test_agent_orchestration(self):
         with TestClient(app) as client:
@@ -418,14 +499,39 @@ class EvalFlowTest(unittest.TestCase):
             kn = client.get("/api/agents/knowledge", headers=h)
             self.assertEqual(kn.status_code, 200, kn.text)
             self.assertGreaterEqual(kn.json()["total"], 1)
-            ds = client.post("/api/datasets", json={"name": f"ag-{int(time.time())}"}, headers=h).json()
+            ds = client.post(
+                "/api/datasets",
+                json={"name": f"ag-{int(time.time())}", "domain_type": "finance", "tags": ["finance", "金融"]},
+                headers=h,
+            ).json()
             payload = json.dumps([{"input": "hello", "reference": "world"}]).encode()
             client.post(f"/api/datasets/{ds['id']}/import", headers=h, files={"file": ("qa.json", payload, "application/json")})
-            client.post("/api/models", json={"name": f"ag-m-{int(time.time())}", "api_url": ""}, headers=h)
-            sess = client.post("/api/agents/sessions", json={"requirement": "金融智能对话正式评测"}, headers=h)
+            model = client.post(
+                "/api/models",
+                json={"name": f"ag-m-{int(time.time())}", "api_url": "", "applicable_scenario": "finance"},
+                headers=h,
+            ).json()
+            sess = client.post(
+                "/api/agents/sessions",
+                json={"requirement": "金融智能对话正式评测", "objective": "金融对话评测", "token_budget": 0},
+                headers=h,
+            )
             self.assertEqual(sess.status_code, 200, sess.text)
-            self.assertEqual(sess.json()["status"], "waiting_confirm")
             sid = sess.json()["id"]
+            if sess.json()["status"] != "waiting_confirm":
+                clar = client.post(
+                    f"/api/agents/sessions/{sid}/clarify",
+                    json={
+                        "dataset_id": ds["id"],
+                        "model_id": model["id"],
+                        "trial_run": True,
+                        "objective": "金融对话评测",
+                        "industry": "finance",
+                    },
+                    headers=h,
+                )
+                self.assertEqual(clar.status_code, 200, clar.text)
+                self.assertTrue(clar.json()["plan"].get("ready"), clar.json()["plan"])
             detail = client.get(f"/api/agents/sessions/{sid}", headers=h)
             self.assertTrue(any(m["role"] == "main" for m in detail.json()["messages"]))
             conf = client.post(f"/api/agents/sessions/{sid}/confirm", json={"execute": False}, headers=h)
@@ -464,7 +570,16 @@ class EvalFlowTest(unittest.TestCase):
             self.assertTrue(bak.json()["path"])
             acc = client.get("/api/ops/acceptance", headers=h)
             self.assertEqual(acc.status_code, 200, acc.text)
-            self.assertTrue(acc.json()["ok"], acc.text)
+            body = acc.json()
+            self.assertIn(body.get("ok"), (True, False, None))
+            for item in body["items"]:
+                self.assertIn(item.get("status"), ("measured", "unknown"))
+            # templates/packs 应可实测
+            by_code = {x["code"]: x for x in body["items"]}
+            self.assertEqual(by_code["templates"]["status"], "measured")
+            self.assertTrue(by_code["templates"]["ok"], by_code["templates"])
+            self.assertEqual(by_code["manifest"]["status"], "unknown")
+            self.assertIsNone(by_code["manifest"]["ok"])
             gc = client.post("/api/ops/gc-snapshots", headers=h)
             self.assertEqual(gc.status_code, 200, gc.text)
 

@@ -53,6 +53,36 @@ class ResourceEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ResourceVersion(Base):
+    """不可变资源版本快照。"""
+    __tablename__ = "resource_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    resource_id: Mapped[str] = mapped_column(String(120), index=True)
+    version: Mapped[str] = mapped_column(String(32), default="1.0.0")
+    manifest_json: Mapped[str] = mapped_column(Text, default="{}")
+    profile: Mapped[str] = mapped_column(String(80), default="platform-v0.6.1/envelope-1.3")
+    immutable: Mapped[bool] = mapped_column(default=True)
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class IdempotencyRecord(Base):
+    """网关幂等：(tenant, resource, version, action, correlation_id)。"""
+    __tablename__ = "idempotency_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    resource_id: Mapped[str] = mapped_column(String(120), index=True)
+    version: Mapped[str] = mapped_column(String(32), default="")
+    action: Mapped[str] = mapped_column(String(64), default="execute")
+    correlation_id: Mapped[str] = mapped_column(String(64), index=True)
+    request_hash: Mapped[str] = mapped_column(String(64), default="")
+    response_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(20), default="done")  # done|processing
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class BatchSnapshot(Base):
     __tablename__ = "batch_snapshots"
 
@@ -63,6 +93,9 @@ class BatchSnapshot(Base):
     checksum: Mapped[str] = mapped_column(String(64), default="")
     item_count: Mapped[int] = mapped_column(Integer, default=0)
     file_path: Mapped[str] = mapped_column(String(500), default="")
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    visibility: Mapped[str] = mapped_column(String(20), default="private")
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -81,6 +114,8 @@ class BatchJob(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     token_budget: Mapped[int] = mapped_column(Integer, default=0)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_reserved: Mapped[int] = mapped_column(Integer, default=0)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     failed_details: Mapped[str] = mapped_column(Text, default="[]")
     error_code: Mapped[str] = mapped_column(String(64), default="")
     creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -96,5 +131,7 @@ class BatchShardResult(Base):
     shard_id: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="done")
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    immutable: Mapped[bool] = mapped_column(default=True)
     results_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

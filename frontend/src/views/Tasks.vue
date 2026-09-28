@@ -21,9 +21,10 @@
         <el-table-column prop="scene" label="场景" width="110" />
         <el-table-column prop="industry" label="行业" width="90" />
         <el-table-column prop="priority" label="优先级" width="80" />
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="状态" width="140">
           <template #default="{ row }">
-            {{ row.status }}{{ row.trial_run ? '（试跑）' : '' }}
+            {{ statusText(row) }}
+            <span v-if="row.attempt" class="muted"> ·#{{ row.attempt }}</span>
           </template>
         </el-table-column>
         <el-table-column label="进度" width="140">
@@ -34,12 +35,13 @@
         <el-table-column prop="pass_rate" label="通过率" width="90">
           <template #default="{ row }">{{ formatRate(row.pass_rate) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="240">
+        <el-table-column label="操作" width="280">
           <template #default="{ row }">
             <el-button v-if="userStore.hasPermission('task:edit') && row.status === 'draft'" link type="primary" size="small" @click="submitReview(row)">提交审核</el-button>
             <el-button v-if="userStore.hasPermission('task:audit') && row.status === 'pending_review'" link type="primary" size="small" @click="audit(row, true)">通过</el-button>
-            <el-button v-if="userStore.hasPermission('task:run')" link type="primary" size="small" @click="run(row)">执行</el-button>
+            <el-button v-if="userStore.hasPermission('task:run') && !['running'].includes(row.status)" link type="primary" size="small" @click="run(row)">执行</el-button>
             <el-button v-if="userStore.hasPermission('task:run') && ['queued','running','draft','pending_review'].includes(row.status)" link size="small" @click="cancel(row)">取消</el-button>
+            <el-button v-if="userStore.hasPermission('task:run') && ['success','failed','partial_failed','cancelled'].includes(row.status)" link type="warning" size="small" @click="retry(row)">重试</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -78,18 +80,33 @@
           </el-select>
         </el-form-item>
         <el-form-item label="数据集">
-          <el-select v-model="form.dataset_id" filterable style="width: 100%">
-            <el-option v-for="d in datasets" :key="d.id" :label="`${d.name} (${d.data_count})`" :value="d.id" />
+          <el-select v-model="form.dataset_id" filterable style="width: 100%" @change="onDatasetChange">
+            <el-option
+              v-for="d in datasets"
+              :key="d.id"
+              :label="`${d.name} (${d.data_count}) · ${d.status}/${d.quality_status}`"
+              :value="d.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="被测模型">
-          <el-select v-model="form.model_id" filterable style="width: 100%">
-            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
+          <el-select v-model="form.model_id" filterable style="width: 100%" @change="onModelChange">
+            <el-option
+              v-for="m in models"
+              :key="m.id"
+              :label="`${m.name}${m.api_url ? '' : '（无endpoint）'}`"
+              :value="m.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="提示词">
           <el-select v-model="form.prompt_id" clearable filterable style="width: 100%">
-            <el-option v-for="p in prompts" :key="p.id" :label="p.name" :value="p.id" />
+            <el-option
+              v-for="p in prompts"
+              :key="p.id"
+              :label="`${p.name} · ${p.status}`"
+              :value="p.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="打分工具">
@@ -99,7 +116,14 @@
         </el-form-item>
         <el-form-item label="仅测试">
           <el-switch v-model="form.trial_run" />
-          <span class="hint">质量不合格数据只能走试跑，不能进入正式评测</span>
+          <div class="hint">
+            正式评测要求：数据集已发布且质检通过、提示词已发布、模型已配置 endpoint。不满足时请开启「仅测试」。
+            <span v-if="gateHint" class="warn">{{ gateHint }}</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="Token 配额">
+          <el-input-number v-model="form.token_quota" :min="0" />
+          <span class="hint">0 表示不限制；耗尽后任务进入 paused_budget</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -111,7 +135,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { datasetsApi, modelsApi, promptsApi, resourcesApi, tasksApi } from '@/api'
@@ -133,17 +157,57 @@ const templates = ref([])
 const scenes = ref([])
 const industries = ref([])
 const form = ref(emptyForm())
+let pollTimer
 
 function emptyForm() {
   return {
     name: '', task_type: 'capability', scene: 'chat', industry: 'general',
     dataset_id: null, model_id: null, prompt_id: null, judge_resource_id: 'builtin/exact_match',
-    trial_run: false, template_code: '', priority: 5, depends_on_id: null
+    trial_run: false, template_code: '', priority: 5, depends_on_id: null, token_quota: 0
   }
 }
 
 function formatRate(v) {
   return `${((v || 0) * 100).toFixed(1)}%`
+}
+
+function statusText(row) {
+  const base = row.status || ''
+  const tags = []
+  if (row.trial_run) tags.push('试跑')
+  if (row.simulation) tags.push('simulation')
+  if (row.cancel_requested && row.status === 'running') tags.push('取消中')
+  return tags.length ? `${base}（${tags.join('/')}）` : base
+}
+
+const selectedDataset = computed(() => datasets.value.find((d) => d.id === form.value.dataset_id))
+const selectedModel = computed(() => models.value.find((m) => m.id === form.value.model_id))
+const selectedPrompt = computed(() => prompts.value.find((p) => p.id === form.value.prompt_id))
+
+const gateHint = computed(() => {
+  if (form.value.trial_run) return ''
+  const tips = []
+  const ds = selectedDataset.value
+  if (ds && ds.status !== 'published') tips.push('数据集未发布')
+  if (ds && !['passed', 'ok', 'good'].includes(ds.quality_status)) tips.push('数据集未质检通过')
+  const m = selectedModel.value
+  if (m && !(m.api_url || '').trim()) tips.push('模型无 endpoint')
+  const p = selectedPrompt.value
+  if (p && p.status !== 'published') tips.push('提示词未发布')
+  return tips.length ? `当前不满足正式评测：${tips.join('；')}。将自动建议开启仅测试。` : ''
+})
+
+function onDatasetChange() {
+  suggestTrial()
+}
+function onModelChange() {
+  suggestTrial()
+}
+function suggestTrial() {
+  if (gateHint.value && !form.value.trial_run) {
+    form.value.trial_run = true
+    ElMessage.info('已自动开启「仅测试」以满足门禁')
+  }
 }
 
 async function loadData() {
@@ -192,10 +256,15 @@ async function openCreate(presetCode) {
     template_code: presetCode || route.query.template || ''
   }
   if (form.value.template_code) applyTemplate(form.value.template_code)
+  suggestTrial()
   showForm.value = true
 }
 
 async function submit() {
+  if (!form.value.trial_run && gateHint.value) {
+    ElMessage.warning(gateHint.value)
+    return
+  }
   submitting.value = true
   try {
     const created = await tasksApi.create(form.value)
@@ -215,7 +284,13 @@ async function run(row) {
 
 async function cancel(row) {
   await tasksApi.cancel(row.id)
-  ElMessage.success('已取消')
+  ElMessage.success('已请求取消')
+  loadData()
+}
+
+async function retry(row) {
+  await tasksApi.retry(row.id)
+  ElMessage.success('已重试入队')
   loadData()
 }
 
@@ -233,10 +308,17 @@ async function audit(row, approved) {
 
 onMounted(async () => {
   await loadData()
+  pollTimer = setInterval(() => {
+    const busy = items.value.some((x) => ['queued', 'running'].includes(x.status))
+    if (busy) loadData()
+  }, 3000)
   if (route.query.template) openCreate(route.query.template)
 })
+onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>
-.hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; }
+.hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.warn { display: block; margin-top: 4px; color: var(--el-color-warning); }
+.muted { color: var(--el-text-color-secondary); font-size: 12px; }
 </style>

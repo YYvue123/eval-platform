@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission
+from app.api.deps import require_permission, require_actor
 from app.database import get_db
 from app.models import (
     EvalModel,
@@ -17,9 +17,13 @@ from app.models import (
     ModelVersion,
     User,
 )
+from app.services.actor_context import ActorContext, effective_tenant_id
 from app.services.audit import get_client_ip, log_audit
 from app.services.health_probe import record_probe
 from app.services.model_client import health_check, invoke_model
+from app.services.model_access import ACCESS_FIELD_NAMES, assert_channel_allowed, bump_version_and_freeze, insert_access_snapshot
+from app.services.object_policy import apply_object_scope, get_visible_or_404
+from app.services.model_access import ACCESS_FIELD_NAMES, bump_version_and_freeze, insert_access_snapshot
 from app.services.serializers import model_out
 from app.utils.jsonutil import dumps, iso, loads
 
@@ -156,22 +160,8 @@ async def _upsert_meta(db: AsyncSession, model_id: int, meta: dict) -> ModelMeta
 
 
 async def _sync_access(db: AsyncSession, m: EvalModel) -> None:
-    cfg = (await db.execute(
-        select(ModelAccessConfig).where(ModelAccessConfig.model_id == m.id).order_by(ModelAccessConfig.id.desc())
-    )).scalars().first()
-    if not cfg:
-        cfg = ModelAccessConfig(model_id=m.id, version_id=m.current_version_id)
-        db.add(cfg)
-    cfg.api_url = m.api_url
-    cfg.request_method = m.request_method
-    cfg.auth_type = m.auth_type
-    cfg.request_template = m.request_template or ""
-    cfg.response_mapping = m.response_mapping or ""
-    cfg.timeout = m.timeout
-    cfg.retry_count = m.retry_count
-    cfg.channel_type = m.channel_type
-    cfg.version_id = m.current_version_id
-    cfg.auth_config = dumps({"auth_type": m.auth_type, "has_key": bool(m.api_key)})
+    """仅为当前版本补齐不可变快照，绝不覆盖已有行。"""
+    await insert_access_snapshot(db, m)
 
 
 async def _ensure_version(db: AsyncSession, m: EvalModel, user_id: int | None) -> ModelVersion:
@@ -216,9 +206,10 @@ async def list_models(
     model_source: str = Query(""),
     support_modal: str = Query(""),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("model:list")),
+    actor: ActorContext = Depends(require_actor("model:list")),
 ):
     q = select(EvalModel).where(EvalModel.status != "deleted")
+    q = apply_object_scope(q, EvalModel, actor)
     if search:
         q = q.where(or_(EvalModel.name.contains(search), EvalModel.description.contains(search)))
     if status:
@@ -237,18 +228,28 @@ async def create_model(
     body: ModelCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("model:create")),
+    actor: ActorContext = Depends(require_actor("model:create")),
 ):
     data = body.model_dump()
     data, meta = _split_payload(data)
     scenes = data.pop("scene_white_list", []) or []
-    m = EvalModel(**data, scene_white_list=dumps(scenes), creator_id=current.id)
+    claimed = data.pop("tenant_id", None) if "tenant_id" in data else None
+    m = EvalModel(
+        **data,
+        scene_white_list=dumps(scenes),
+        creator_id=actor.user_id,
+        tenant_id=effective_tenant_id(actor, claimed),
+        visibility="private",
+    )
     db.add(m)
     await db.flush()
-    await _ensure_version(db, m, current.id)
+    await _ensure_version(db, m, actor.user_id)
     await _upsert_meta(db, m.id, meta)
-    await _sync_access(db, m)
-    await log_audit(db, "model", "create", user_id=current.id, username=current.username, target_id=m.id, ip=get_client_ip(request))
+    try:
+        await _sync_access(db, m)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await log_audit(db, "model", "create", user_id=actor.user_id, username=actor.username, target_id=m.id, ip=get_client_ip(request))
     return model_out(m, meta=await _get_meta(db, m.id))
 
 
@@ -256,11 +257,11 @@ async def create_model(
 async def get_model(
     model_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("model:view")),
+    actor: ActorContext = Depends(require_actor("model:view")),
 ):
-    m = await db.get(EvalModel, model_id)
-    if not m or m.status == "deleted":
-        raise HTTPException(404, "模型不存在")
+    m = await get_visible_or_404(db, EvalModel, model_id, actor, not_found="模型不存在或无权访问")
+    if m.status == "deleted":
+        raise HTTPException(404, "模型不存在或无权访问")
     logs = (await db.execute(select(ModelCallLog).where(ModelCallLog.model_id == model_id).order_by(ModelCallLog.id.desc()).limit(50))).scalars().all()
     versions = (await db.execute(select(ModelVersion).where(ModelVersion.model_id == model_id).order_by(ModelVersion.id.desc()))).scalars().all()
     acls = (await db.execute(select(ModelAcl).where(ModelAcl.model_id == model_id).order_by(ModelAcl.id.desc()))).scalars().all()
@@ -314,12 +315,20 @@ async def update_model(
     data, meta = _split_payload(data)
     if data.get("status") in {"published", "deleted"}:
         raise HTTPException(400, "不允许直接修改为该状态")
+    access_changed = any(k in data for k in ACCESS_FIELD_NAMES)
     for k, v in data.items():
         setattr(m, k, v)
     if meta:
         await _upsert_meta(db, m.id, meta)
-    await _ensure_version(db, m, current.id)
-    await _sync_access(db, m)
+    try:
+        if access_changed:
+            # 访问配置变更 → 新版本 + 新快照，旧 ModelAccessConfig 保持不变
+            await bump_version_and_freeze(db, m, current.id, desc="访问配置变更")
+        else:
+            await _ensure_version(db, m, current.id)
+            await _sync_access(db, m)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await log_audit(db, "model", "update", user_id=current.id, username=current.username, target_id=m.id, ip=get_client_ip(request))
     return model_out(m, meta=await _get_meta(db, m.id))
 
@@ -372,7 +381,32 @@ async def activate_version(
         raise HTTPException(404, "版本不存在")
     m.current_version_id = ver.id
     m.current_version = ver.version_code
-    await _sync_access(db, m)
+    # 激活历史版本：若该版本已有冻结配置则不覆盖；否则用当前 live 字段补齐一次
+    try:
+        await _sync_access(db, m)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    cfg = await db.scalar(
+        select(ModelAccessConfig).where(
+            ModelAccessConfig.model_id == m.id,
+            ModelAccessConfig.version_id == ver.id,
+        )
+    )
+    if cfg:
+        # 将 live 指针字段对齐到已冻结配置，便于 UI 展示（不改历史 cfg）
+        auth = loads(cfg.auth_config or "{}", {}) or {}
+        m.api_url = cfg.api_url
+        m.request_method = cfg.request_method
+        m.auth_type = cfg.auth_type
+        m.request_template = cfg.request_template or ""
+        m.response_mapping = cfg.response_mapping or ""
+        m.timeout = cfg.timeout
+        m.retry_count = cfg.retry_count
+        m.channel_type = cfg.channel_type
+        if auth.get("api_key"):
+            m.api_key = auth["api_key"]
+        if auth.get("served_model_name"):
+            m.served_model_name = auth["served_model_name"]
     return model_out(m)
 
 

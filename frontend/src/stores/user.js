@@ -24,6 +24,7 @@ export const useUserStore = defineStore('user', () => {
   const phone = ref('')
   const email = ref('')
   const createdAt = ref('')
+  const userId = ref(null)
   /** 头像展示 URL（blob 或空，用于 header/个人中心） */
   const avatarDisplayUrl = ref('')
 
@@ -47,6 +48,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function setUserInfo(info) {
+    if (info.id !== undefined) userId.value = info.id
     if (info.permissions) permissions.value = info.permissions
     if (info.data_scope) dataScope.value = info.data_scope
     if (info.role_code) {
@@ -80,6 +82,7 @@ export const useUserStore = defineStore('user', () => {
     phone.value = ''
     email.value = ''
     createdAt.value = ''
+    userId.value = null
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USERNAME_KEY)
     localStorage.removeItem(ROLE_KEY)
@@ -145,6 +148,7 @@ export const useUserStore = defineStore('user', () => {
     phone,
     email,
     createdAt,
+    userId,
     avatarDisplayUrl,
     displayName,
     setAuth,

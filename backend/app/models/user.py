@@ -18,5 +18,7 @@ class User(Base):
     avatar: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)  # 头像路径，如 avatars/xxx.jpg
     nickname: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     created_by: Mapped[int] = mapped_column(Integer, nullable=True)  # 创建者 user_id
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active|disabled
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
