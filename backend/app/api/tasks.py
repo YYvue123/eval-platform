@@ -715,7 +715,10 @@ async def publish_board_release(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("leaderboard:edit")),
 ):
-    rel = await publish_release(db, board, note=(body.note if body else "") or "publish")
+    try:
+        rel = await publish_release(db, board, note=(body.note if body else "") or "publish")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await db.commit()
     return release_out(rel)
 

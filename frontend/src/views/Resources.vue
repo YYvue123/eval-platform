@@ -31,7 +31,7 @@
         <span class="hint">共 {{ total }} 条</span>
       </div>
 
-      <el-table v-loading="loading" :data="items" stripe @row-click="openDetail">
+      <el-table v-loading="loading" :data="items" stripe empty-text="暂无该类型资源" @row-click="openDetail">
         <el-table-column prop="name" label="名称" min-width="160">
           <template #default="{ row }">
             <div class="name-cell">
@@ -310,6 +310,7 @@
                 :remote-method="searchSkillTools"
                 :loading="skillToolsLoading"
                 placeholder="选择已上线工具"
+                no-data-text="暂无已上线工具，请先注册 HTTP 工具"
                 style="width: 320px"
                 @visible-change="onSkillToolVisible"
                 @change="invalidateChecks"
@@ -446,7 +447,7 @@
             </el-radio-group>
           </el-form-item>
           <el-form-item v-if="probeMode === 'registered'" label="资源">
-            <el-select v-model="probeForm.resource_id" filterable clearable style="width: 100%" placeholder="选择 MCP 资源">
+            <el-select v-model="probeForm.resource_id" filterable clearable style="width: 100%" placeholder="选择 MCP 资源" no-data-text="暂无已注册 MCP">
               <el-option v-for="m in mcpOptions" :key="m.resource_id" :label="`${m.name} (${m.resource_id})`" :value="m.resource_id" />
             </el-select>
           </el-form-item>
@@ -497,6 +498,8 @@
           <el-button :loading="probeLoading && probeAction === 'tools/list'" @click="mcpStep('tools/list')">获取工具目录</el-button>
         </el-space>
 
+        <p v-if="mcpState.listed && !mcpTools.length" class="hint">工具目录为空</p>
+        <p v-else-if="mcpState.negotiated && !mcpTools.length" class="hint">已连接，点击「获取工具目录」加载可用工具</p>
         <el-input
           v-if="mcpTools.length"
           v-model="mcpToolSearch"

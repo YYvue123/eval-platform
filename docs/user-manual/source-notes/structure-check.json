@@ -1,0 +1,11 @@
+{
+  "source_chars": 37150,
+  "main_sections": 31,
+  "subsections": 118,
+  "tables": 21,
+  "paragraphs": 552,
+  "output": "E:\\eval-platform\\docs\\user-manual\\大模型智能评测平台用户使用手册_V1.0.docx",
+  "visual_render": "blocked: bundled LibreOffice unavailable; renderer FileNotFoundError",
+  "body_coverage": "all source body text present",
+  "business_tests": "not run; documentation only"
+}

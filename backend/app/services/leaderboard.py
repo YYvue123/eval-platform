@@ -398,13 +398,16 @@ async def last_snapshot(db: AsyncSession, board: str) -> LeaderboardSnapshot | N
 
 async def publish_release(db: AsyncSession, board: str, note: str = "") -> LeaderboardRelease:
     payload = await compute_board(db, board, use_frozen_scale=False)
-    present = [i["avg_score"] for i in payload["items"] if i.get("avg_score") is not None]
+    items = payload.get("items") or []
+    present = [i["avg_score"] for i in items if i.get("avg_score") is not None]
     if payload["board"] == "overall":
-        present = [i["weighted_score"] for i in payload["items"] if i.get("weighted_score") is not None]
+        present = [i["weighted_score"] for i in items if i.get("weighted_score") is not None]
     elif payload["board"] == "value":
-        present = [i["value_score"] for i in payload["items"] if i.get("value_score") is not None]
-    lo = min(present) if present else None
-    hi = max(present) if present else None
+        present = [i["value_score"] for i in items if i.get("value_score") is not None]
+    if not items or not present:
+        raise ValueError("no_qualifying_formal_result")
+    lo = min(present)
+    hi = max(present)
     # 用冻结尺度重算
     payload2 = await compute_board(db, board, use_frozen_scale=False)
     # 手动注入尺度
