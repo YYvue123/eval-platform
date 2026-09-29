@@ -1,0 +1,8 @@
+# C Task 3 review (no commit)
+
+Brief: .superpowers/sdd/task-c3-brief.md
+Report: .superpowers/sdd/task-c3-report.md
+Read real04_tools/real05_mcp in tools/real_fill/scenarios.py and tests in backend/tests/test_real_fill.py
+Must: stats_service subprocess; parse 3 inputs one failed; MCP success + empty args fail; real endpoints; isolated.
+Controller independently ran: unittest tests.test_real_fill 6/6 OK.
+Do not mutate. Assessment Approved | Needs fixes.

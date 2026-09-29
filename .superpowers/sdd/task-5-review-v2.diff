@@ -1,0 +1,1512 @@
+﻿# Task 5 working-tree files v2
+
+## backend/app/services/redaction.py
+diff --git a/backend/app/services/redaction.py b/backend/app/services/redaction.py
+new file mode 100644
+index 0000000..bcfee73
+--- /dev/null
++++ b/backend/app/services/redaction.py
+@@ -0,0 +1,75 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import re
++from typing import Any
++
++_SECRET_KEYS = {
++    "token",
++    "api_key",
++    "apikey",
++    "authorization",
++    "secret",
++    "password",
++    "credential",
++}
++_REDACTED = {"configured": True, "redacted": True}
++_REDACTED_JSON = json.dumps(_REDACTED, separators=(",", ":"))
++_STRINGIFIED_SECRET = re.compile(
++    r"""(?ix)
++    (?P<prefix>
++        (?P<quote>["']?)
++        (?:token|api_key|apikey|authorization|secret|password|credential)
++        (?P=quote)\s*[:=]\s*
++    )
++    (?P<value>
++        "(?:\\.|[^"\\])*"
++        |'(?:\\.|[^'\\])*'
++        |[^,}\]\r\n]+
++    )
++    """
++)
++
++
++def redact_secrets(value: Any) -> Any:
++    if isinstance(value, dict):
++        return {
++            key: (
++                dict(_REDACTED)
++                if str(key).lower() in _SECRET_KEYS and item
++                else redact_secrets(item)
++            )
++            for key, item in value.items()
++        }
++    if isinstance(value, list):
++        return [redact_secrets(item) for item in value]
++    return value
++
++
++def sanitize_error_text(value: str) -> str:
++    return _STRINGIFIED_SECRET.sub(
++        lambda match: f"{match.group('prefix')}{_REDACTED_JSON}",
++        value,
++    )
++
++
++def safe_error_message(value: Any) -> str:
++    if isinstance(value, (dict, list)):
++        return json.dumps(
++            redact_secrets(value),
++            ensure_ascii=False,
++            sort_keys=True,
++            separators=(",", ":"),
++        )
++    return sanitize_error_text(str(value))
++
++
++def evidence_digest(value: Any, limit: int = 4000) -> tuple[str, str]:
++    serialized = json.dumps(
++        redact_secrets(value),
++        ensure_ascii=False,
++        sort_keys=True,
++        separators=(",", ":"),
++    )
++    return serialized[:limit], hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+## backend/app/models/resource.py
+diff --git a/backend/app/models/resource.py b/backend/app/models/resource.py
+index 547d2f6..744863f 100644
+--- a/backend/app/models/resource.py
++++ b/backend/app/models/resource.py
+@@ -35,20 +35,30 @@ class BaseResource(Base):
+ class ResourceCallLog(Base):
+     __tablename__ = "resource_call_logs"
+ 
+     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+     resource_id: Mapped[str] = mapped_column(String(120), index=True)
+     task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+     status: Mapped[str] = mapped_column(String(20), default="success")
+     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+     error_message: Mapped[str] = mapped_column(Text, default="")
+     correlation_id: Mapped[str] = mapped_column(String(64), default="")
++    tenant_id: Mapped[str] = mapped_column(String(64), default="")
++    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    version: Mapped[str] = mapped_column(String(32), default="")
++    trace_id: Mapped[str] = mapped_column(String(64), default="")
++    input_digest: Mapped[str] = mapped_column(Text, default="")
++    output_digest: Mapped[str] = mapped_column(Text, default="")
++    input_hash: Mapped[str] = mapped_column(String(64), default="")
++    output_hash: Mapped[str] = mapped_column(String(64), default="")
++    source: Mapped[str] = mapped_column(String(32), default="gateway")
++    parent_correlation_id: Mapped[str] = mapped_column(String(128), default="")
+     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+ 
+ 
+ class ResourceEvent(Base):
+     __tablename__ = "resource_events"
+ 
+     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+     event_type: Mapped[str] = mapped_column(String(64), index=True)
+     resource_id: Mapped[str] = mapped_column(String(120), default="")
+     payload_json: Mapped[str] = mapped_column(Text, default="{}")
+
+## backend/app/database.py
+diff --git a/backend/app/database.py b/backend/app/database.py
+index 324a639..5cb3241 100644
+--- a/backend/app/database.py
++++ b/backend/app/database.py
+@@ -186,20 +186,30 @@ async def init_db():
+             ("agent_sessions", "row_version", "ALTER TABLE agent_sessions ADD COLUMN row_version INTEGER DEFAULT 0"),
+             ("knowledge_entries", "source_hash", "ALTER TABLE knowledge_entries ADD COLUMN source_hash VARCHAR(64) DEFAULT ''"),
+             ("knowledge_entries", "review_status", "ALTER TABLE knowledge_entries ADD COLUMN review_status VARCHAR(20) DEFAULT 'approved'"),
+             ("knowledge_entries", "valid_until", "ALTER TABLE knowledge_entries ADD COLUMN valid_until DATETIME"),
+             ("eval_service_requests", "tenant_id", "ALTER TABLE eval_service_requests ADD COLUMN tenant_id INTEGER"),
+             ("eval_service_requests", "visibility", "ALTER TABLE eval_service_requests ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+             ("base_resources", "tenant_id", "ALTER TABLE base_resources ADD COLUMN tenant_id INTEGER"),
+             ("base_resources", "visibility", "ALTER TABLE base_resources ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
+             ("agent_runs", "planner_model_id", "ALTER TABLE agent_runs ADD COLUMN planner_model_id INTEGER"),
+             ("agent_sessions", "planner_model_id", "ALTER TABLE agent_sessions ADD COLUMN planner_model_id INTEGER"),
++            ("resource_call_logs", "tenant_id", "ALTER TABLE resource_call_logs ADD COLUMN tenant_id VARCHAR(64) DEFAULT ''"),
++            ("resource_call_logs", "user_id", "ALTER TABLE resource_call_logs ADD COLUMN user_id INTEGER"),
++            ("resource_call_logs", "version", "ALTER TABLE resource_call_logs ADD COLUMN version VARCHAR(32) DEFAULT ''"),
++            ("resource_call_logs", "trace_id", "ALTER TABLE resource_call_logs ADD COLUMN trace_id VARCHAR(64) DEFAULT ''"),
++            ("resource_call_logs", "input_digest", "ALTER TABLE resource_call_logs ADD COLUMN input_digest TEXT DEFAULT ''"),
++            ("resource_call_logs", "output_digest", "ALTER TABLE resource_call_logs ADD COLUMN output_digest TEXT DEFAULT ''"),
++            ("resource_call_logs", "input_hash", "ALTER TABLE resource_call_logs ADD COLUMN input_hash VARCHAR(64) DEFAULT ''"),
++            ("resource_call_logs", "output_hash", "ALTER TABLE resource_call_logs ADD COLUMN output_hash VARCHAR(64) DEFAULT ''"),
++            ("resource_call_logs", "source", "ALTER TABLE resource_call_logs ADD COLUMN source VARCHAR(32) DEFAULT 'gateway'"),
++            ("resource_call_logs", "parent_correlation_id", "ALTER TABLE resource_call_logs ADD COLUMN parent_correlation_id VARCHAR(128) DEFAULT ''"),
+         ]:
+             try:
+                 r = await conn.execute(text(f"PRAGMA table_info({table})"))
+                 cols = [row[1] for row in r.fetchall()]
+                 if col not in cols:
+                     await conn.execute(text(sql))
+             except Exception:
+                 pass
+ 
+ 
+
+## backend/app/services/tool_gateway/__init__.py
+diff --git a/backend/app/services/tool_gateway/__init__.py b/backend/app/services/tool_gateway/__init__.py
+index afef03f..9f101e2 100644
+--- a/backend/app/services/tool_gateway/__init__.py
++++ b/backend/app/services/tool_gateway/__init__.py
+@@ -1,81 +1,147 @@
+ """缁熶竴宸ュ叿缃戝叧锛氫俊灏佹牎楠屻€佸箓绛夈€侀檺娴併€佸垎鍙戙€?""
+ from __future__ import annotations
+ 
+-import asyncio
+-from typing import Any
++import time
+ 
+ from fastapi import HTTPException
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.models import BaseResource, IdempotencyRecord, ResourceCallLog, ResourceVersion, User
++from app.models import BaseResource, IdempotencyRecord, ResourceCallLog, ResourceVersion
+ from app.services.actor_context import ActorContext
+ from app.services.builtin_tools import run_builtin_tool
+ from app.services.gateway import check_gateway, record_gateway
+ from app.services.http_adapter import invoke_http_tool
+ from app.services.protocol import (
+     make_envelope,
+     make_response,
+     normalize_invoke_body,
+     request_hash,
+     validate_request_envelope,
+ )
+ from app.services.skill_runtime import run_mcp, run_skill
+-from app.services.side_effect_policy import has_side_effects, stub_side_effect_result
++from app.services.object_policy import object_is_visible
++from app.services.redaction import evidence_digest, safe_error_message
++from app.services.side_effect_policy import has_side_effects, side_effect_block
+ from app.utils.jsonutil import dumps, loads
+ 
+ 
+ class IdempotencyConflict(HTTPException):
+     def __init__(self, detail: str = "骞傜瓑閿啿绐侊細鐩稿悓 correlation 涓嶅悓 payload"):
+         super().__init__(status_code=409, detail=detail)
+ 
+ 
++def _canon(value):
++    if isinstance(value, dict):
++        return {k: _canon(value[k]) for k in sorted(value)}
++    if isinstance(value, list):
++        return [_canon(x) for x in value]
++    return value
++
++
++def manifests_equal(left, right) -> bool:
++    def load(raw):
++        if isinstance(raw, str):
++            return loads(raw, {})
++        return raw or {}
++
++    return dumps(_canon(load(left))) == dumps(_canon(load(right)))
++
++
++def _evidence_log(
++    *,
++    resource_id: str,
++    task_id: int | None,
++    status: str,
++    latency_ms: int,
++    error_message: str,
++    correlation_id: str,
++    parent_correlation_id: str,
++    tenant_id: str,
++    user_id: int | None,
++    version: str,
++    trace_id: str,
++    source: str,
++    params: dict,
++    output,
++) -> ResourceCallLog:
++    input_digest, input_hash = evidence_digest(params)
++    output_digest, output_hash = evidence_digest(output)
++    return ResourceCallLog(
++        resource_id=resource_id,
++        task_id=task_id,
++        status=status,
++        latency_ms=latency_ms,
++        error_message=error_message,
++        correlation_id=correlation_id,
++        parent_correlation_id=parent_correlation_id,
++        tenant_id=tenant_id,
++        user_id=user_id,
++        version=version,
++        trace_id=trace_id,
++        input_digest=input_digest,
++        output_digest=output_digest,
++        input_hash=input_hash,
++        output_hash=output_hash,
++        source=source,
++    )
++
++
+ async def ensure_resource_version(db: AsyncSession, r: BaseResource, creator_id: int | None = None) -> ResourceVersion:
+     ver = r.version or "1.0.0"
+     existing = await db.scalar(
+         select(ResourceVersion).where(
+             ResourceVersion.resource_id == r.resource_id,
+             ResourceVersion.version == ver,
+         )
+     )
++    current = r.manifest_json or "{}"
+     if existing:
++        if not manifests_equal(existing.manifest_json, current):
++            raise HTTPException(409, "鍚岀増鏈?Manifest 鍐呭涓庡喕缁撳揩鐓т笉涓€鑷达紝璇峰崌绾?version")
+         return existing
+     row = ResourceVersion(
+         resource_id=r.resource_id,
+         version=ver,
+         manifest_json=r.manifest_json or "{}",
+         creator_id=creator_id,
+         immutable=True,
+     )
+     db.add(row)
+     await db.flush()
+     return row
+ 
+ 
+ async def invoke_tool(
+     db: AsyncSession,
+     *,
+     actor: ActorContext | None,
+     resource_id: str,
+     body: dict | None,
+     correlation_id: str | None = None,
++    parent_correlation_id: str | None = None,
+     parent_trace_id: str | None = None,
+     continue_trace_id: str | None = None,
+     task_id: int | None = None,
+     caller_id: str = "gateway",
+     require_action: bool = False,
+ ) -> dict:
+     """缁熶竴璋冪敤鍏ュ彛锛岃繑鍥炴爣鍑嗗搷搴斾俊灏併€?""
+     r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == resource_id))).scalar_one_or_none()
+-    if not r or r.status not in {"online", "pending"}:
++    if not r or r.status not in {"online", "pending", "registered"}:
+         raise HTTPException(404, "璧勬簮涓嶅彲鐢?)
++    if actor is not None:
++        if not object_is_visible(r, actor):
++            raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
++    elif not r.builtin:
++        raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
+ 
+     tenant_key = str(actor.tenant_id) if actor else ""
+     action, params = normalize_invoke_body(body)
+     req = make_envelope(
+         "platform",
+         resource_id,
+         {"action": action, "parameters": params},
+         tenant_id=tenant_key,
+         correlation_id=correlation_id,
+         parent_trace_id=parent_trace_id,
+@@ -98,76 +164,123 @@ async def invoke_tool(
+             IdempotencyRecord.version == rv.version,
+             IdempotencyRecord.action == action,
+             IdempotencyRecord.correlation_id == cid,
+         )
+     )
+     if existing:
+         if existing.request_hash != rh:
+             raise IdempotencyConflict()
+         return loads(existing.response_json, {})
+ 
+-    manifest = loads(r.manifest_json, {})
++    manifest = loads(rv.manifest_json, {})
++    trace_id = (req.get("trace") or {}).get("trace_id") or ""
++    actor_user = actor.user_id if actor else None
++    started = time.perf_counter()
+     if has_side_effects(manifest):
+-        try:
+-            result = stub_side_effect_result(manifest)
+-        except PermissionError as exc:
+-            resp = make_response(
+-                req,
+-                "error",
+-                {},
+-                error={"code": "SIDE_EFFECT_DENIED", "message": str(exc), "retryable": False, "trace_id": req["trace"]["trace_id"]},
+-            )
+-            db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="failed", correlation_id=cid, error_message=str(exc)[:500]))
+-            return resp
+-        record_gateway(r.resource_id, True)
+-        r.call_count = int(r.call_count or 0) + 1
+-        resp = make_response(req, "success", result, usage={"total_tokens": 0})
+-        await _persist_idempotent(db, tenant_key, resource_id, rv.version, action, cid, rh, resp)
+-        db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="success", correlation_id=cid))
++        blocked = side_effect_block(manifest)
++        error = {
++            "code": blocked.code,
++            "message": str(blocked),
++            "retryable": False,
++            "trace_id": trace_id,
++        }
++        resp = make_response(
++            req,
++            "error",
++            {},
++            error=error,
++        )
++        db.add(_evidence_log(
++            resource_id=resource_id,
++            task_id=task_id,
++            status="blocked",
++            latency_ms=int((time.perf_counter() - started) * 1000),
++            correlation_id=cid,
++            error_message=str(blocked)[:500],
++            parent_correlation_id=parent_correlation_id or "",
++            tenant_id=tenant_key,
++            user_id=actor_user,
++            version=rv.version,
++            trace_id=trace_id,
++            source=caller_id,
++            params=params,
++            output=error,
++        ))
+         return resp
+ 
+     try:
+         if r.resource_type == "skill":
+             result = run_skill(manifest, params)
+         elif r.resource_type == "mcp":
+             result = await run_mcp(manifest, params)
+         elif r.resource_id.startswith("builtin/") or r.builtin:
+             result = run_builtin_tool(r.resource_id, params)
+         else:
+             result = await invoke_http_tool(manifest, req)
+         r.call_count = int(r.call_count or 0) + 1
+         r.consecutive_fail = 0
+         r.health_status = "online"
+         record_gateway(r.resource_id, True)
+         usage = result.get("usage") if isinstance(result, dict) else None
+         resp = make_response(req, "success", result if isinstance(result, dict) else {"result": result}, usage=usage)
+         await _persist_idempotent(db, tenant_key, resource_id, rv.version, action, cid, rh, resp)
+-        db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="success", correlation_id=cid))
++        db.add(_evidence_log(
++            resource_id=resource_id,
++            task_id=task_id,
++            status="success",
++            correlation_id=cid,
++            latency_ms=int((time.perf_counter() - started) * 1000),
++            error_message="",
++            parent_correlation_id=parent_correlation_id or "",
++            tenant_id=tenant_key,
++            user_id=actor_user,
++            version=rv.version,
++            trace_id=trace_id,
++            source=caller_id,
++            params=params,
++            output=result,
++        ))
+         return resp
+     except HTTPException:
+         raise
+     except Exception as exc:
+         r.fail_count = int(r.fail_count or 0) + 1
+         r.consecutive_fail = int(r.consecutive_fail or 0) + 1
+         record_gateway(r.resource_id, False)
++        safe_message = safe_error_message(exc)
++        error = {
++            "code": getattr(exc, "code", None) or "TOOL_EXEC_FAILED",
++            "message": safe_message,
++            "retryable": True,
++            "trace_id": req["trace"]["trace_id"],
++        }
+         resp = make_response(
+             req,
+             "error",
+             {},
+-            error={"code": "TOOL_EXEC_FAILED", "message": str(exc), "retryable": True, "trace_id": req["trace"]["trace_id"]},
++            error=error,
+         )
+-        db.add(ResourceCallLog(
++        db.add(_evidence_log(
+             resource_id=resource_id,
+             task_id=task_id,
+             status="failed",
+-            error_message=str(exc)[:2000],
++            error_message=safe_message[:2000],
+             correlation_id=cid,
++            latency_ms=int((time.perf_counter() - started) * 1000),
++            parent_correlation_id=parent_correlation_id or "",
++            tenant_id=tenant_key,
++            user_id=actor_user,
++            version=rv.version,
++            trace_id=trace_id,
++            source=caller_id,
++            params=params,
++            output=error,
+         ))
+         # 澶辫触涓嶅啓鍏ュ箓绛夋垚鍔熻褰曪紝鍏佽閲嶈瘯
+         return resp
+ 
+ 
+ async def _persist_idempotent(
+     db: AsyncSession,
+     tenant_id: str,
+     resource_id: str,
+     version: str,
+
+## backend/app/services/http_adapter.py
+diff --git a/backend/app/services/http_adapter.py b/backend/app/services/http_adapter.py
+index 66361d1..3983bc6 100644
+--- a/backend/app/services/http_adapter.py
++++ b/backend/app/services/http_adapter.py
+@@ -1,34 +1,72 @@
+ """澶栭儴 HTTP 宸ュ叿閫傞厤锛氫俊灏佽浆鍙戙€乼race 浼犳挱銆?29 閫€閬裤€?""
+ from __future__ import annotations
+ 
+ import asyncio
++import os
+ 
+ import httpx
+ 
++from app.services.redaction import safe_error_message
+ from app.services.side_effect_policy import assert_egress_allowed
+ from app.services.tls_channel import httpx_tls_kwargs
+ 
+ MAX_RETRIES = 3
+ 
++_FAIL_STATUS = {"error", "failed", "blocked", "denied"}
++
++
++def _require_explicit_success(data) -> dict:
++    """鍙湁鏄庣‘ status=success 涓旀病鏈夊崗璁敊璇墠绠楁墽琛屾垚鍔熴€?""
++    if not isinstance(data, dict):
++        raise RuntimeError("HTTP 宸ュ叿鍝嶅簲涓嶆槸瀵硅薄锛岀己灏戞槑纭垚鍔熺姸鎬?)
++    if data.get("stubbed") or data.get("mocked") or data.get("isError") is True:
++        raise RuntimeError("HTTP 宸ュ叿杩斿洖 stub/isError锛屼笉鑳借涓烘垚鍔?)
++    protocol_error = data.get("error")
++    if isinstance(protocol_error, (dict, list)) and protocol_error:
++        message = (
++            protocol_error.get("message") or protocol_error
++            if isinstance(protocol_error, dict)
++            else protocol_error
++        )
++        raise RuntimeError(f"HTTP 宸ュ叿鍗忚閿欒: {safe_error_message(message)}")
++    body = data.get("body") if "body" in data else data
++    if not isinstance(body, dict):
++        raise RuntimeError("HTTP 宸ュ叿鍝嶅簲缂哄皯鏄庣‘鎴愬姛鐘舵€?)
++    if body.get("stubbed") or body.get("mocked") or body.get("isError") is True:
++        raise RuntimeError("HTTP 宸ュ叿杩斿洖 stub/isError锛屼笉鑳借涓烘垚鍔?)
++    status = str(body.get("status") or "").lower()
++    if status in _FAIL_STATUS:
++        err = body.get("error") or body.get("message") or status
++        raise RuntimeError(f"HTTP 宸ュ叿涓氬姟澶辫触: {safe_error_message(err)}")
++    if status != "success":
++        raise RuntimeError("HTTP 宸ュ叿鍝嶅簲缂哄皯鏄庣‘鎴愬姛鐘舵€?)
++    result = body.get("result") if "result" in body else {k: v for k, v in body.items() if k != "status"}
++    return result if isinstance(result, dict) else {"result": result}
++
+ 
+ async def invoke_http_tool(manifest: dict, envelope: dict) -> dict:
+     interfaces = manifest.get("interfaces") or {}
+     url = interfaces.get("endpoint") or interfaces.get("url") or ""
+     if not str(url).startswith("http"):
+         raise RuntimeError("澶栭儴宸ュ叿鏈厤缃?HTTP endpoint")
+     assert_egress_allowed(url, manifest)
+     method = (interfaces.get("method") or "POST").upper()
+     headers = {"Content-Type": "application/json"}
+     auth = interfaces.get("auth") or {}
+-    if auth.get("type") == "bearer" and auth.get("token"):
+-        headers["Authorization"] = f"Bearer {auth['token']}"
++    token = ""
++    if isinstance(auth, dict) and auth.get("credential_ref"):
++        token = os.environ.get(str(auth["credential_ref"]), "")
++    elif isinstance(auth, dict) and auth.get("type") == "bearer" and auth.get("token"):
++        token = str(auth["token"])
++    if token:
++        headers["Authorization"] = f"Bearer {token}"
+     tr = envelope.get("trace") or {}
+     if tr.get("traceparent"):
+         headers["traceparent"] = tr["traceparent"]
+     if tr.get("trace_id"):
+         headers["X-Trace-Id"] = tr["trace_id"]
+     if tr.get("parent_span_id") or tr.get("parent_trace_id"):
+         headers["X-Parent-Trace-Id"] = tr.get("parent_span_id") or tr.get("parent_trace_id")
+     timeout = int((manifest.get("capabilities") or {}).get("timeout") or 30)
+     delay = 0.5
+     last_exc: Exception | None = None
+@@ -37,28 +75,21 @@ async def invoke_http_tool(manifest: dict, envelope: dict) -> dict:
+             try:
+                 resp = await client.request(method, url, json=envelope, headers=headers)
+                 if resp.status_code == 429 and attempt < MAX_RETRIES - 1:
+                     ra = resp.headers.get("Retry-After")
+                     wait = float(ra) if ra and str(ra).replace(".", "", 1).isdigit() else delay
+                     await asyncio.sleep(wait)
+                     delay = min(delay * 2, 8)
+                     continue
+                 resp.raise_for_status()
+                 data = resp.json()
+-                if isinstance(data, dict) and "body" in data:
+-                    body = data.get("body") or {}
+-                    if isinstance(body, dict) and body.get("status") == "success":
+-                        return body.get("result") or {}
+-                    if isinstance(body, dict) and "result" in body:
+-                        return body.get("result") or {}
+-                    return body
+-                return data if isinstance(data, dict) else {"result": data}
++                return _require_explicit_success(data)
+             except httpx.HTTPStatusError as exc:
+                 last_exc = exc
+                 if exc.response is not None and exc.response.status_code == 429 and attempt < MAX_RETRIES - 1:
+                     await asyncio.sleep(delay)
+                     delay = min(delay * 2, 8)
+                     continue
+                 raise
+             except Exception as exc:
+                 last_exc = exc
+                 raise
+
+## backend/app/api/resources.py
+diff --git a/backend/app/api/resources.py b/backend/app/api/resources.py
+index 774820e..1ec708f 100644
+--- a/backend/app/api/resources.py
++++ b/backend/app/api/resources.py
+@@ -1,26 +1,27 @@
+ """鏅鸿兘宸ュ叿搴曞骇锛歁anifest 娉ㄥ唽銆佸彂鐜般€佷俊灏佽皟鐢ㄣ€佷簨浠躲€?""
+ from fastapi import APIRouter, Depends, HTTPException, Query, Request
+ from pydantic import BaseModel
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.api.deps import require_permission, require_actor
++from app.api.deps import require_actor
+ from app.database import get_db
+-from app.models import BaseResource, ResourceCallLog, ResourceEvent, User
++from app.models import BaseResource, ResourceCallLog, ResourceEvent
+ from app.services.actor_context import ActorContext
+ from app.services.audit import get_client_ip, log_audit
+ from app.services.http_adapter import health_http_tool
+ from app.services.object_policy import apply_object_scope, object_is_visible
+-from app.services.protocol import validate_manifest
++from app.services.protocol import executable_errors, validate_manifest
++from app.services.redaction import redact_secrets
+ from app.services.serializers import now
+-from app.services.tool_gateway import ensure_resource_version, invoke_tool
++from app.services.tool_gateway import ensure_resource_version, invoke_tool, manifests_equal
+ from app.utils.jsonutil import dumps, iso, loads
+ 
+ router = APIRouter()
+ 
+ 
+ class ManifestBody(BaseModel):
+     manifest: dict
+ 
+ 
+ class InvokeBody(BaseModel):
+@@ -32,38 +33,21 @@ class InvokeBody(BaseModel):
+ 
+ 
+ class MatchBody(BaseModel):
+     resource_type: str = ""
+     judge_type: str = ""
+     call_mode: str = ""
+     name: str = ""
+ 
+ 
+ def _redact_manifest(manifest: dict) -> dict:
+-    """杩斿洖鑴辨晱 manifest锛歵oken/瀵嗛挜鍙繚鐣欐槸鍚﹀凡閰嶇疆銆?""
+-    data = loads(dumps(manifest or {}), {})
+-
+-    def walk(node):
+-        if isinstance(node, dict):
+-            out = {}
+-            for k, v in node.items():
+-                lk = str(k).lower()
+-                if lk in {"token", "api_key", "apikey", "authorization", "secret", "password"} and v:
+-                    out[k] = {"configured": True, "redacted": True}
+-                else:
+-                    out[k] = walk(v)
+-            return out
+-        if isinstance(node, list):
+-            return [walk(x) for x in node]
+-        return node
+-
+-    return walk(data)
++    return redact_secrets(manifest or {})
+ 
+ 
+ def resource_out(r: BaseResource):
+     return {
+         "id": r.id,
+         "resource_id": r.resource_id,
+         "resource_type": r.resource_type,
+         "name": r.name,
+         "version": r.version,
+         "spec_version": r.spec_version,
+@@ -88,20 +72,27 @@ async def _emit(db, event_type: str, resource_id: str, payload: dict | None = No
+ async def _load_resource(db, rid: str) -> BaseResource | None:
+     r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == rid))).scalar_one_or_none()
+     if r:
+         return r
+     try:
+         return await db.get(BaseResource, int(rid))
+     except ValueError:
+         return None
+ 
+ 
++async def _visible_resource(db, rid: str, actor: ActorContext) -> BaseResource:
++    r = await _load_resource(db, rid)
++    if not r or not object_is_visible(r, actor):
++        raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
++    return r
++
++
+ @router.get("")
+ async def list_resources(
+     page: int = Query(1, ge=1),
+     page_size: int = Query(20, ge=1, le=200),
+     resource_type: str = Query(""),
+     status: str = Query(""),
+     search: str = Query(""),
+     db: AsyncSession = Depends(get_db),
+     actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+@@ -114,143 +105,159 @@ async def list_resources(
+         q = q.where(or_(BaseResource.name.contains(search), BaseResource.resource_id.contains(search)))
+     total = await db.scalar(select(func.count()).select_from(q.subquery()))
+     rows = (await db.execute(q.order_by(BaseResource.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+     return {"items": [resource_out(r) for r in rows], "total": total or 0}
+ 
+ 
+ @router.post("/match")
+ async def match_resources(
+     body: MatchBody,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:list")),
++    actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+     rows = (await db.execute(select(BaseResource).where(BaseResource.status == "online"))).scalars().all()
++    rows = [r for r in rows if object_is_visible(r, actor)]
+     matched = []
+     for r in rows:
+         mf = loads(r.manifest_json, {})
+         spec = mf.get("evaluation_spec") or {}
+         caps = mf.get("capabilities") or {}
+         if body.resource_type and r.resource_type != body.resource_type:
+             continue
+         if body.judge_type and spec.get("judge_type") != body.judge_type:
+             continue
+         if body.call_mode and caps.get("call_mode") != body.call_mode:
+             continue
+         if body.name and body.name.lower() not in (r.name or "").lower() and body.name.lower() not in r.resource_id:
+             continue
+         matched.append(resource_out(r))
+     return {"items": matched, "total": len(matched)}
+ 
+ 
+ @router.get("/registry")
+ async def resource_registry(
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:list")),
++    actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+     """杩涚▼鍐呮敞鍐屼腑蹇冿細鍦ㄧ嚎璧勬簮鍙戠幇锛涜繛缁け璐?5 娆″仴搴峰墧闄ゃ€?""
+     rows = (await db.execute(select(BaseResource))).scalars().all()
+     items = []
+     for r in rows:
++        if not object_is_visible(r, actor):
++            continue
+         if not r.builtin and int(r.consecutive_fail or 0) >= 5 and r.status == "online":
+             r.status = "unhealthy"
+             r.health_status = "abnormal"
+             await _emit(db, "resource.unhealthy", r.resource_id, {"consecutive_fail": r.consecutive_fail})
+         if r.status in {"online", "pending"}:
+             items.append({
+                 **resource_out(r),
+                 "instance": "in-process",
+                 "last_heartbeat": iso(getattr(r, "last_heartbeat", None) or r.updated_at),
+             })
+     return {"items": items, "total": len(items), "backend": "in-process"}
+ 
+ 
+ @router.post("/{rid:path}/heartbeat")
+ async def resource_heartbeat(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:invoke")),
++    actor: ActorContext = Depends(require_actor("resource:invoke")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     from datetime import datetime
+     r.last_heartbeat = datetime.utcnow()
+     r.health_status = "online"
+     if r.status == "unhealthy":
+         r.status = "online"
+         r.consecutive_fail = 0
+     return {"ok": True, "resource_id": r.resource_id, "status": r.status}
+ 
+ 
+ @router.get("/events")
+ async def list_events(
+     limit: int = Query(50, ge=1, le=200),
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    rows = (await db.execute(select(ResourceEvent).order_by(ResourceEvent.id.desc()).limit(limit))).scalars().all()
++    rows = (await db.execute(select(ResourceEvent).order_by(ResourceEvent.id.desc()).limit(limit * 5))).scalars().all()
++    visible = []
++    cache: dict[str, bool] = {}
++    for e in rows:
++        rid = e.resource_id or ""
++        if rid not in cache:
++            resource = await _load_resource(db, rid) if rid else None
++            cache[rid] = bool(resource and object_is_visible(resource, actor))
++        if cache[rid]:
++            visible.append(e)
++        if len(visible) >= limit:
++            break
++    rows = visible
+     return [
+         {
+             "id": e.id,
+             "event_type": e.event_type,
+             "resource_id": e.resource_id,
+             "payload": loads(e.payload_json, {}),
+             "created_at": iso(e.created_at),
+         }
+         for e in rows
+     ]
+ 
+ 
+ @router.post("/register")
+ async def register_resource(
+     body: ManifestBody,
+     request: Request,
+     db: AsyncSession = Depends(get_db),
+     actor: ActorContext = Depends(require_actor("resource:create")),
+ ):
+-    errors = validate_manifest(body.manifest)
++    errors = validate_manifest(body.manifest) + executable_errors(body.manifest)
+     if errors:
+         raise HTTPException(400, "Manifest 鏍￠獙澶辫触: " + "锛?.join(errors))
+     rid = body.manifest["resource_id"]
+     existing = (await db.execute(select(BaseResource).where(BaseResource.resource_id == rid))).scalar_one_or_none()
+     report = {"passed": True, "checks": ["schema", "resource_id", "capabilities"]}
+     created = False
+     if existing:
+         if existing.builtin:
+             raise HTTPException(403, "绂佹瑕嗙洊骞冲彴鍐呯疆璧勬簮")
+         if not object_is_visible(existing, actor):
+             raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
+         if int(existing.tenant_id or -1) != int(actor.tenant_id):
+             raise HTTPException(403, "绂佹瑕嗙洊鍏朵粬绉熸埛璧勬簮")
++        if (existing.version or "") == str(body.manifest["version"]) and not manifests_equal(existing.manifest_json, body.manifest):
++            raise HTTPException(409, "鐩稿悓鐗堟湰鍐呭宸插喕缁擄紝璇峰崌绾?version 鍚庡啀娉ㄥ唽")
+         existing.manifest_json = dumps(body.manifest)
+         existing.name = body.manifest["name"]
+         existing.version = body.manifest["version"]
+         existing.description = body.manifest.get("description", "")
+         existing.spec_version = str(body.manifest.get("spec_version", "0.6.1"))
+         existing.quality_report = dumps(report)
+-        existing.status = "online"
+-        existing.health_status = "online"
++        if existing.status not in {"online", "offline", "unhealthy"}:
++            existing.status = "registered"
++        existing.health_status = existing.health_status or "unknown"
+         existing.updated_at = now()
+         r = existing
+     else:
+         created = True
+         r = BaseResource(
+             resource_id=rid,
+             resource_type=body.manifest["resource_type"],
+             name=body.manifest["name"],
+             version=body.manifest["version"],
+             spec_version=str(body.manifest.get("spec_version", "0.6.1")),
+             description=body.manifest.get("description", ""),
+-            status="online",
++            status="registered",
+             manifest_json=dumps(body.manifest),
+             quality_report=dumps(report),
+-            health_status="online",
++            health_status="unknown",
+             creator_id=actor.user_id,
+             tenant_id=actor.tenant_id,
+             visibility="private",
+         )
+         db.add(r)
+         await db.flush()
+     await ensure_resource_version(db, r, creator_id=actor.user_id)
+     await _emit(db, "resource.registered" if created else "resource.updated", rid, {"version": r.version})
+     await log_audit(db, "resource", "register", user_id=actor.user_id, username=actor.username, target_id=r.id, ip=get_client_ip(request), detail=rid)
+     return resource_out(r)
+@@ -279,95 +286,145 @@ class McpProbeBody(BaseModel):
+     method: str = "initialize"
+     params: dict = {}
+     token: str = ""
+     egress_allowlist: list[str] = []
+ 
+ 
+ @router.post("/mcp/probe")
+ async def mcp_probe(
+     body: McpProbeBody,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:invoke")),
++    actor: ActorContext = Depends(require_actor("resource:invoke")),
+ ):
+     """鎺㈡祴杩滅▼鎴栧凡娉ㄥ唽 MCP锛歩nitialize / tools/list / tools/call銆傛潵婧愪簰鏂ャ€?""
+     from app.services.skill_runtime import run_mcp
+     from datetime import datetime
+ 
+     rid = (body.resource_id or "").strip()
+     endpoint = (body.endpoint or "").strip()
+     if rid and endpoint:
+         raise HTTPException(400, "mcp_source_mutex:resource_id 涓?endpoint 涓嶈兘鍚屾椂鎻愪緵锛岃浜岄€変竴")
+     if not rid and not endpoint:
+         raise HTTPException(400, "璇锋彁渚?resource_id 鎴?HTTP endpoint")
+ 
+     mode = "registered" if rid else "remote"
+     target = rid if rid else endpoint
+     manifest: dict = {}
+     if rid:
+-        r = await _load_resource(db, rid)
+-        if not r:
+-            raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++        r = await _visible_resource(db, rid, actor)
+         manifest = loads(r.manifest_json, {})
+         # 娉ㄥ唽璧勬簮鎺㈡祴鏃跺拷鐣?body.endpoint/token锛岄伩鍏嶈瀵?     else:
+         if not endpoint.startswith("http"):
+             raise HTTPException(400, "endpoint 椤讳负 http(s) URL")
+         interfaces = {"endpoint": endpoint, "auth": {"token": body.token} if body.token else {}}
+         if body.egress_allowlist:
+             interfaces["egress_allowlist"] = body.egress_allowlist
+         manifest = {"interfaces": interfaces, "capabilities": {"timeout": 30}}
+     try:
+         result = await run_mcp(manifest, {"method": body.method, "params": body.params or {}, "id": 1})
+     except Exception as exc:
+         raise HTTPException(400, str(exc)) from exc
++    protocol_error = False
++    if isinstance(result, dict):
++        if result.get("error") or result.get("isError") is True or result.get("stubbed") or result.get("mocked"):
++            protocol_error = True
++        inner = result.get("result")
++        if isinstance(inner, dict) and (inner.get("isError") is True or inner.get("error")):
++            protocol_error = True
+     return {
+-        "ok": True,
++        "ok": not protocol_error,
+         "mode": mode,
+         "target": target,
+         "probed_at": datetime.utcnow().isoformat() + "Z",
+         "result": result,
+     }
+ 
+ 
+ @router.post("/{rid:path}/health")
+ async def resource_health(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     if r.builtin or r.resource_id.startswith("builtin/"):
+         r.health_status = "online"
+         return {"ok": True, "status": "online", "detail": "builtin"}
+     result = await health_http_tool(loads(r.manifest_json, {}))
+     r.health_status = "online" if result.get("ok") else "abnormal"
+     return result
+ 
+ 
+ @router.post("/{rid:path}/offline")
+ async def offline_resource(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    current: User = Depends(require_permission("resource:edit")),
++    actor: ActorContext = Depends(require_actor("resource:edit")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     if r.builtin:
+         raise HTTPException(400, "鍐呯疆宸ュ叿涓嶅彲涓嬬嚎")
+     r.status = "offline"
+     await _emit(db, "resource.offline", r.resource_id, {})
+     return resource_out(r)
+ 
+ 
++@router.get("/calls/{rid:path}")
++async def resource_call_history(
++    rid: str,
++    page: int = Query(1, ge=1),
++    page_size: int = Query(20, ge=1, le=100),
++    status: str = Query(""),
++    db: AsyncSession = Depends(get_db),
++    actor: ActorContext = Depends(require_actor("resource:view")),
++):
++    resource = await _visible_resource(db, rid, actor)
++    query = select(ResourceCallLog).where(
++        ResourceCallLog.resource_id == resource.resource_id,
++        ResourceCallLog.tenant_id == str(actor.tenant_id),
++    )
++    if status:
++        query = query.where(ResourceCallLog.status == status)
++    total = await db.scalar(select(func.count()).select_from(query.subquery()))
++    rows = (
++        await db.execute(
++            query.order_by(ResourceCallLog.id.desc())
++            .offset((page - 1) * page_size)
++            .limit(page_size)
++        )
++    ).scalars().all()
++    return {
++        "items": [
++            {
++                "id": row.id,
++                "resource_id": row.resource_id,
++                "status": row.status,
++                "latency_ms": row.latency_ms,
++                "error_message": row.error_message,
++                "correlation_id": row.correlation_id,
++                "parent_correlation_id": row.parent_correlation_id,
++                "tenant_id": row.tenant_id,
++                "user_id": row.user_id,
++                "version": row.version,
++                "trace_id": row.trace_id,
++                "input_digest": row.input_digest,
++                "output_digest": row.output_digest,
++                "input_hash": row.input_hash,
++                "output_hash": row.output_hash,
++                "source": row.source,
++                "created_at": iso(row.created_at),
++            }
++            for row in rows
++        ],
++        "total": total or 0,
++    }
++
++
+ @router.get("/{rid:path}")
+ async def get_resource(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     return resource_out(r)
+
+## backend/tests/followup_helpers.py
+diff --git a/backend/tests/followup_helpers.py b/backend/tests/followup_helpers.py
+new file mode 100644
+index 0000000..e4d95d4
+--- /dev/null
++++ b/backend/tests/followup_helpers.py
+@@ -0,0 +1,150 @@
++from __future__ import annotations
++
++from tests import isolated_env  # noqa: F401
++
++import asyncio
++import contextlib
++import os
++import socket
++import subprocess
++import sys
++import time
++import urllib.request
++import uuid
++from pathlib import Path
++
++from sqlalchemy import select
++
++
++def login_admin(client) -> dict[str, str]:
++    response = client.post(
++        "/api/auth/login",
++        json={"username": "admin", "password": "admin123"},
++    )
++    if response.status_code != 200:
++        raise AssertionError(response.text)
++    return {"Authorization": f"Bearer {response.json()['access_token']}"}
++
++
++def create_tenant_admin_header(client, prefix: str) -> dict[str, str]:
++    from app.database import async_session
++    from app.models import Role, Tenant, TenantMembership, User
++    from app.utils.auth import get_password_hash
++
++    username = f"{prefix}-{uuid.uuid4().hex[:8]}"
++    password = "Test1234!"
++
++    async def create_user() -> None:
++        async with async_session() as db:
++            tenant = Tenant(
++                code=f"{prefix}-{uuid.uuid4().hex[:8]}",
++                name=prefix,
++                status="active",
++            )
++            db.add(tenant)
++            await db.flush()
++            role = await db.scalar(select(Role).where(Role.code == "admin"))
++            user = User(
++                username=username,
++                password_hash=get_password_hash(password),
++                role="admin",
++                role_id=role.id if role else None,
++                tenant_id=tenant.id,
++                status="active",
++            )
++            db.add(user)
++            await db.flush()
++            db.add(TenantMembership(tenant_id=tenant.id, user_id=user.id))
++            await db.commit()
++
++    asyncio.run(create_user())
++    response = client.post(
++        "/api/auth/login",
++        json={"username": username, "password": password},
++    )
++    if response.status_code != 200:
++        raise AssertionError(response.text)
++    return {"Authorization": f"Bearer {response.json()['access_token']}"}
++
++
++def create_other_tenant_admin(client) -> dict[str, str]:
++    return create_tenant_admin_header(client, "other")
++
++
++def tool_manifest(rid: str, endpoint: str, **overrides) -> dict:
++    manifest = {
++        "spec_version": "0.6.1",
++        "resource_id": rid,
++        "resource_type": "tool",
++        "name": "followup stats tool",
++        "description": "Task 5 real HTTP fixture",
++        "version": "1.0.0",
++        "owner": {"name": "test", "contact": "test", "email": "test@example.com"},
++        "capabilities": {
++            "input_schema": {"type": "object"},
++            "output_schema": {"type": "object"},
++            "call_mode": "sync",
++            "idempotent": True,
++            "timeout": 10,
++            "side_effects": "none",
++        },
++        "interfaces": {
++            "endpoint": endpoint,
++            "method": "POST",
++            "auth_type": "none",
++            "egress_allowlist": ["127.0.0.1", "localhost"],
++        },
++    }
++    manifest.update(overrides)
++    return manifest
++
++
++@contextlib.contextmanager
++def stats_service():
++    root = Path(__file__).resolve().parents[2]
++    with socket.socket() as sock:
++        sock.bind(("127.0.0.1", 0))
++        port = sock.getsockname()[1]
++    env = os.environ.copy()
++    env["PYTHONPATH"] = str(root)
++    env.pop("DATABASE_URL", None)
++    process = subprocess.Popen(
++        [
++            sys.executable,
++            "-m",
++            "uvicorn",
++            "tools.stats_service.app:app",
++            "--host",
++            "127.0.0.1",
++            "--port",
++            str(port),
++            "--log-level",
++            "warning",
++        ],
++        cwd=root,
++        env=env,
++        stdout=subprocess.DEVNULL,
++        stderr=subprocess.DEVNULL,
++    )
++    health = f"http://127.0.0.1:{port}/health"
++    deadline = time.monotonic() + 10
++    try:
++        while time.monotonic() < deadline:
++            if process.poll() is not None:
++                raise RuntimeError("stats service exited before health check")
++            try:
++                with urllib.request.urlopen(health, timeout=0.5) as response:
++                    if response.status == 200:
++                        break
++            except OSError:
++                time.sleep(0.05)
++        else:
++            raise RuntimeError("stats service health check timed out")
++        yield f"http://127.0.0.1:{port}"
++    finally:
++        process.terminate()
++        try:
++            process.wait(timeout=3)
++        except subprocess.TimeoutExpired:
++            process.kill()
++            process.wait(timeout=3)
+
+## backend/tests/test_review_followup_a.py
+diff --git a/backend/tests/test_review_followup_a.py b/backend/tests/test_review_followup_a.py
+new file mode 100644
+index 0000000..07b2e48
+--- /dev/null
++++ b/backend/tests/test_review_followup_a.py
+@@ -0,0 +1,332 @@
++from __future__ import annotations
++
++from tests import isolated_env  # noqa: F401
++
++import asyncio
++import copy
++import json
++import socket
++import threading
++import unittest
++import uuid
++from contextlib import contextmanager
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++
++from fastapi.testclient import TestClient
++from sqlalchemy import select
++
++from app.database import async_session
++from app.main import app
++from app.models import BaseResource
++from app.services.redaction import evidence_digest, redact_secrets
++from tests.followup_helpers import (
++    create_other_tenant_admin,
++    login_admin,
++    stats_service,
++    tool_manifest,
++)
++
++
++@contextmanager
++def sensitive_error_service():
++    class Handler(BaseHTTPRequestHandler):
++        def do_POST(self):
++            payload = {
++                "status": "error",
++                "message": {
++                    "token": "token-response-secret",
++                    "nested": {
++                        "api_key": "api-key-response-secret",
++                        "authorization": "Bearer response-secret",
++                    },
++                },
++            }
++            body = json.dumps(payload).encode()
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(body)))
++            self.end_headers()
++            self.wfile.write(body)
++
++        def log_message(self, _format, *args):
++            return
++
++    with socket.socket() as probe:
++        probe.bind(("127.0.0.1", 0))
++        port = probe.getsockname()[1]
++    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
++    thread = threading.Thread(target=server.serve_forever, daemon=True)
++    thread.start()
++    try:
++        yield f"http://127.0.0.1:{port}/error"
++    finally:
++        server.shutdown()
++        server.server_close()
++        thread.join(timeout=2)
++
++
++class ResourceCallEvidenceTest(unittest.TestCase):
++    def setUp(self):
++        self._cm = TestClient(app)
++        self.client = self._cm.__enter__()
++        self.admin_h = login_admin(self.client)
++
++    def tearDown(self):
++        self._cm.__exit__(None, None, None)
++
++    def _set_online(self, rid: str) -> None:
++        async def update() -> None:
++            async with async_session() as db:
++                resource = await db.scalar(
++                    select(BaseResource).where(BaseResource.resource_id == rid)
++                )
++                resource.status = "online"
++                await db.commit()
++
++        asyncio.run(update())
++
++    def test_real_http_call_evidence_history_and_tenant_isolation(self):
++        rid = f"demo/stats_{uuid.uuid4().hex[:10]}"
++        success_cid = f"success-{uuid.uuid4().hex}"
++        failed_cid = f"failed-{uuid.uuid4().hex}"
++        with stats_service() as base_url:
++            registered = self.client.post(
++                "/api/resources/register",
++                json={"manifest": tool_manifest(rid, f"{base_url}/v1/stats")},
++                headers=self.admin_h,
++            )
++            self.assertEqual(registered.status_code, 200, registered.text)
++            self._set_online(rid)
++
++            success = self.client.post(
++                "/api/resources/invoke",
++                json={
++                    "resource_id": rid,
++                    "correlation_id": success_cid,
++                    "body": {
++                        "values": [{"value": 1, "unit": "m"}],
++                        "token": "token-plain-value",
++                        "nested": {"Authorization": "Bearer plain-secret"},
++                    },
++                },
++                headers=self.admin_h,
++            )
++            self.assertEqual(success.status_code, 200, success.text)
++            self.assertEqual(success.json()["body"]["status"], "success")
++            failed = self.client.post(
++                "/api/resources/invoke",
++                json={
++                    "resource_id": rid,
++                    "correlation_id": failed_cid,
++                    "body": {"values": []},
++                },
++                headers=self.admin_h,
++            )
++            self.assertEqual(failed.status_code, 200, failed.text)
++            self.assertEqual(failed.json()["body"]["status"], "error")
++
++        history = self.client.get(
++            f"/api/resources/calls/{rid}?page=1&page_size=1",
++            headers=self.admin_h,
++        )
++        self.assertEqual(history.status_code, 200, history.text)
++        payload = history.json()
++        self.assertEqual(payload["total"], 2)
++        self.assertEqual(len(payload["items"]), 1)
++
++        full = self.client.get(
++            f"/api/resources/calls/{rid}?page=1&page_size=20",
++            headers=self.admin_h,
++        )
++        self.assertEqual(full.status_code, 200, full.text)
++        items = full.json()["items"]
++        self.assertEqual({item["status"] for item in items}, {"success", "failed"})
++        expected_keys = {
++            "id",
++            "resource_id",
++            "status",
++            "latency_ms",
++            "error_message",
++            "correlation_id",
++            "parent_correlation_id",
++            "tenant_id",
++            "user_id",
++            "version",
++            "trace_id",
++            "input_digest",
++            "output_digest",
++            "input_hash",
++            "output_hash",
++            "source",
++            "created_at",
++        }
++        self.assertTrue(all(set(item) == expected_keys for item in items))
++        for item in items:
++            self.assertGreaterEqual(item["latency_ms"], 0)
++            self.assertEqual(len(item["input_hash"]), 64)
++            self.assertEqual(len(item["output_hash"]), 64)
++            self.assertTrue(item["input_digest"])
++            self.assertTrue(item["output_digest"])
++            self.assertEqual(item["version"], "1.0.0")
++            self.assertTrue(item["trace_id"])
++            self.assertEqual(item["source"], "gateway")
++        serialized = str(items)
++        self.assertNotIn("token-plain-value", serialized)
++        self.assertNotIn("Bearer plain-secret", serialized)
++        failed_item = next(item for item in items if item["status"] == "failed")
++        self.assertTrue(failed_item["error_message"])
++
++        only_failed = self.client.get(
++            f"/api/resources/calls/{rid}?status=failed",
++            headers=self.admin_h,
++        )
++        self.assertEqual(only_failed.status_code, 200, only_failed.text)
++        self.assertEqual(only_failed.json()["total"], 1)
++        self.assertEqual(only_failed.json()["items"][0]["correlation_id"], failed_cid)
++
++        other_h = create_other_tenant_admin(self.client)
++        hidden = self.client.get(f"/api/resources/calls/{rid}", headers=other_h)
++        self.assertEqual(hidden.status_code, 404, hidden.text)
++
++    def test_http_business_error_never_persists_or_returns_secrets(self):
++        rid = f"demo/error_{uuid.uuid4().hex[:10]}"
++        correlation_id = f"sensitive-{uuid.uuid4().hex}"
++        secrets = (
++            "token-response-secret",
++            "api-key-response-secret",
++            "Bearer response-secret",
++        )
++        with sensitive_error_service() as endpoint:
++            registered = self.client.post(
++                "/api/resources/register",
++                json={"manifest": tool_manifest(rid, endpoint)},
++                headers=self.admin_h,
++            )
++            self.assertEqual(registered.status_code, 200, registered.text)
++            self._set_online(rid)
++            response = self.client.post(
++                "/api/resources/invoke",
++                json={
++                    "resource_id": rid,
++                    "correlation_id": correlation_id,
++                    "body": {"values": [{"value": 1, "unit": "m"}]},
++                },
++                headers=self.admin_h,
++            )
++        self.assertEqual(response.status_code, 200, response.text)
++        self.assertEqual(response.json()["body"]["status"], "error")
++        response_text = response.text
++        for secret in secrets:
++            self.assertNotIn(secret, response_text)
++
++        async def load_log():
++            from app.models import ResourceCallLog
++
++            async with async_session() as db:
++                return await db.scalar(
++                    select(ResourceCallLog).where(
++                        ResourceCallLog.correlation_id == correlation_id
++                    )
++                )
++
++        log = asyncio.run(load_log())
++        self.assertIsNotNone(log)
++        persisted = f"{log.error_message}\n{log.output_digest}"
++        for secret in secrets:
++            self.assertNotIn(secret, persisted)
++        self.assertTrue("redacted" in persisted or "HTTP 宸ュ叿涓氬姟澶辫触" in persisted)
++
++        history = self.client.get(
++            f"/api/resources/calls/{rid}",
++            headers=self.admin_h,
++        )
++        self.assertEqual(history.status_code, 200, history.text)
++        history_text = history.text
++        for secret in secrets:
++            self.assertNotIn(secret, history_text)
++        self.assertIn("redacted", history_text)
++
++    def test_builtin_history_is_partitioned_by_calling_tenant(self):
++        other_h = create_other_tenant_admin(self.client)
++        rid = "builtin/exact_match"
++        admin_cid = f"admin-{uuid.uuid4().hex}"
++        other_cid = f"other-{uuid.uuid4().hex}"
++        for headers, correlation in (
++            (self.admin_h, admin_cid),
++            (other_h, other_cid),
++        ):
++            response = self.client.post(
++                "/api/resources/invoke",
++                json={
++                    "resource_id": rid,
++                    "correlation_id": correlation,
++                    "body": {"prediction": "x", "reference": "x"},
++                },
++                headers=headers,
++            )
++            self.assertEqual(response.status_code, 200, response.text)
++
++        admin_items = self.client.get(
++            f"/api/resources/calls/{rid}?page_size=100",
++            headers=self.admin_h,
++        ).json()["items"]
++        other_items = self.client.get(
++            f"/api/resources/calls/{rid}?page_size=100",
++            headers=other_h,
++        ).json()["items"]
++        self.assertIn(admin_cid, {item["correlation_id"] for item in admin_items})
++        self.assertNotIn(other_cid, {item["correlation_id"] for item in admin_items})
++        self.assertIn(other_cid, {item["correlation_id"] for item in other_items})
++        self.assertNotIn(admin_cid, {item["correlation_id"] for item in other_items})
++        self.assertEqual(
++            {item["tenant_id"] for item in other_items},
++            {other_items[0]["tenant_id"]},
++        )
++
++
++class RedactionTest(unittest.TestCase):
++    def test_error_formatting_redacts_structured_and_stringified_secrets(self):
++        from app.services.redaction import safe_error_message, sanitize_error_text
++
++        secrets = ("dict-token", "dict-key", "python-secret", "Bearer text-secret")
++        structured = safe_error_message(
++            {
++                "token": secrets[0],
++                "nested": {"api_key": secrets[1]},
++            }
++        )
++        stringified = sanitize_error_text(
++            "{'password': 'python-secret', "
++            "'authorization': 'Bearer text-secret'}"
++        )
++        combined = structured + stringified
++        for secret in secrets:
++            self.assertNotIn(secret, combined)
++        self.assertIn("redacted", structured)
++        self.assertIn("redacted", stringified)
++
++    def test_recursive_redaction_preserves_reference_without_mutation(self):
++        original = {
++            "token": "secret-token",
++            "nested": [
++                {"Authorization": "Bearer secret"},
++                {"credential": "secret-credential"},
++                {"credential_ref": "STATS_API_TOKEN"},
++            ],
++        }
++        before = copy.deepcopy(original)
++        redacted = redact_secrets(original)
++        marker = {"configured": True, "redacted": True}
++        self.assertEqual(original, before)
++        self.assertEqual(redacted["token"], marker)
++        self.assertEqual(redacted["nested"][0]["Authorization"], marker)
++        self.assertEqual(redacted["nested"][1]["credential"], marker)
++        self.assertEqual(redacted["nested"][2]["credential_ref"], "STATS_API_TOKEN")
++
++    def test_hash_uses_complete_json_before_digest_truncation(self):
++        common = "x" * 4100
++        left_digest, left_hash = evidence_digest({"value": common + "a"})
++        right_digest, right_hash = evidence_digest({"value": common + "b"})
++        self.assertEqual(left_digest, right_digest)
++        self.assertEqual(len(left_digest), 4000)
++        self.assertNotEqual(left_hash, right_hash)

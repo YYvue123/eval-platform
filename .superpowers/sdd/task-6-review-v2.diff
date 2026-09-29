@@ -1,0 +1,227 @@
+﻿# Task 6 re-review package (working tree vs HEAD)
+# HEAD: 380650893eb44871e4722100c8060def66619d56
+
+ backend/app/services/skill_runtime.py | 109 +++++++++++++++++++++++++++++++---
+ 1 file changed, 102 insertions(+), 7 deletions(-)
+
+# Full diff -U10
+
+diff --git a/backend/app/services/skill_runtime.py b/backend/app/services/skill_runtime.py
+index 7c64058..5b6ad31 100644
+--- a/backend/app/services/skill_runtime.py
++++ b/backend/app/services/skill_runtime.py
+@@ -1,22 +1,62 @@
+ """Skill 閾惧紡鎵ц涓?MCP JSON-RPC 杩愯鏃躲€?""
+ from __future__ import annotations
+ 
++import os
+ import re
+-from typing import Any
++from typing import Any, Awaitable, Callable
++
++from fastapi import HTTPException
+ 
+ from app.services.builtin_tools import run_builtin_tool
+ from app.services.mcp_client import mcp_initialize, mcp_request, mcp_tools_call, mcp_tools_list
+ 
+ STEP_REF = re.compile(r"^(?:step_(\d+)|([A-Za-z_][\w-]*))(?:\.(.+))?$")
+ 
+ 
++class SkillStepError(RuntimeError):
++    def __init__(
++        self,
++        step_id: str,
++        code: str,
++        message: str,
++        completed_steps: list[str],
++    ):
++        completed = ", ".join(completed_steps) if completed_steps else "鏃?
++        self.code = code or "SKILL_STEP_FAILED"
++        self.step_id = step_id
++        self.completed_steps = list(completed_steps)
++        self.public_message = (
++            f"Skill 姝ラ {step_id} 鎵ц澶辫触: {message}锛涘凡瀹屾垚姝ラ: {completed}"
++        )
++        super().__init__(self.public_message)
++
++
++def _skill_step_from_http(
++    step_id: str,
++    exc: HTTPException,
++    completed_steps: list[str],
++) -> SkillStepError:
++    detail = exc.detail
++    if isinstance(detail, dict):
++        code = str(detail.get("code") or "SKILL_STEP_FAILED")
++        message = str(detail.get("message") or "涓嬫父宸ュ叿鎵ц澶辫触")
++    else:
++        code = {
++            404: "RESOURCE_UNAVAILABLE",
++            409: "IDEMPOTENCY_CONFLICT",
++            422: "SCHEMA_VALIDATION_FAILED",
++        }.get(exc.status_code, "SKILL_STEP_FAILED")
++        message = str(detail) if detail else "涓嬫父宸ュ叿鎵ц澶辫触"
++    return SkillStepError(step_id, code, message, completed_steps)
++
++
+ def _dig(obj: Any, path: str) -> Any:
+     cur = obj
+     if not path:
+         return cur
+     for part in path.split("."):
+         if cur is None:
+             return None
+         if isinstance(cur, dict):
+             if part in cur:
+                 cur = cur[part]
+@@ -27,20 +67,33 @@ def _dig(obj: Any, path: str) -> Any:
+         elif isinstance(cur, list):
+             try:
+                 cur = cur[int(part)]
+             except (ValueError, IndexError):
+                 return None
+         else:
+             return None
+     return cur
+ 
+ 
++def _step_result(result: Any) -> Any:
++    """鎶婂垪琛ㄥ瀷宸ュ叿缁撴灉鏄犲皠涓哄彲琚?sN.output.values 寮曠敤鐨勫璞°€?""
++    if isinstance(result, list):
++        return {"values": result}
++    if (
++        isinstance(result, dict)
++        and "values" not in result
++        and isinstance(result.get("result"), list)
++    ):
++        return {**result, "values": result["result"]}
++    return result
++
++
+ def resolve_value(value: Any, *, inputs: dict, steps_by_id: dict[str, dict], step_index: int) -> Any:
+     if isinstance(value, list):
+         return [resolve_value(v, inputs=inputs, steps_by_id=steps_by_id, step_index=step_index) for v in value]
+     if not isinstance(value, dict):
+         return value
+     if "$ref" not in value:
+         return {k: resolve_value(v, inputs=inputs, steps_by_id=steps_by_id, step_index=step_index) for k, v in value.items()}
+ 
+     ref = str(value.get("$ref") or "")
+     if ref.startswith("$input.") or ref == "$input":
+@@ -80,21 +133,28 @@ def _detect_resource_cycle(chain: list[dict]) -> None:
+     杩欓噷妫€娴?step 缁戝畾寮曠敤褰㈡垚鐨勭幆閫氳繃鍚戝墠寮曠敤宸叉嫆缁濄€傞澶栵細chain 涓?resource 浜掔浉鍙潬 $ref 璧勬簮鍚嶅惊鐜厤缃€?""
+     ids = []
+     for step in chain:
+         rid = str(step.get("resource_id") or step.get("$ref") or step.get("ref") or "")
+         if rid and not rid.startswith("step_") and not rid.startswith("$"):
+             ids.append(rid)
+     # 鏃犲悜鑷幆閰嶇疆锛欰 鐨勫敮涓€姝ラ寮曠敤 A 鑷韩浣滀负璧勬簮涓?input 寮曡嚜韬緭鍑?鈥?鐢卞悜鍓嶅紩鐢ㄨ鐩?     return
+ 
+ 
+-def run_skill(manifest: dict, body: dict) -> dict:
++async def run_skill(
++    manifest: dict,
++    body: dict,
++    *,
++    step_invoker: Callable[[str, str, dict], Awaitable[dict]],
++) -> dict:
++    from app.services.tool_gateway import response_result
++
+     skill = manifest.get("skill") or {}
+     chain = skill.get("chain") or []
+     if not chain:
+         raise ValueError("Skill 鏈０鏄?chain")
+     _detect_resource_cycle(chain)
+     execution_type = str(skill.get("execution_type") or "workflow")
+     if execution_type not in {"workflow", "prompt_template", "code", "agent"}:
+         raise ValueError(f"涓嶆敮鎸佺殑 Skill execution_type: {execution_type}")
+     if execution_type != "workflow":
+         # 鏈細璇濅粎瀹屾暣瀹炵幇 workflow锛涘叾瀹冪被鍨嬫槑纭嫆缁濓紝閬垮厤鍋囨垚鍔?@@ -114,48 +174,83 @@ def run_skill(manifest: dict, body: dict) -> dict:
+ 
+         raw_input = step.get("input") if isinstance(step.get("input"), dict) else {}
+         # 鍏煎锛氭棤 input 缁戝畾鏃跺悎骞?body
+         if not raw_input:
+             payload = {**inputs, **(step.get("params") or {})}
+         else:
+             payload = resolve_value(raw_input, inputs=inputs, steps_by_id=steps_by_id, step_index=i)
+             if not isinstance(payload, dict):
+                 raise ValueError(f"姝ラ {step_id} 瑙ｆ瀽鍚庣殑 input 蹇呴』鏄璞?)
+ 
+-        result = run_builtin_tool(rid, payload)
++        try:
++            envelope = await step_invoker(step_id, rid, payload)
++        except HTTPException as exc:
++            raise _skill_step_from_http(
++                step_id,
++                exc,
++                [item["step_id"] for item in steps_out],
++            ) from exc
++        response_body = envelope.get("body") or {}
++        if not isinstance(response_body, dict) or response_body.get("status") != "success":
++            error = response_body.get("error") if isinstance(response_body, dict) else {}
++            error = error if isinstance(error, dict) else {}
++            raise SkillStepError(
++                step_id,
++                str(error.get("code") or "SKILL_STEP_FAILED"),
++                str(error.get("message") or "涓嬫父宸ュ叿鎵ц澶辫触"),
++                [item["step_id"] for item in steps_out],
++            )
++        result = _step_result(response_result(envelope))
+         entry = {"step_id": step_id, "ref": rid, "resource_id": rid, "result": result, "output": result}
+         steps_out.append(entry)
+         steps_by_id[step_id] = entry
+         steps_by_id[f"step_{i}"] = entry
+ 
+-    scores = [float((s["result"] or {}).get("score") or 0) for s in steps_out]
+-    passed = all(bool((s["result"] or {}).get("passed")) for s in steps_out) if steps_out else False
+-    avg = round(sum(scores) / len(scores), 4) if scores else 0.0
++    scores = [
++        float(s["result"]["score"])
++        for s in steps_out
++        if isinstance(s.get("result"), dict)
++        and s["result"].get("score") is not None
++    ]
++    pass_values = [
++        bool(s["result"]["passed"])
++        for s in steps_out
++        if isinstance(s.get("result"), dict) and "passed" in s["result"]
++    ]
++    avg = round(sum(scores) / len(scores), 4) if scores else None
++    passed = all(pass_values) if pass_values else None
++    final_result = steps_out[-1]["result"] if steps_out else None
+     return {
+         "score": avg,
+         "passed": passed,
+         "metrics": {"chain_score": avg, "steps": len(steps_out), "execution_type": execution_type},
+         "steps": steps_out,
++        "result": final_result,
+         "priority": skill.get("priority", 0),
+     }
+ 
+ 
+ async def run_mcp(manifest: dict | None, body: dict) -> dict:
+     """鏈湴 builtin 鎴栬繙绋?HTTP MCP銆?""
+     method = str(body.get("method") or "")
+     params = body.get("params") if isinstance(body.get("params"), dict) else {}
+     req_id = body.get("id", 1)
+     mf = manifest or {}
+     interfaces = mf.get("interfaces") or {}
+     endpoint = str(interfaces.get("endpoint") or interfaces.get("url") or "")
+     auth = interfaces.get("auth") or {}
+-    token = auth.get("token") if isinstance(auth, dict) else None
++    token = None
++    if isinstance(auth, dict):
++        if auth.get("credential_ref"):
++            token = os.environ.get(str(auth["credential_ref"])) or None
++        else:
++            token = auth.get("token") or None
+     timeout = int((mf.get("capabilities") or {}).get("timeout") or 30)
+     channel = str(interfaces.get("channel") or "https")
+ 
+     if endpoint.startswith("http"):
+         if method in {"initialize", "mcp/initialize"}:
+             data = await mcp_initialize(endpoint, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf)
+             return data
+         if method in {"tools/list", "list_tools"}:
+             data = await mcp_tools_list(endpoint, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf)
+             return data

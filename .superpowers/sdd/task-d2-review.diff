@@ -1,0 +1,44 @@
+# D Task 2 review — Approved
+
+Assessment: Approved
+Critical: none
+Important: none
+Minor: 3（不阻塞 Task 3）
+
+Do not implement. No git commit.
+
+## Spec gate
+
+| 要求 | 结论 | 位置 |
+| --- | --- | --- |
+| `readListQuery` 缺省 page=1, page_size=20, q/status `''`；page≤0/NaN→1；page_size 上限 100 | 通过 | `frontend/src/utils/listQuery.js` L4–12；`frontend/tests/unit/listQuery.test.mjs` L10–23 |
+| `writeListQuery` 合并 query、删空/`null`、值转字符串、`router.replace` | 通过 | `listQuery.js` L14–22；`listQuery.test.mjs` L25–37（假 router：`q:''` 删除、`page:3`→`'3'`、保留 `keep`） |
+| 页眉注明 catch 不得无 error 地 `items=[]` | 通过 | `listQuery.js` L1–2 |
+| `skipErrorToast`：不 `ElMessage.error`；查 `error.config` 与 `error.response.config`；始终 `reject` | 通过 | `frontend/src/utils/request.js` L52–53、L74–90 |
+| 401 非 auth 仍 logout + `/login`；auth 401 不登出；skip 仍压 toast（含网络无 response） | 通过 | `request.js` L72–90：`if (!skipToast) ElMessage.error`；无 response 走 L87–88 |
+| `getUnreadCount` `skipErrorToast: true` | 通过 | `frontend/src/api/index.js` L41 |
+| Dashboard 失败设 `loadError`，不伪装空待办；`PageAsyncState` error | 通过 | `Dashboard.vue` L18–19、L146–147、L176–185；`暂无待办` 在 `v-else`（L62–68），失败时不渲染 |
+| Agents `loadList` 去掉静默 `items:[]`；模型/会话失败设 error | 通过 | `Agents.vue` L24–25、L70、L254、L604–625；无 `.catch(() => ({ items: [] }))` |
+| NotificationManage `loadUsers` 设 `usersLoadError`，空 users 伴随错误文案 | 通过 | `NotificationManage.vue` L118–123、L243–253 |
+| 未改规划模型 `items[0]` 默认（留给 Task 3）；未改 `fetchList` 静默清空 | 通过 | `Agents.vue` L619–620 仍默认第一项；`stores/notification.js` `fetchList` 未动 |
+
+与 `docs/superpowers/plans/2026-09-29-subproject-d-frontend.md` Task 2、`task-d2-brief.md` 强制项一致。未开始 Task 3（403/口号）。
+
+## 命令（本评审复跑）
+
+```powershell
+cd E:\eval-platform\frontend
+npm run test:unit
+npm run verify:ux-static
+```
+
+- `npm run test:unit`：`# tests 48` / `# pass 48` / `# fail 0`
+- `npm run verify:ux-static`：`[verify:ux-static] OK`（`routes sampled=20 nav=13 warnings=0`）
+
+与 `task-d2-report.md` 一致。未做浏览器端到端（报告已声明）。
+
+## Minor
+
+1. `skipErrorToast` / 401 行为单测为源码正则（`listQuery.test.mjs` L39–48），未执行 Axios 拦截器。报告已写明。强制分支在 `request.js` L52–90 可读核对。
+2. 起步页规划模型选择在折叠「高级」内（`Agents.vue` L59–70），`modelsLoadError` 默认不可见；折叠外徽章在失败时仍是「真实模型未配置」（L52–54）。会话栏已用 `v-if`/`v-else-if` 避免「暂无会话」（L24–25）。可接受，不必为本任务返工。
+3. `notification.js` `fetchList` 仍 catch 后 `list=[]`（L11–19）。简报明确本任务只改 unread-count 轮询。

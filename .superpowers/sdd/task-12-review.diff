@@ -1,0 +1,638 @@
+﻿# Task 12
+
+diff --git a/frontend/src/api/index.js b/frontend/src/api/index.js
+index 90d196e..c428c12 100644
+--- a/frontend/src/api/index.js
++++ b/frontend/src/api/index.js
+@@ -106,22 +106,25 @@ export const promptsApi = {
+ }
+ 
+ export const resourcesApi = {
+   list: (params) => request.get('/resources', { params }),
+   get: (id) => request.get(`/resources/${encodeURIComponent(id)}`),
+   register: (manifest) => request.post('/resources/register', { manifest }),
+   invoke: (data) => request.post('/resources/invoke', data),
+   mcpProbe: (data) => request.post('/resources/mcp/probe', data),
++  stdioAliases: () => request.get('/resources/mcp/stdio-aliases'),
+   offline: (id) => request.post(`/resources/${encodeURIComponent(id)}/offline`),
+   match: (data) => request.post('/resources/match', data),
+   events: (params) => request.get('/resources/events', { params }),
+   health: (id) => request.post(`/resources/${encodeURIComponent(id)}/health`),
+   registry: () => request.get('/resources/registry'),
+-  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`)
++  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`),
++  calls: (id, params) =>
++    request.get(`/resources/calls/${encodeURIComponent(id)}`, { params }),
+ }
+ 
+ export const batchApi = {
+   run: (data) => request.post('/batch/run', data),
+   status: (id) => request.get(`/batch/status/${id}`),
+   cancel: (id) => request.delete(`/batch/${id}`),
+   shard: (id, shardId, params) => request.get(`/batch/${id}/shards/${shardId}`, { params }),
+   putResults: (id, shardId, data) => request.put(`/batch/${id}/shards/${shardId}/results`, data),
+diff --git a/frontend/src/utils/resourceWizard.js b/frontend/src/utils/resourceWizard.js
+new file mode 100644
+index 0000000..5e9d3ff
+--- /dev/null
++++ b/frontend/src/utils/resourceWizard.js
+@@ -0,0 +1,392 @@
++export const ADVANCED_SCHEMA_HINT = '楂樼骇 Schema 宸蹭繚鐣欙紝瀛楁琛ㄤ笉鏀寔鏃犳崯缂栬緫'
++
++export const DEFAULT_SKILL_INPUTS = {
++  s1: JSON.stringify({ text: { $ref: '$input.text' } }),
++  s2: JSON.stringify({
++    values: { $ref: 's1.output.values' },
++    target_unit: { $ref: '$input.target_unit' },
++  }),
++}
++
++const STEP_REF = /^(?:step_(\d+)|([A-Za-z_][\w-]*))(?:\.(.+))?$/
++const SIMPLE_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
++const ADVANCED_KEYS = new Set([
++  'enum',
++  'description',
++  'minimum',
++  'maximum',
++  'exclusiveMinimum',
++  'exclusiveMaximum',
++  'minLength',
++  'maxLength',
++  'pattern',
++  'format',
++  'oneOf',
++  'anyOf',
++  'allOf',
++  '$ref',
++  'items',
++  'properties',
++  'additionalProperties',
++])
++
++export function emptyWizard() {
++  return {
++    kind: 'tool',
++    ns: 'demo',
++    slug: '',
++    name: '',
++    description: '',
++    version: '1.0.0',
++    call_mode: 'sync',
++    idempotent: true,
++    endpoint: '',
++    method: 'POST',
++    timeout: 30,
++    credentialRef: '',
++    token: '',
++    mcpTransport: 'streamable_http',
++    commandAlias: '',
++    skillSteps: [
++      { step_id: 's1', resource_id: '', inputJson: DEFAULT_SKILL_INPUTS.s1 },
++      { step_id: 's2', resource_id: '', inputJson: DEFAULT_SKILL_INPUTS.s2 },
++    ],
++    allowlist: '',
++    paramMode: 'form',
++    fields: [
++      { key: 'prediction', type: 'string', required: true },
++      { key: 'reference', type: 'string', required: true },
++    ],
++    schemaJson: '',
++    schemaAdvancedKept: false,
++    rawManifest: '',
++  }
++}
++
++export function emptySkillStep(index) {
++  const n = Number(index) || 1
++  return {
++    step_id: `s${n}`,
++    resource_id: '',
++    inputJson: n === 1 ? DEFAULT_SKILL_INPUTS.s1 : n === 2 ? DEFAULT_SKILL_INPUTS.s2 : '{}',
++  }
++}
++
++export function isHttpUrl(value) {
++  return /^https?:\/\//.test(String(value || '').trim())
++}
++
++export function parseInputJson(text, original) {
++  const kept = original == null ? String(text ?? '') : String(original)
++  try {
++    const value = JSON.parse(text || '{}')
++    if (!value || typeof value !== 'object' || Array.isArray(value)) {
++      return { ok: false, value: null, error: '姝ラ杈撳叆蹇呴』鏄?JSON 瀵硅薄', kept }
++    }
++    return { ok: true, value, error: '', kept }
++  } catch (error) {
++    return { ok: false, value: null, error: `JSON 鏃犳晥锛?{error.message}`, kept }
++  }
++}
++
++function collectRefs(node, acc = []) {
++  if (Array.isArray(node)) {
++    node.forEach((item) => collectRefs(item, acc))
++    return acc
++  }
++  if (!node || typeof node !== 'object') return acc
++  if (typeof node.$ref === 'string') acc.push(node.$ref)
++  Object.values(node).forEach((item) => collectRefs(item, acc))
++  return acc
++}
++
++function knownStepIds(steps, beforeIndex) {
++  return new Set(
++    steps.slice(0, beforeIndex).map((step) => String(step.step_id || '').trim()).filter(Boolean),
++  )
++}
++
++export function validateRef(ref, previousIds) {
++  const value = String(ref || '')
++  if (value.startsWith('$input.') || value === '$input') return ''
++  if (value.startsWith('$global.')) return ''
++  const match = STEP_REF.exec(value)
++  if (!match) return `鏃犳硶瑙ｆ瀽寮曠敤 ${value}`
++  const sid = match[2]
++  if (match[1] != null) return ''
++  if (sid && !previousIds.has(sid)) return `鏈煡姝ラ寮曠敤锛?{value}`
++  return ''
++}
++
++export function validateSkillSteps(steps, allowedToolIds) {
++  const list = Array.isArray(steps) ? steps : []
++  const errors = []
++  const chain = []
++  if (!list.length) {
++    return { ok: false, errors: ['Skill 鑷冲皯闇€瑕佷竴涓楠?], chain }
++  }
++  const ids = list.map((step) => String(step.step_id || '').trim())
++  if (ids.some((id) => !id)) errors.push('姣忎釜姝ラ閮介渶瑕?step_id')
++  if (new Set(ids.filter(Boolean)).size !== ids.filter(Boolean).length) {
++    errors.push('step_id 蹇呴』鍞竴')
++  }
++  list.forEach((step, index) => {
++    const sid = String(step.step_id || `s${index + 1}`)
++    const rid = String(step.resource_id || '').trim()
++    if (!rid) errors.push(`姝ラ ${sid} 蹇呴』閫夋嫨宸ュ叿`)
++    else if (allowedToolIds && allowedToolIds.size && !allowedToolIds.has(rid)) {
++      errors.push(`姝ラ ${sid} 鍙兘閫夋嫨鍒楄〃涓殑宸ュ叿`)
++    }
++    const parsed = parseInputJson(step.inputJson, step.inputJson)
++    if (!parsed.ok) errors.push(`姝ラ ${sid}锛?{parsed.error}`)
++    else {
++      const prev = knownStepIds(list, index)
++      for (const ref of collectRefs(parsed.value)) {
++        const msg = validateRef(ref, prev)
++        if (msg) errors.push(`姝ラ ${sid}锛?{msg}`)
++      }
++      chain.push({
++        step_id: sid,
++        resource_id: rid,
++        input: parsed.value,
++      })
++    }
++  })
++  return { ok: errors.length === 0, errors, chain }
++}
++
++export function skillCheckNotes(steps) {
++  const result = validateSkillSteps(steps, null)
++  if (result.ok) {
++    return {
++      ok: true,
++      message: '寮曠敤妫€鏌ワ細閫氳繃锛堟湭鎵ц鐪熷疄璋冪敤锛屾敞鍐屽悗鍦ㄨ瘯鐢ㄥ彴楠岃瘉锛?,
++    }
++  }
++  return {
++    ok: false,
++    message: `寮曠敤妫€鏌ュけ璐ワ細${result.errors.join('锛?)}`,
++  }
++}
++
++export function validateWizardConnect(wizard) {
++  if (wizard.kind === 'tool') {
++    if (!isHttpUrl(wizard.endpoint)) return { ok: false, message: '宸ュ叿闇€瑕?http(s) 鍦板潃' }
++    return { ok: true, message: '' }
++  }
++  if (wizard.kind === 'mcp') {
++    if (wizard.mcpTransport === 'stdio') {
++      const aliases = wizard.stdioAliases || []
++      if (!aliases.length) {
++        return { ok: false, message: '鏈嶅姟绔湭閰嶇疆鍏佽鐨?stdio 鏈嶅姟锛岃鑱旂郴绠＄悊鍛橀厤缃? }
++      }
++      if (!aliases.includes(wizard.commandAlias)) {
++        return { ok: false, message: '璇烽€夋嫨鏈嶅姟绔厑璁哥殑 stdio 鍒悕' }
++      }
++      return { ok: true, message: '' }
++    }
++    if (!isHttpUrl(wizard.endpoint)) return { ok: false, message: 'MCP 闇€瑕?http(s) 鍦板潃' }
++    return { ok: true, message: '' }
++  }
++  if (wizard.kind === 'skill') {
++    const result = validateSkillSteps(wizard.skillSteps, wizard.allowedToolIds)
++    if (!result.ok) return { ok: false, message: result.errors[0] || 'Skill 閰嶇疆涓嶅畬鏁?, errors: result.errors }
++    return { ok: true, message: '', errors: [] }
++  }
++  return { ok: true, message: '' }
++}
++
++function splitAllowlist(text) {
++  return String(text || '')
++    .split(',')
++    .map((item) => item.trim())
++    .filter(Boolean)
++}
++
++export function buildMcpInterfaces(wizard) {
++  if (wizard.mcpTransport === 'stdio') {
++    return { transport: 'stdio', command_alias: wizard.commandAlias }
++  }
++  const interfaces = {
++    transport: 'streamable_http',
++    endpoint: wizard.endpoint,
++    method: 'POST',
++    auth_type: wizard.credentialRef ? 'bearer' : 'none',
++  }
++  if (wizard.credentialRef) interfaces.auth = { credential_ref: wizard.credentialRef }
++  const allow = splitAllowlist(wizard.allowlist)
++  if (allow.length) interfaces.egress_allowlist = allow
++  return interfaces
++}
++
++export function schemaFromFields(fields) {
++  const properties = {}
++  const required = []
++  for (const field of fields || []) {
++    if (!field.key) continue
++    properties[field.key] = { type: field.type || 'string' }
++    if (field.required) required.push(field.key)
++  }
++  return { type: 'object', properties, required }
++}
++
++function propertyIsAdvanced(def) {
++  if (!def || typeof def !== 'object') return true
++  if (!SIMPLE_TYPES.has(def.type)) return true
++  if (def.type === 'object' || def.type === 'array') return true
++  return Object.keys(def).some((key) => {
++    if (key === 'type') return false
++    return ADVANCED_KEYS.has(key)
++  })
++}
++
++export function schemaIsSimpleForm(schema) {
++  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false
++  const props = schema.properties
++  if (!props || typeof props !== 'object') return false
++  return Object.values(props).every((def) => !propertyIsAdvanced(def))
++}
++
++export function schemaFormSync(schemaJson, currentFields) {
++  const text = String(schemaJson || '').trim()
++  if (!text) {
++    return { advancedKept: false, fields: currentFields || [], hint: '', error: '' }
++  }
++  let schema
++  try {
++    schema = JSON.parse(text)
++  } catch (error) {
++    return {
++      advancedKept: true,
++      fields: currentFields || [],
++      hint: ADVANCED_SCHEMA_HINT,
++      error: `JSON 鏃犳晥锛?{error.message}`,
++    }
++  }
++  if (!schemaIsSimpleForm(schema)) {
++    return {
++      advancedKept: true,
++      fields: currentFields || [],
++      hint: ADVANCED_SCHEMA_HINT,
++      error: '',
++    }
++  }
++  const required = schema.required || []
++  const fields = Object.entries(schema.properties || {}).map(([key, def]) => ({
++    key,
++    type: def.type || 'string',
++    required: required.includes(key),
++  }))
++  return { advancedKept: false, fields, hint: '', error: '' }
++}
++
++export function mergeToolPages(existing, page) {
++  const map = new Map()
++  for (const item of existing || []) {
++    if (item?.resource_id) map.set(item.resource_id, item)
++  }
++  for (const item of page.items || []) {
++    if (item?.resource_id) map.set(item.resource_id, item)
++  }
++  const items = [...map.values()]
++  const pageNum = Number(page.page) || 1
++  const total = Number(page.total) || items.length
++  return { items, hasMore: items.length < total, nextPage: pageNum + 1, total }
++}
++
++export function toolOptionLabel(item) {
++  if (!item) return ''
++  return [item.name, item.resource_id, item.version, item.health_status || item.status]
++    .filter(Boolean)
++    .join(' 路 ')
++}
++
++function pretty(value) {
++  try {
++    return JSON.stringify(value ?? {}, null, 2)
++  } catch {
++    return String(value)
++  }
++}
++
++export function buildManifest(wizard) {
++  if (String(wizard.rawManifest || '').trim()) {
++    return JSON.parse(wizard.rawManifest)
++  }
++  const rid = `${wizard.ns}/${wizard.slug}`.toLowerCase()
++  if (wizard.kind === 'mcp') {
++    return {
++      spec_version: '0.6.1',
++      resource_id: rid,
++      resource_type: 'mcp',
++      name: wizard.name,
++      description: wizard.description,
++      version: wizard.version,
++      owner: { name: 'tenant', contact: 'n/a', email: 'n/a@local' },
++      capabilities: {
++        input_schema: { type: 'object', properties: { method: { type: 'string' }, params: { type: 'object' } } },
++        output_schema: { type: 'object' },
++        call_mode: 'sync',
++        idempotent: wizard.idempotent === true,
++        timeout: Number(wizard.timeout) || 30,
++      },
++      interfaces: buildMcpInterfaces(wizard),
++    }
++  }
++  const schema = wizard.schemaAdvancedKept && String(wizard.schemaJson || '').trim()
++    ? JSON.parse(wizard.schemaJson)
++    : wizard.paramMode === 'json' && String(wizard.schemaJson || '').trim()
++      ? JSON.parse(wizard.schemaJson)
++      : schemaFromFields(wizard.fields)
++  const base = {
++    spec_version: '0.6.1',
++    resource_id: rid,
++    resource_type: wizard.kind,
++    name: wizard.name,
++    description: wizard.description,
++    version: wizard.version,
++    owner: { name: 'tenant', contact: 'n/a', email: 'n/a@local' },
++    capabilities: {
++      input_schema: schema,
++      output_schema: { type: 'object' },
++      call_mode: wizard.call_mode,
++      idempotent: wizard.idempotent === true,
++      timeout: Number(wizard.timeout) || 30,
++      side_effects: 'none',
++    },
++  }
++  if (wizard.kind === 'skill') {
++    const steps = validateSkillSteps(wizard.skillSteps, wizard.allowedToolIds)
++    if (!steps.ok) throw new Error(steps.errors[0] || 'Skill 姝ラ鏃犳晥')
++    base.skill = { execution_type: 'workflow', chain: steps.chain }
++    base.interfaces = { method: 'workflow', auth_type: 'none' }
++  } else {
++    const interfaces = {
++      endpoint: wizard.endpoint,
++      method: wizard.method || 'POST',
++      auth_type: wizard.credentialRef ? 'bearer' : 'none',
++    }
++    if (wizard.credentialRef) interfaces.auth = { credential_ref: wizard.credentialRef }
++    base.interfaces = interfaces
++  }
++  return base
++}
++
++export { pretty as prettyManifest }
++
++export function mcpProbeBody(wizard) {
++  if (wizard.mcpTransport === 'stdio') {
++    return {
++      command_alias: wizard.commandAlias,
++      transport: 'stdio',
++      method: 'initialize',
++    }
++  }
++  return {
++    endpoint: wizard.endpoint,
++    token: wizard.token || '',
++    method: 'initialize',
++    transport: 'streamable_http',
++    egress_allowlist: splitAllowlist(wizard.allowlist),
++  }
++}
+diff --git a/frontend/tests/unit/resourceWizard.test.mjs b/frontend/tests/unit/resourceWizard.test.mjs
+new file mode 100644
+index 0000000..7fe295f
+--- /dev/null
++++ b/frontend/tests/unit/resourceWizard.test.mjs
+@@ -0,0 +1,201 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import {
++  ADVANCED_SCHEMA_HINT,
++  DEFAULT_SKILL_INPUTS,
++  buildManifest,
++  buildMcpInterfaces,
++  emptyWizard,
++  isHttpUrl,
++  mergeToolPages,
++  parseInputJson,
++  schemaFormSync,
++  skillCheckNotes,
++  validateSkillSteps,
++  validateWizardConnect,
++} from '../../src/utils/resourceWizard.js'
++
++test('emptyWizard includes mcp transport and two skill json steps', () => {
++  const w = emptyWizard()
++  assert.equal(w.mcpTransport, 'streamable_http')
++  assert.equal(w.commandAlias, '')
++  assert.equal(w.skillSteps.length, 2)
++  assert.equal(w.skillSteps[0].step_id, 's1')
++  assert.equal(w.skillSteps[0].resource_id, '')
++  assert.equal(w.skillSteps[0].inputJson, DEFAULT_SKILL_INPUTS.s1)
++  assert.equal(w.skillSteps[1].inputJson, DEFAULT_SKILL_INPUTS.s2)
++  assert.ok(!Object.prototype.hasOwnProperty.call(w.skillSteps[0], 'input_ref'))
++})
++
++test('parseInputJson keeps original text on failure and requires object', () => {
++  const bad = parseInputJson('{not json', '{not json')
++  assert.equal(bad.ok, false)
++  assert.equal(bad.kept, '{not json')
++  assert.match(bad.error, /JSON/)
++
++  const arr = parseInputJson('[]')
++  assert.equal(arr.ok, false)
++  assert.equal(arr.kept, '[]')
++
++  const ok = parseInputJson('{"text":{"$ref":"$input.text"}}')
++  assert.equal(ok.ok, true)
++  assert.deepEqual(ok.value.text, { $ref: '$input.text' })
++})
++
++test('validateSkillSteps requires unique ids, selected tools, and object json', () => {
++  const allowed = new Set(['builtin/exact_match', 'builtin/parse_stats'])
++  const missing = validateSkillSteps([
++    { step_id: 's1', resource_id: '', inputJson: '{}' },
++  ], allowed)
++  assert.equal(missing.ok, false)
++  assert.match(missing.errors[0], /s1/)
++
++  const dup = validateSkillSteps([
++    { step_id: 's1', resource_id: 'builtin/exact_match', inputJson: '{}' },
++    { step_id: 's1', resource_id: 'builtin/parse_stats', inputJson: '{}' },
++  ], allowed)
++  assert.equal(dup.ok, false)
++  assert.match(dup.errors.join(' '), /鍞竴/)
++
++  const typed = validateSkillSteps([
++    { step_id: 's1', resource_id: 'not/in/list', inputJson: '{}' },
++  ], allowed)
++  assert.equal(typed.ok, false)
++
++  const ok = validateSkillSteps([
++    { step_id: 's1', resource_id: 'builtin/exact_match', inputJson: DEFAULT_SKILL_INPUTS.s1 },
++    { step_id: 's2', resource_id: 'builtin/parse_stats', inputJson: DEFAULT_SKILL_INPUTS.s2 },
++  ], allowed)
++  assert.equal(ok.ok, true)
++  assert.deepEqual(ok.chain[1].input.values, { $ref: 's1.output.values' })
++})
++
++test('skillCheckNotes flags unknown refs without claiming invoke success', () => {
++  const notes = skillCheckNotes([
++    { step_id: 's1', resource_id: 'builtin/exact_match', inputJson: DEFAULT_SKILL_INPUTS.s1 },
++    { step_id: 's2', resource_id: 'builtin/parse_stats', inputJson: '{"x":{"$ref":"s9.output.values"}}' },
++  ])
++  assert.equal(notes.ok, false)
++  assert.match(notes.message, /s2/)
++  assert.doesNotMatch(notes.message, /鎴愬姛/)
++})
++
++test('validateWizardConnect covers http tool, streamable http, and stdio alias', () => {
++  assert.equal(isHttpUrl('https://tool.example/invoke'), true)
++  assert.equal(isHttpUrl('ftp://x'), false)
++
++  const tool = validateWizardConnect({ kind: 'tool', endpoint: 'not-url' })
++  assert.equal(tool.ok, false)
++
++  const httpMcp = validateWizardConnect({
++    kind: 'mcp',
++    mcpTransport: 'streamable_http',
++    endpoint: 'https://mcp.example/rpc',
++    commandAlias: '',
++    stdioAliases: ['stats'],
++  })
++  assert.equal(httpMcp.ok, true)
++
++  const stdioMissing = validateWizardConnect({
++    kind: 'mcp',
++    mcpTransport: 'stdio',
++    endpoint: 'https://ignored',
++    commandAlias: 'stats',
++    stdioAliases: [],
++  })
++  assert.equal(stdioMissing.ok, false)
++
++  const stdioOk = validateWizardConnect({
++    kind: 'mcp',
++    mcpTransport: 'stdio',
++    commandAlias: 'stats',
++    stdioAliases: ['stats'],
++  })
++  assert.equal(stdioOk.ok, true)
++
++  const stdioTyped = validateWizardConnect({
++    kind: 'mcp',
++    mcpTransport: 'stdio',
++    commandAlias: 'evil',
++    stdioAliases: ['stats'],
++  })
++  assert.equal(stdioTyped.ok, false)
++})
++
++test('buildMcpInterfaces branches transport and does not mix sources', () => {
++  assert.deepEqual(
++    buildMcpInterfaces({
++      mcpTransport: 'stdio',
++      commandAlias: 'stats',
++      endpoint: 'https://should-not-appear',
++      credentialRef: 'TOKEN',
++    }),
++    { transport: 'stdio', command_alias: 'stats' },
++  )
++  const http = buildMcpInterfaces({
++    mcpTransport: 'streamable_http',
++    endpoint: 'https://mcp.example/rpc',
++    credentialRef: 'TOKEN',
++    allowlist: 'host1, host2',
++  })
++  assert.equal(http.transport, 'streamable_http')
++  assert.equal(http.endpoint, 'https://mcp.example/rpc')
++  assert.equal(http.method, 'POST')
++  assert.equal(http.auth_type, 'bearer')
++  assert.deepEqual(http.auth, { credential_ref: 'TOKEN' })
++  assert.deepEqual(http.egress_allowlist, ['host1', 'host2'])
++})
++
++test('schemaFormSync never maps integer to number and keeps advanced json', () => {
++  const simple = schemaFormSync('{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}', [])
++  assert.equal(simple.advancedKept, false)
++  assert.equal(simple.fields[0].type, 'integer')
++
++  const advanced = schemaFormSync(
++    JSON.stringify({
++      type: 'object',
++      properties: {
++        mode: { type: 'string', enum: ['a', 'b'], description: 'x' },
++        nested: { type: 'object', properties: { k: { type: 'string' } } },
++        n: { type: 'number', minimum: 1 },
++      },
++    }),
++    [{ key: 'old', type: 'string', required: false }],
++  )
++  assert.equal(advanced.advancedKept, true)
++  assert.equal(advanced.hint, ADVANCED_SCHEMA_HINT)
++  assert.deepEqual(advanced.fields, [{ key: 'old', type: 'string', required: false }])
++})
++
++test('mergeToolPages appends unique resource_id rows for server pagination', () => {
++  const first = mergeToolPages([], {
++    items: [{ resource_id: 'a', name: 'A', version: '1', health_status: 'online' }],
++    page: 1,
++    total: 3,
++  })
++  const second = mergeToolPages(first.items, {
++    items: [
++      { resource_id: 'a', name: 'A2' },
++      { resource_id: 'b', name: 'B', version: '2', health_status: 'online' },
++    ],
++    page: 2,
++    total: 3,
++  })
++  assert.equal(second.items.length, 2)
++  assert.equal(second.items[0].name, 'A2')
++  assert.equal(second.hasMore, true)
++})
++
++test('buildManifest skill chain uses parsed input objects', () => {
++  const w = emptyWizard()
++  w.kind = 'skill'
++  w.ns = 'demo'
++  w.slug = 'dual'
++  w.name = 'dual'
++  w.skillSteps[0].resource_id = 'builtin/exact_match'
++  w.skillSteps[1].resource_id = 'builtin/parse_stats'
++  const mf = buildManifest(w)
++  assert.equal(mf.skill.chain[0].input.text.$ref, '$input.text')
++  assert.equal(mf.skill.chain[1].input.values.$ref, 's1.output.values')
++  assert.equal(mf.interfaces.method, 'workflow')
++})

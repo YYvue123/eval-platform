@@ -1,0 +1,6 @@
+# C Task 5 review
+
+Brief task-c5-brief.md Report task-c5-report.md
+Read real08-real12 in tools/real_fill/scenarios.py and new tests.
+Must: no expert sign; REAL11 always blocked seven-day; REAL10 4xx is pass; REAL08 blocked without L3; REAL12 isolated backup.
+Do not mutate. Assessment Approved | Needs fixes.

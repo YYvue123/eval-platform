@@ -1,0 +1,115 @@
+﻿# Task 1 working-tree diff v2
+
+## Tracked changes
+diff --git a/backend/tests/isolated_env.py b/backend/tests/isolated_env.py
+index aba44a0..47c1026 100644
+--- a/backend/tests/isolated_env.py
++++ b/backend/tests/isolated_env.py
+@@ -1,20 +1,55 @@
+ """鍦ㄥ鍏?app 涔嬪墠璁剧疆鐙珛 DATABASE_URL / uploads / logs锛岄伩鍏嶈Е纰颁笟鍔″簱銆?""
+ from __future__ import annotations
+ 
+ import os
+ from pathlib import Path
++from urllib.parse import unquote, urlparse
+ 
+-_ROOT = Path(__file__).resolve().parent / "_isolated"
++_ROOT = (Path(__file__).resolve().parent / "_isolated").resolve()
+ _ROOT.mkdir(exist_ok=True)
+ (_ROOT / "uploads").mkdir(exist_ok=True)
+ (_ROOT / "logs").mkdir(exist_ok=True)
+ (_ROOT / "backups").mkdir(exist_ok=True)
+ 
+-os.environ.setdefault(
+-    "DATABASE_URL",
+-    "sqlite+aiosqlite:///" + (_ROOT / "wp00_test.db").as_posix(),
+-)
+-os.environ.setdefault("UPLOAD_DIR", str(_ROOT / "uploads"))
+-os.environ.setdefault("LOG_DIR", str(_ROOT / "logs"))
+-os.environ.setdefault("BACKUP_DIR", str(_ROOT / "backups"))
+-os.environ.setdefault("LOG_LEVEL", "WARNING")
++
++def assert_isolated_database(url: str) -> Path:
++    if not url.startswith("sqlite+aiosqlite:///"):
++        raise RuntimeError(
++            f"Tests must use sqlite+aiosqlite under {_ROOT}; got non-sqlite URL: {url!r}"
++        )
++    parsed = urlparse(url)
++    raw = unquote(parsed.path or "")
++    # /E:/... 鈥?Windows absolute from sqlite+aiosqlite:///; else leading / is not a drive root.
++    if raw.startswith("/") and len(raw) >= 3 and raw[1].isalpha() and raw[2] == ":":
++        db_path = Path(raw[1:]).resolve()
++    else:
++        if raw.startswith("/"):
++            raw = raw[1:]
++        db_path = (Path.cwd() / raw).resolve()
++    try:
++        db_path.relative_to(_ROOT)
++    except ValueError as exc:
++        raise RuntimeError(
++            f"Database path must be under {_ROOT}; got {db_path!s} from {url!r}"
++        ) from exc
++    return db_path
++
++
++_default_db_url = "sqlite+aiosqlite:///" + (_ROOT / "wp00_test.db").as_posix()
++_existing = os.environ.get("DATABASE_URL")
++if _existing:
++    try:
++        assert_isolated_database(_existing)
++        _database_url = _existing
++    except RuntimeError:
++        _database_url = _default_db_url
++else:
++    _database_url = _default_db_url
++
++os.environ["DATABASE_URL"] = _database_url
++assert_isolated_database(os.environ["DATABASE_URL"])
++
++os.environ["UPLOAD_DIR"] = str(_ROOT / "uploads")
++os.environ["LOG_DIR"] = str(_ROOT / "logs")
++os.environ["BACKUP_DIR"] = str(_ROOT / "backups")
++os.environ["LOG_LEVEL"] = "WARNING"
+
+## New file
+diff --git a/backend/tests/test_isolation_guard.py b/backend/tests/test_isolation_guard.py
+new file mode 100644
+index 0000000..56a486b
+--- /dev/null
++++ b/backend/tests/test_isolation_guard.py
+@@ -0,0 +1,35 @@
++"""Tests for assert_isolated_database 鈥?tests must never use the business DB."""
++from __future__ import annotations
++
++import unittest
++from pathlib import Path
++
++from tests import isolated_env
++
++assert_isolated_database = isolated_env.assert_isolated_database
++_ROOT = isolated_env._ROOT
++
++
++class TestIsolationGuard(unittest.TestCase):
++    def test_accepts_isolated_sqlite_path(self) -> None:
++        db = _ROOT / "guard.db"
++        url = "sqlite+aiosqlite:///" + db.as_posix()
++        result = assert_isolated_database(url)
++        self.assertEqual(result.resolve(), db.resolve())
++
++    def test_accepts_three_slash_relative_url_under_isolated_root(self) -> None:
++        url = "sqlite+aiosqlite:///tests/_isolated/relative.db"
++        result = assert_isolated_database(url)
++        self.assertEqual(result.resolve(), (_ROOT / "relative.db").resolve())
++
++    def test_rejects_business_db_relative_url(self) -> None:
++        with self.assertRaises(RuntimeError):
++            assert_isolated_database("sqlite+aiosqlite:///../eval_platform.db")
++
++    def test_rejects_non_sqlite_url(self) -> None:
++        with self.assertRaises(RuntimeError):
++            assert_isolated_database("postgresql+asyncpg://localhost/eval")
++
++
++if __name__ == "__main__":
++    unittest.main()

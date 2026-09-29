@@ -1,0 +1,37 @@
+# Task 13 review v2 — stale identity reset
+
+Base: working tree vs previous Task 13 (no commit).
+Important finding from task-13-review.diff: source switch inherited stale.
+
+Changed:
+- frontend/src/utils/mcpWorkbench.js — sourceKey(); syncSourceState resets on identity change
+- frontend/src/views/Resources.vue — watch uses emptyMcpState() without carrying stale
+- frontend/tests/unit/mcpWorkbench.test.mjs — identity-change + same-source persistence tests
+- .superpowers/sdd/task-13-report.md
+
+Key logic:
+
+```javascript
+export function sourceKey(mode, form = {}) {
+  const m = String(mode || '')
+  if (m === 'registered') return `registered|${String(form.resource_id || '').trim()}`
+  return `${m}|${String(form.endpoint || '').trim()}|${String(form.command_alias || '').trim()}`
+}
+
+export function syncSourceState(prev, { mode, form, catalogStale, sourceChanged } = {}) {
+  const key = sourceKey(mode, form)
+  const identityChanged = Boolean(sourceChanged) || (prev?.sourceKey != null && prev.sourceKey !== key)
+  const stale = identityChanged ? Boolean(catalogStale) : Boolean(prev?.stale || catalogStale)
+  if (identityChanged || !complete) {
+    const next = { ...emptyMcpState(), schemaValid, stale, sourceKey: key }
+    ...
+  }
+  ...
+}
+```
+
+Resources.vue watch no longer `{ ...emptyMcpState(), stale: mcpState.value.stale }`.
+
+Tests claimed: 33/33 unit; verify:ux-static OK.
+
+Review this fix against Task 13 brief + the Important finding. Do not mutate.

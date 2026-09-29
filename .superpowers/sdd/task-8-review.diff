@@ -1,0 +1,725 @@
+﻿# Task 8 review package
+# HEAD 380650893eb44871e4722100c8060def66619d56
+
+ M backend/app/api/resources.py
+ M backend/app/services/protocol.py
+?? backend/app/services/mcp/session.py
+?? backend/app/services/mcp/stdio_transport.py
+?? backend/tests/test_review_followup_a.py
+
+##### protocol.py
+
+diff --git a/backend/app/services/protocol.py b/backend/app/services/protocol.py
+index ade7c38..b1fef4b 100644
+--- a/backend/app/services/protocol.py
++++ b/backend/app/services/protocol.py
+@@ -176,20 +176,77 @@ def normalize_invoke_body(body: dict | None) -> tuple[str, dict]:
+     body = body or {}
+     if "action" in body or "parameters" in body:
+         action = str(body.get("action") or "execute").strip() or "execute"
+         params = body.get("parameters") if isinstance(body.get("parameters"), dict) else {
+             k: v for k, v in body.items() if k not in {"action", "parameters", "metadata"}
+         }
+         return action, params
+     return "execute", dict(body)
+ 
+ 
++_SECRET_KEYS = {"token", "api_key", "apikey", "secret", "password", "authorization"}
++
++
++def find_plaintext_secrets(node, path: str = "") -> list[str]:
++    found: list[str] = []
++    if isinstance(node, dict):
++        for key, value in node.items():
++            here = f"{path}.{key}" if path else str(key)
++            if str(key).lower() in _SECRET_KEYS and isinstance(value, str) and value.strip():
++                found.append(here)
++            else:
++                found.extend(find_plaintext_secrets(value, here))
++    elif isinstance(node, list):
++        for index, value in enumerate(node):
++            found.extend(find_plaintext_secrets(value, f"{path}[{index}]"))
++    return found
++
++
++def executable_errors(manifest: dict) -> list[str]:
++    """娉ㄥ唽蹇呴』鍙墽琛岋細绂佹 local:// 绌哄３鍜屾槑鏂囧嚟璇併€?""
++    errors = [f"绂佹淇濆瓨鏄庢枃鍑瘉: {item}" for item in find_plaintext_secrets(manifest)]
++    rtype = manifest.get("resource_type")
++    interfaces = manifest.get("interfaces") or {}
++    endpoint = str(interfaces.get("endpoint") or interfaces.get("url") or "")
++    if rtype == "tool":
++        if not endpoint.startswith("http"):
++            errors.append("宸ュ叿蹇呴』閰嶇疆 http(s) endpoint锛屼笉鑳戒娇鐢?local://")
++    elif rtype == "skill":
++        skill = manifest.get("skill") or {}
++        if skill.get("execution_type") not in {None, "", "workflow"}:
++            errors.append("Skill 浠呮敮鎸?workflow")
++        chain = skill.get("chain") or []
++        if not isinstance(chain, list) or not chain:
++            errors.append("Skill 蹇呴』澹版槑闈炵┖ skill.chain")
++        else:
++            for index, step in enumerate(chain):
++                if not isinstance(step, dict) or not (step.get("resource_id") or step.get("$ref")):
++                    errors.append(f"skill.chain[{index}] 缂哄皯 resource_id")
++    elif rtype == "mcp":
++        from app.services.mcp.stdio_transport import list_stdio_aliases
++
++        transport = interfaces.get("transport", "streamable_http")
++        if transport == "stdio":
++            if interfaces.get("command") or interfaces.get("args"):
++                errors.append("stdio MCP 鍙兘浣跨敤 command_alias")
++            if not interfaces.get("command_alias"):
++                errors.append("stdio MCP 蹇呴』閰嶇疆 command_alias")
++            elif interfaces["command_alias"] not in list_stdio_aliases():
++                errors.append("stdio command_alias 涓嶅湪鏈嶅姟绔櫧鍚嶅崟")
++        elif transport == "streamable_http":
++            if not endpoint.startswith("http"):
++                errors.append("Streamable HTTP MCP 蹇呴』閰嶇疆 http(s) endpoint")
++        else:
++            errors.append("MCP transport 浠呮敮鎸?streamable_http 鎴?stdio")
++    return errors
++
++
+ def validate_manifest(manifest: dict) -> list[str]:
+     errors = []
+     if not isinstance(manifest, dict):
+         return ["Manifest 蹇呴』鏄?JSON 瀵硅薄"]
+     for field in ("spec_version", "resource_id", "resource_type", "name", "version", "description"):
+         if not manifest.get(field):
+             errors.append(f"缂哄皯蹇呭～瀛楁: {field}")
+     rid = str(manifest.get("resource_id") or "")
+     if rid and not RESOURCE_ID_RE.match(rid):
+         errors.append("resource_id 鏍煎紡蹇呴』涓?{namespace}/{name}")
+
+##### resources.py (stdio-related; file also has earlier tasks)
+
+diff --git a/backend/app/api/resources.py b/backend/app/api/resources.py
+index 774820e..c238b07 100644
+--- a/backend/app/api/resources.py
++++ b/backend/app/api/resources.py
+@@ -1,26 +1,28 @@
+ """鏅鸿兘宸ュ叿搴曞骇锛歁anifest 娉ㄥ唽銆佸彂鐜般€佷俊灏佽皟鐢ㄣ€佷簨浠躲€?""
+ from fastapi import APIRouter, Depends, HTTPException, Query, Request
+ from pydantic import BaseModel
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.api.deps import require_permission, require_actor
++from app.api.deps import require_actor
+ from app.database import get_db
+-from app.models import BaseResource, ResourceCallLog, ResourceEvent, User
++from app.models import BaseResource, ResourceCallLog, ResourceEvent
+ from app.services.actor_context import ActorContext
+ from app.services.audit import get_client_ip, log_audit
+ from app.services.http_adapter import health_http_tool
+ from app.services.object_policy import apply_object_scope, object_is_visible
+-from app.services.protocol import validate_manifest
++from app.services.mcp.stdio_transport import list_stdio_aliases
++from app.services.protocol import executable_errors, validate_manifest
++from app.services.redaction import redact_secrets
+ from app.services.serializers import now
+-from app.services.tool_gateway import ensure_resource_version, invoke_tool
++from app.services.tool_gateway import ensure_resource_version, invoke_tool, manifests_equal
+ from app.utils.jsonutil import dumps, iso, loads
+ 
+ router = APIRouter()
+ 
+ 
+ class ManifestBody(BaseModel):
+     manifest: dict
+ 
+ 
+ class InvokeBody(BaseModel):
+@@ -32,38 +34,21 @@ class InvokeBody(BaseModel):
+ 
+ 
+ class MatchBody(BaseModel):
+     resource_type: str = ""
+     judge_type: str = ""
+     call_mode: str = ""
+     name: str = ""
+ 
+ 
+ def _redact_manifest(manifest: dict) -> dict:
+-    """杩斿洖鑴辨晱 manifest锛歵oken/瀵嗛挜鍙繚鐣欐槸鍚﹀凡閰嶇疆銆?""
+-    data = loads(dumps(manifest or {}), {})
+-
+-    def walk(node):
+-        if isinstance(node, dict):
+-            out = {}
+-            for k, v in node.items():
+-                lk = str(k).lower()
+-                if lk in {"token", "api_key", "apikey", "authorization", "secret", "password"} and v:
+-                    out[k] = {"configured": True, "redacted": True}
+-                else:
+-                    out[k] = walk(v)
+-            return out
+-        if isinstance(node, list):
+-            return [walk(x) for x in node]
+-        return node
+-
+-    return walk(data)
++    return redact_secrets(manifest or {})
+ 
+ 
+ def resource_out(r: BaseResource):
+     return {
+         "id": r.id,
+         "resource_id": r.resource_id,
+         "resource_type": r.resource_type,
+         "name": r.name,
+         "version": r.version,
+         "spec_version": r.spec_version,
+@@ -88,20 +73,27 @@ async def _emit(db, event_type: str, resource_id: str, payload: dict | None = No
+ async def _load_resource(db, rid: str) -> BaseResource | None:
+     r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == rid))).scalar_one_or_none()
+     if r:
+         return r
+     try:
+         return await db.get(BaseResource, int(rid))
+     except ValueError:
+         return None
+ 
+ 
++async def _visible_resource(db, rid: str, actor: ActorContext) -> BaseResource:
++    r = await _load_resource(db, rid)
++    if not r or not object_is_visible(r, actor):
++        raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
++    return r
++
++
+ @router.get("")
+ async def list_resources(
+     page: int = Query(1, ge=1),
+     page_size: int = Query(20, ge=1, le=200),
+     resource_type: str = Query(""),
+     status: str = Query(""),
+     search: str = Query(""),
+     db: AsyncSession = Depends(get_db),
+     actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+@@ -114,143 +106,180 @@ async def list_resources(
+         q = q.where(or_(BaseResource.name.contains(search), BaseResource.resource_id.contains(search)))
+     total = await db.scalar(select(func.count()).select_from(q.subquery()))
+     rows = (await db.execute(q.order_by(BaseResource.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+     return {"items": [resource_out(r) for r in rows], "total": total or 0}
+ 
+ 
+ @router.post("/match")
+ async def match_resources(
+     body: MatchBody,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:list")),
++    actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+     rows = (await db.execute(select(BaseResource).where(BaseResource.status == "online"))).scalars().all()
++    rows = [r for r in rows if object_is_visible(r, actor)]
+     matched = []
+     for r in rows:
+         mf = loads(r.manifest_json, {})
+         spec = mf.get("evaluation_spec") or {}
+         caps = mf.get("capabilities") or {}
+         if body.resource_type and r.resource_type != body.resource_type:
+             continue
+         if body.judge_type and spec.get("judge_type") != body.judge_type:
+             continue
+         if body.call_mode and caps.get("call_mode") != body.call_mode:
+             continue
+         if body.name and body.name.lower() not in (r.name or "").lower() and body.name.lower() not in r.resource_id:
+             continue
+         matched.append(resource_out(r))
+     return {"items": matched, "total": len(matched)}
+ 
+ 
+ @router.get("/registry")
+ async def resource_registry(
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:list")),
++    actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+     """杩涚▼鍐呮敞鍐屼腑蹇冿細鍦ㄧ嚎璧勬簮鍙戠幇锛涜繛缁け璐?5 娆″仴搴峰墧闄ゃ€?""
+     rows = (await db.execute(select(BaseResource))).scalars().all()
+     items = []
+     for r in rows:
++        if not object_is_visible(r, actor):
++            continue
+         if not r.builtin and int(r.consecutive_fail or 0) >= 5 and r.status == "online":
+             r.status = "unhealthy"
+             r.health_status = "abnormal"
+             await _emit(db, "resource.unhealthy", r.resource_id, {"consecutive_fail": r.consecutive_fail})
+         if r.status in {"online", "pending"}:
+             items.append({
+                 **resource_out(r),
+                 "instance": "in-process",
+                 "last_heartbeat": iso(getattr(r, "last_heartbeat", None) or r.updated_at),
+             })
+     return {"items": items, "total": len(items), "backend": "in-process"}
+ 
+ 
+ @router.post("/{rid:path}/heartbeat")
+ async def resource_heartbeat(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:invoke")),
++    actor: ActorContext = Depends(require_actor("resource:invoke")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     from datetime import datetime
+     r.last_heartbeat = datetime.utcnow()
+     r.health_status = "online"
+     if r.status == "unhealthy":
+         r.status = "online"
+         r.consecutive_fail = 0
+     return {"ok": True, "resource_id": r.resource_id, "status": r.status}
+ 
+ 
+ @router.get("/events")
+ async def list_events(
+     limit: int = Query(50, ge=1, le=200),
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    rows = (await db.execute(select(ResourceEvent).order_by(ResourceEvent.id.desc()).limit(limit))).scalars().all()
++    rows = (await db.execute(select(ResourceEvent).order_by(ResourceEvent.id.desc()).limit(limit * 5))).scalars().all()
++    visible = []
++    cache: dict[str, bool] = {}
++    for e in rows:
++        rid = e.resource_id or ""
++        if rid not in cache:
++            resource = await _load_resource(db, rid) if rid else None
++            cache[rid] = bool(resource and object_is_visible(resource, actor))
++        if cache[rid]:
++            visible.append(e)
++        if len(visible) >= limit:
++            break
++    rows = visible
+     return [
+         {
+             "id": e.id,
+             "event_type": e.event_type,
+             "resource_id": e.resource_id,
+             "payload": loads(e.payload_json, {}),
+             "created_at": iso(e.created_at),
+         }
+         for e in rows
+     ]
+ 
+ 
+ @router.post("/register")
+ async def register_resource(
+     body: ManifestBody,
+     request: Request,
+     db: AsyncSession = Depends(get_db),
+     actor: ActorContext = Depends(require_actor("resource:create")),
+ ):
+-    errors = validate_manifest(body.manifest)
++    errors = validate_manifest(body.manifest) + executable_errors(body.manifest)
+     if errors:
+         raise HTTPException(400, "Manifest 鏍￠獙澶辫触: " + "锛?.join(errors))
++    if body.manifest.get("resource_type") == "skill":
++        chain = (body.manifest.get("skill") or {}).get("chain") or []
++        for index, step in enumerate(chain):
++            resource_id = (
++                str(step.get("resource_id") or "").strip()
++                if isinstance(step, dict)
++                else ""
++            )
++            if not resource_id:
++                raise HTTPException(400, f"skill.chain[{index}] 缂哄皯 resource_id")
++            referenced = await _load_resource(db, resource_id)
++            if not referenced or not object_is_visible(referenced, actor):
++                raise HTTPException(
++                    400,
++                    f"skill.chain[{index}] 寮曠敤鐨勮祫婧愪笉瀛樺湪鎴栨棤鏉冭闂?,
++                )
++            if referenced.resource_type == "skill":
++                raise HTTPException(
++                    400,
++                    f"skill.chain[{index}] Skill 涓嶅厑璁稿祵濂?Skill",
++                )
+     rid = body.manifest["resource_id"]
+     existing = (await db.execute(select(BaseResource).where(BaseResource.resource_id == rid))).scalar_one_or_none()
+     report = {"passed": True, "checks": ["schema", "resource_id", "capabilities"]}
+     created = False
+     if existing:
+         if existing.builtin:
+             raise HTTPException(403, "绂佹瑕嗙洊骞冲彴鍐呯疆璧勬簮")
+         if not object_is_visible(existing, actor):
+             raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
+         if int(existing.tenant_id or -1) != int(actor.tenant_id):
+             raise HTTPException(403, "绂佹瑕嗙洊鍏朵粬绉熸埛璧勬簮")
++        if (existing.version or "") == str(body.manifest["version"]) and not manifests_equal(existing.manifest_json, body.manifest):
++            raise HTTPException(409, "鐩稿悓鐗堟湰鍐呭宸插喕缁擄紝璇峰崌绾?version 鍚庡啀娉ㄥ唽")
+         existing.manifest_json = dumps(body.manifest)
+         existing.name = body.manifest["name"]
+         existing.version = body.manifest["version"]
+         existing.description = body.manifest.get("description", "")
+         existing.spec_version = str(body.manifest.get("spec_version", "0.6.1"))
+         existing.quality_report = dumps(report)
+-        existing.status = "online"
+-        existing.health_status = "online"
++        if existing.status not in {"online", "offline", "unhealthy"}:
++            existing.status = "registered"
++        existing.health_status = existing.health_status or "unknown"
+         existing.updated_at = now()
+         r = existing
+     else:
+         created = True
+         r = BaseResource(
+             resource_id=rid,
+             resource_type=body.manifest["resource_type"],
+             name=body.manifest["name"],
+             version=body.manifest["version"],
+             spec_version=str(body.manifest.get("spec_version", "0.6.1")),
+             description=body.manifest.get("description", ""),
+-            status="online",
++            status="registered",
+             manifest_json=dumps(body.manifest),
+             quality_report=dumps(report),
+-            health_status="online",
++            health_status="unknown",
+             creator_id=actor.user_id,
+             tenant_id=actor.tenant_id,
+             visibility="private",
+         )
+         db.add(r)
+         await db.flush()
+     await ensure_resource_version(db, r, creator_id=actor.user_id)
+     await _emit(db, "resource.registered" if created else "resource.updated", rid, {"version": r.version})
+     await log_audit(db, "resource", "register", user_id=actor.user_id, username=actor.username, target_id=r.id, ip=get_client_ip(request), detail=rid)
+     return resource_out(r)
+@@ -266,108 +295,165 @@ async def invoke_resource(
+     return await invoke_tool(
+         db,
+         actor=actor,
+         resource_id=body.resource_id,
+         body=body.body,
+         correlation_id=body.correlation_id,
+         caller_id="gateway",
+     )
+ 
+ 
++@router.get("/mcp/stdio-aliases")
++async def stdio_aliases(
++    _: ActorContext = Depends(require_actor("resource:create")),
++):
++    return {"items": list_stdio_aliases()}
++
++
+ class McpProbeBody(BaseModel):
+     endpoint: str = ""
+     resource_id: str = ""
+     method: str = "initialize"
+     params: dict = {}
+     token: str = ""
+     egress_allowlist: list[str] = []
+ 
+ 
+ @router.post("/mcp/probe")
+ async def mcp_probe(
+     body: McpProbeBody,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:invoke")),
++    actor: ActorContext = Depends(require_actor("resource:invoke")),
+ ):
+     """鎺㈡祴杩滅▼鎴栧凡娉ㄥ唽 MCP锛歩nitialize / tools/list / tools/call銆傛潵婧愪簰鏂ャ€?""
+     from app.services.skill_runtime import run_mcp
+     from datetime import datetime
+ 
+     rid = (body.resource_id or "").strip()
+     endpoint = (body.endpoint or "").strip()
+     if rid and endpoint:
+         raise HTTPException(400, "mcp_source_mutex:resource_id 涓?endpoint 涓嶈兘鍚屾椂鎻愪緵锛岃浜岄€変竴")
+     if not rid and not endpoint:
+         raise HTTPException(400, "璇锋彁渚?resource_id 鎴?HTTP endpoint")
+ 
+     mode = "registered" if rid else "remote"
+     target = rid if rid else endpoint
+     manifest: dict = {}
+     if rid:
+-        r = await _load_resource(db, rid)
+-        if not r:
+-            raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++        r = await _visible_resource(db, rid, actor)
+         manifest = loads(r.manifest_json, {})
+         # 娉ㄥ唽璧勬簮鎺㈡祴鏃跺拷鐣?body.endpoint/token锛岄伩鍏嶈瀵?     else:
+         if not endpoint.startswith("http"):
+             raise HTTPException(400, "endpoint 椤讳负 http(s) URL")
+         interfaces = {"endpoint": endpoint, "auth": {"token": body.token} if body.token else {}}
+         if body.egress_allowlist:
+             interfaces["egress_allowlist"] = body.egress_allowlist
+         manifest = {"interfaces": interfaces, "capabilities": {"timeout": 30}}
+     try:
+         result = await run_mcp(manifest, {"method": body.method, "params": body.params or {}, "id": 1})
+     except Exception as exc:
+         raise HTTPException(400, str(exc)) from exc
++    protocol_error = False
++    if isinstance(result, dict):
++        if result.get("error") or result.get("isError") is True or result.get("stubbed") or result.get("mocked"):
++            protocol_error = True
++        inner = result.get("result")
++        if isinstance(inner, dict) and (inner.get("isError") is True or inner.get("error")):
++            protocol_error = True
+     return {
+-        "ok": True,
++        "ok": not protocol_error,
+         "mode": mode,
+         "target": target,
+         "probed_at": datetime.utcnow().isoformat() + "Z",
+         "result": result,
+     }
+ 
+ 
+ @router.post("/{rid:path}/health")
+ async def resource_health(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     if r.builtin or r.resource_id.startswith("builtin/"):
+         r.health_status = "online"
+         return {"ok": True, "status": "online", "detail": "builtin"}
+     result = await health_http_tool(loads(r.manifest_json, {}))
+     r.health_status = "online" if result.get("ok") else "abnormal"
+     return result
+ 
+ 
+ @router.post("/{rid:path}/offline")
+ async def offline_resource(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    current: User = Depends(require_permission("resource:edit")),
++    actor: ActorContext = Depends(require_actor("resource:edit")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     if r.builtin:
+         raise HTTPException(400, "鍐呯疆宸ュ叿涓嶅彲涓嬬嚎")
+     r.status = "offline"
+     await _emit(db, "resource.offline", r.resource_id, {})
+     return resource_out(r)
+ 
+ 
++@router.get("/calls/{rid:path}")
++async def resource_call_history(
++    rid: str,
++    page: int = Query(1, ge=1),
++    page_size: int = Query(20, ge=1, le=100),
++    status: str = Query(""),
++    db: AsyncSession = Depends(get_db),
++    actor: ActorContext = Depends(require_actor("resource:view")),
++):
++    resource = await _visible_resource(db, rid, actor)
++    query = select(ResourceCallLog).where(
++        ResourceCallLog.resource_id == resource.resource_id,
++        ResourceCallLog.tenant_id == str(actor.tenant_id),
++    )
++    if status:
++        query = query.where(ResourceCallLog.status == status)
++    total = await db.scalar(select(func.count()).select_from(query.subquery()))
++    rows = (
++        await db.execute(
++            query.order_by(ResourceCallLog.id.desc())
++            .offset((page - 1) * page_size)
++            .limit(page_size)
++        )
++    ).scalars().all()
++    return {
++        "items": [
++            {
++                "id": row.id,
++                "resource_id": row.resource_id,
++                "status": row.status,
++                "latency_ms": row.latency_ms,
++                "error_message": row.error_message,
++                "correlation_id": row.correlation_id,
++                "parent_correlation_id": row.parent_correlation_id,
++                "tenant_id": row.tenant_id,
++                "user_id": row.user_id,
++                "version": row.version,
++                "trace_id": row.trace_id,
++                "input_digest": row.input_digest,
++                "output_digest": row.output_digest,
++                "input_hash": row.input_hash,
++                "output_hash": row.output_hash,
++                "source": row.source,
++                "created_at": iso(row.created_at),
++            }
++            for row in rows
++        ],
++        "total": total or 0,
++    }
++
++
+ @router.get("/{rid:path}")
+ async def get_resource(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     return resource_out(r)
+
+##### NEW stdio_transport.py
+
+diff --git a/backend/app/services/mcp/stdio_transport.py b/backend/app/services/mcp/stdio_transport.py
+new file mode 100644
+index 0000000..f1e7916
+--- /dev/null
++++ b/backend/app/services/mcp/stdio_transport.py
+@@ -0,0 +1,136 @@
++from __future__ import annotations
++
++import asyncio
++import json
++import os
++import re
++from pathlib import Path
++
++from app.services.mcp.errors import McpError
++
++MAX_BODY_BYTES = 1024 * 1024
++_REPO_ROOT = Path(__file__).resolve().parents[4]
++_ALIAS_RE = re.compile(r"[A-Za-z0-9_.-]+")
++
++
++def load_stdio_allowlist(raw: str | None = None) -> dict[str, list[str]]:
++    data = json.loads(raw if raw is not None else os.getenv("MCP_STDIO_ALLOWLIST", "{}"))
++    if not isinstance(data, dict):
++        raise McpError("MCP_STDIO_NOT_ALLOWED", "stdio allowlist 蹇呴』鏄璞?)
++    result: dict[str, list[str]] = {}
++    for alias, command in data.items():
++        if not _ALIAS_RE.fullmatch(str(alias)):
++            raise McpError("MCP_STDIO_NOT_ALLOWED", f"闈炴硶 alias: {alias}")
++        if not isinstance(command, list) or not command:
++            raise McpError("MCP_STDIO_NOT_ALLOWED", f"{alias} 鍛戒护蹇呴』鏄潪绌烘暟缁?)
++        executable = Path(str(command[0]))
++        if not executable.is_absolute() or not executable.is_file():
++            raise McpError("MCP_STDIO_NOT_ALLOWED", f"{alias} 鍙墽琛屾枃浠跺繀椤绘槸缁濆璺緞")
++        result[str(alias)] = [str(x) for x in command]
++    return result
++
++
++def list_stdio_aliases() -> list[str]:
++    return list(load_stdio_allowlist().keys())
++
++
++def _child_env() -> dict[str, str]:
++    env = os.environ.copy()
++    current = env.get("PYTHONPATH", "")
++    env["PYTHONPATH"] = os.pathsep.join(
++        part for part in (str(_REPO_ROOT), current) if part
++    )
++    env["PYTHONUTF8"] = "1"
++    env["PYTHONIOENCODING"] = "utf-8"
++    return env
++
++
++class StdioTransport:
++    def __init__(self, command_alias: str, *, timeout: int = 30):
++        allowlist = load_stdio_allowlist()
++        if command_alias not in allowlist:
++            raise McpError("MCP_STDIO_NOT_ALLOWED", f"stdio alias 涓嶅湪鐧藉悕鍗? {command_alias}")
++        self.command_alias = command_alias
++        self.command = allowlist[command_alias]
++        self.timeout = timeout
++        self.protocol_version: str | None = None
++        self.notifications: list[dict] = []
++        self._proc: asyncio.subprocess.Process | None = None
++
++    async def _ensure_proc(self) -> asyncio.subprocess.Process:
++        if self._proc is not None:
++            return self._proc
++        try:
++            self._proc = await asyncio.create_subprocess_exec(
++                *self.command,
++                stdin=asyncio.subprocess.PIPE,
++                stdout=asyncio.subprocess.PIPE,
++                stderr=asyncio.subprocess.DEVNULL,
++                cwd=str(_REPO_ROOT),
++                env=_child_env(),
++            )
++        except NotImplementedError as exc:
++            raise McpError(
++                "MCP_TRANSPORT_ERROR",
++                "褰撳墠浜嬩欢寰幆涓嶆敮鎸佸瓙杩涚▼锛圵indows Selector loop锛?,
++            ) from exc
++        return self._proc
++
++    def _rpc_error(self, payload: dict) -> None:
++        err = payload.get("error")
++        if not err:
++            return
++        if isinstance(err, dict):
++            message = str(err.get("message") or err)
++        else:
++            message = str(err)
++        raise McpError("MCP_PROTOCOL_ERROR", message)
++
++    async def send(self, message: dict, *, notification: bool = False) -> dict | None:
++        proc = await self._ensure_proc()
++        if proc.stdin is None or proc.stdout is None:
++            raise McpError("MCP_TRANSPORT_ERROR", "stdio pipes unavailable")
++        line = json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
++        proc.stdin.write(line.encode("utf-8"))
++        await proc.stdin.drain()
++        if notification:
++            return None
++        request_id = message.get("id")
++        while True:
++            try:
++                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=self.timeout)
++            except asyncio.TimeoutError as exc:
++                raise McpError("MCP_TIMEOUT", "stdio MCP timed out") from exc
++            if not raw:
++                raise McpError("MCP_TRANSPORT_ERROR", "stdio EOF")
++            if len(raw) > MAX_BODY_BYTES:
++                raise McpError("MCP_TRANSPORT_ERROR", "stdio message exceeds 1 MiB")
++            text = raw.decode("utf-8")
++            if not text.strip():
++                raise McpError("MCP_TRANSPORT_ERROR", "empty stdio line")
++            try:
++                payload = json.loads(text)
++            except json.JSONDecodeError as exc:
++                raise McpError("MCP_TRANSPORT_ERROR", "invalid JSON response") from exc
++            if not isinstance(payload, dict):
++                raise McpError("MCP_TRANSPORT_ERROR", "MCP response is not an object")
++            if request_id is not None and payload.get("id") == request_id:
++                self._rpc_error(payload)
++                return payload
++            if payload.get("method"):
++                self.notifications.append(payload)
++                continue
++            raise McpError("MCP_PROTOCOL_ERROR", "JSON-RPC id mismatch")
++
++    async def close(self) -> None:
++        proc = self._proc
++        self._proc = None
++        if proc is None:
++            return
++        if proc.stdin is not None:
++            proc.stdin.close()
++        try:
++            await asyncio.wait_for(proc.wait(), timeout=2)
++        except asyncio.TimeoutError:
++            proc.kill()
++            await proc.wait()
+
+##### session.py
+

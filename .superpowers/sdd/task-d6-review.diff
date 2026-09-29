@@ -1,0 +1,67 @@
+# D Task 6 review — Approved
+
+Assessment: Approved
+Critical: none
+Important: none
+Minor: 3（不阻塞；证据任务本身无后续 D 任务）
+
+Do not implement. No git commit.
+
+## Spec gate
+
+| 要求 | 结论 | 位置 |
+| --- | --- | --- |
+| `docs/superpowers/evidence/subproject-d.md`：日期、未提交、前端不碰 `eval_platform.db` | 通过 | 证据 L1–5 |
+| `npm run test:unit` 声称且可复核 | 通过 | 报告 65/65；本评审复跑 `# tests 65` / `# pass 65` / `# fail 0` |
+| `npm run verify:ux-static` 声称且可复核 | 通过 | 报告 `OK` `routes sampled=20 nav=13 warnings=0`、55 权限码；本评审复跑一致 |
+| `npm run build` 声称且合理 | 通过（本评审未重跑 vite build） | 报告 `✓ 2303 modules` / `28.79s` / 退出码 0；与现有 `frontend/package.json` `vite build` 及 D5 规模相符 |
+| 24 页六态矩阵诚实，允许缺口 | 通过 | 证据 L63–107：源码标记 PAS/ES/LE/R/P/G；未截图行 Browser=「无截图」 |
+| Login / Resources / Agents / Tasks × 1440/1024/390 截图，非平凡体积 | 通过 | 12 张 PNG，34–373 KB；抽检与声称态一致 |
+| 未把未截图态写成 browser pass | 通过 | 证据 L5、L61、Browser 列；未拍 loading/error/forbidden/uncreated |
+| 已知缺口列出（Quality 规则、C fill、B apply busy 等） | 通过 | 证据 L109–122；与源码抽检一致 |
+| 未 git commit / 未把口令写入证据 | 通过 | 报告 L5/L40/L52；证据 L50「口令不写入」；工作区仍未提交 |
+
+与 `docs/superpowers/plans/2026-09-29-subproject-d-frontend.md` Task 6、`task-d6-brief.md` 强制项一致。矩阵把 Quality 拆成「报告/工单」与「规则」两行（共 25 行），对应 24 个路由视图 + 规则页签缺口，符合「诚实、允许 gap」。
+
+## 命令（本评审复跑）
+
+```powershell
+cd E:\eval-platform\frontend
+npm run test:unit
+npm run verify:ux-static
+```
+
+- `npm run test:unit`：`# tests 65` / `# pass 65` / `# fail 0`
+- `npm run verify:ux-static`：`[verify:ux-static] OK`（`routes sampled=20 nav=13 warnings=0`；55 权限码）
+
+未复跑 `npm run build`。未做新浏览器会话；对照已有 12 张截图。
+
+## 截图抽检
+
+| 文件 | 体积 | 可见态 vs 证据 |
+| --- | --- | --- |
+| `login-1440/1024/390.png` | 373/260/70 KB | 登录表单 idle，无填入口令 |
+| `resources-1440/1024.png` | 109/79 KB | 工具中心列表 success，约 10 条 |
+| `resources-390.png` | 35 KB | 侧栏压住主栏、按钮截断（证据已记缺口） |
+| `agents-1440.png` | 60 KB | 评测助手工作台 + 会话 `#1` |
+| `agents-1024/390.png` | 55/48 KB | 同页 success；会话轨折叠为「展开」，390 同样拥挤 |
+| `tasks-1440/1024/390.png` | 55/52/35 KB | EmptyState「暂无任务」+ 共 0 条 |
+
+非 1×1 / 空白占位图。
+
+## 矩阵 vs 源码抽检
+
+- Quality `loadRules` 无 `catch`/`loadError`，规则表无 PAS（`Quality.vue` L99–117、L239–241）→ G 属实。
+- Resources / Models `loadData` 仅 `finally` 关 `v-loading`，无 `loadError`；Resources 无 EmptyState（`Resources.vue` L797–811、L34；`Models.vue` L254–267）→ G 属实。
+- Dashboard 无 loading PAS，失败才 `PageAsyncState`，仍有 `?denied` 横幅（`Dashboard.vue` L11–18）→ 属实。
+- Agents 无 `PageAsyncState`，用 `sessionsLoadError` /「暂无会话」（`Agents.vue` L24–25）→ P 属实。
+- DatasetDetail 无 `EmptyState`；TaskDetail 无结果 EmptyState → G 属实。
+- ApiDocs 仅失败才 PAS，无 loading 旗标（`ApiDocs.vue` L11–17、L38–65）→ 属实。
+- EvalServices `Promise.all`（L236）→ 缺口属实。
+- NotFound `reason=forbidden` → 403 文案（`NotFound.vue` L4–10）。
+
+## Minor
+
+1. **Agents 1024/390「侧栏有会话」略满。** 证据把三宽都写成侧栏有会话；`agents-1440` 可见 `#1 编排:金融对话`，`agents-1024`/`agents-390` 会话轨已收起，图上只见「会话 / 展开」。仍是 success 工作台，不是 empty，不构成假 browser pass。
+2. **未复跑 production build。** 本评审只复核了 unit + ux-static；build 时长/模块数看起来合理，但不是本轮实测。若要把「三项命令本轮全过」写进合并门禁，需再跑一次 `npm run build`。
+3. **六态仍无浏览器证据。** 计划写「每页六态抽检」；交付按 brief 做成源码矩阵 + 四页可视态。loading/error/forbidden/uncreated 未拍，证据已标明。与 D1–D5 源码正则测同型，不要求本任务补 E2E。

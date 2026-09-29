@@ -1,0 +1,482 @@
+﻿diff --git a/frontend/src/components/SchemaForm.vue b/frontend/src/components/SchemaForm.vue
+index 2dbfa9e..8c72b16 100644
+--- a/frontend/src/components/SchemaForm.vue
++++ b/frontend/src/components/SchemaForm.vue
+@@ -1,117 +1,178 @@
+ <template>
+   <el-form label-width="120px" size="small" @submit.prevent>
+     <el-form-item
+       v-for="field in fields"
+       :key="field.key"
+       :label="field.label"
+       :required="field.required"
+     >
+       <el-input
+-        v-if="field.kind === 'string'"
++        v-if="field.kind === 'string' && !field.advanced"
+         :model-value="modelValue[field.key]"
+         :placeholder="field.placeholder"
+         @update:model-value="set(field.key, $event)"
+       />
++      <el-input-number
++        v-else-if="field.kind === 'integer'"
++        :model-value="modelValue[field.key]"
++        style="width: 100%"
++        :step="1"
++        :precision="0"
++        :min="field.minimum"
++        :max="field.maximum"
++        @update:model-value="set(field.key, $event)"
++      />
+       <el-input-number
+         v-else-if="field.kind === 'number'"
+         :model-value="modelValue[field.key]"
+         style="width: 100%"
++        :min="field.minimum"
++        :max="field.maximum"
+         @update:model-value="set(field.key, $event)"
+       />
+       <el-switch
+         v-else-if="field.kind === 'boolean'"
+         :model-value="!!modelValue[field.key]"
+         @update:model-value="set(field.key, $event)"
+       />
+       <el-select
+-        v-else-if="field.kind === 'enum'"
++        v-else-if="field.kind === 'enum' && !field.advanced"
+         :model-value="modelValue[field.key]"
+         style="width: 100%"
+         clearable
+         @update:model-value="set(field.key, $event)"
+       >
+         <el-option v-for="opt in field.enum" :key="opt" :label="String(opt)" :value="opt" />
+       </el-select>
+       <el-input
+         v-else
+         type="textarea"
+         :rows="3"
+-        :model-value="stringifyComplex(modelValue[field.key])"
++        :model-value="drafts[field.key]"
+         :placeholder="field.placeholder || 'JSON'"
+-        @update:model-value="setComplex(field.key, $event)"
++        @update:model-value="setComplex(field, $event)"
+       />
++      <div v-if="boundHint(field)" class="hint">{{ boundHint(field) }}</div>
+       <div v-if="field.description" class="hint">{{ field.description }}</div>
++      <div v-if="fieldErrors[field.key]" class="field-error" role="alert">{{ fieldErrors[field.key] }}</div>
+     </el-form-item>
+     <el-alert v-if="!fields.length" type="info" :closable="false" title="鏃?Schema 瀛楁锛岃浣跨敤楂樼骇 JSON" />
+   </el-form>
+ </template>
+ 
+ <script setup>
+-import { computed } from 'vue'
++import { computed, reactive, watch } from 'vue'
++import {
++  applyDefaults,
++  buildFields,
++  collectValidation,
++  isComplexField,
++  jsonErrorMessage,
++  stringifyComplex,
++  validateValue,
++} from '@/utils/schemaForm.js'
+ 
+ const props = defineProps({
+   schema: { type: Object, default: () => ({}) },
+   modelValue: { type: Object, default: () => ({}) },
+ })
+ const emit = defineEmits(['update:modelValue'])
+ 
+-const fields = computed(() => {
+-  const schema = props.schema || {}
+-  const propsMap = schema.properties || {}
+-  const required = new Set(schema.required || [])
+-  return Object.entries(propsMap).map(([key, def]) => {
+-    const d = def || {}
+-    let kind = d.type || 'string'
+-    if (d.enum) kind = 'enum'
+-    if (kind === 'integer') kind = 'number'
+-    if (kind === 'array' || kind === 'object') kind = 'complex'
+-    return {
+-      key,
+-      label: d.title || key,
+-      description: d.description || '',
+-      required: required.has(key),
+-      kind,
+-      enum: d.enum || [],
+-      placeholder: d.default != null ? String(d.default) : '',
+-    }
+-  })
+-})
++const drafts = reactive({})
++const fieldErrors = reactive({})
++const draftErrors = reactive({})
++
++const fields = computed(() => buildFields(props.schema).map((field) => ({
++  ...field,
++  placeholder: field.default != null ? String(field.default) : '',
++})))
++
++function clearFieldError(key) {
++  delete fieldErrors[key]
++  delete draftErrors[key]
++}
+ 
+ function set(key, val) {
++  clearFieldError(key)
+   emit('update:modelValue', { ...props.modelValue, [key]: val })
+ }
+ 
+-function stringifyComplex(v) {
+-  if (v == null || v === '') return ''
+-  if (typeof v === 'string') return v
++function setComplex(field, text) {
++  drafts[field.key] = text
++  if (!String(text || '').trim()) {
++    clearFieldError(field.key)
++    set(field.key, undefined)
++    return
++  }
+   try {
+-    return JSON.stringify(v, null, 2)
+-  } catch {
+-    return String(v)
++    const parsed = JSON.parse(text)
++    const error = validateValue(field.definition, parsed)
++    if (error) {
++      fieldErrors[field.key] = error
++      draftErrors[field.key] = error
++      return
++    }
++    clearFieldError(field.key)
++    set(field.key, parsed)
++  } catch (error) {
++    const message = jsonErrorMessage(error, text)
++    fieldErrors[field.key] = message
++    draftErrors[field.key] = message
+   }
+ }
+ 
+-function setComplex(key, text) {
+-  const raw = (text || '').trim()
+-  if (!raw) {
+-    set(key, undefined)
+-    return
+-  }
++function boundHint(field) {
++  if (field.kind !== 'integer' && field.kind !== 'number') return ''
++  const parts = []
++  if (field.minimum != null) parts.push(`鏈€灏?${field.minimum}`)
++  if (field.maximum != null) parts.push(`鏈€澶?${field.maximum}`)
++  if (field.exclusiveMinimum != null) parts.push(`澶т簬 ${field.exclusiveMinimum}`)
++  if (field.exclusiveMaximum != null) parts.push(`灏忎簬 ${field.exclusiveMaximum}`)
++  return parts.join('锛?)
++}
++
++function valuesEqual(a, b) {
+   try {
+-    set(key, JSON.parse(raw))
++    return JSON.stringify(a) === JSON.stringify(b)
+   } catch {
+-    set(key, raw)
++    return a === b
+   }
+ }
+ 
++watch(
++  () => [props.schema, props.modelValue],
++  () => {
++    const next = applyDefaults(props.schema, props.modelValue)
++    if (!valuesEqual(next, props.modelValue)) emit('update:modelValue', next)
++  },
++  { deep: true, immediate: true },
++)
++
++watch(
++  () => [props.schema, props.modelValue],
++  () => {
++    for (const field of fields.value) {
++      if (!isComplexField(field) && field.kind !== 'object' && field.kind !== 'array') continue
++      if (fieldErrors[field.key]) continue
++      drafts[field.key] = stringifyComplex(props.modelValue[field.key])
++    }
++  },
++  { deep: true, immediate: true },
++)
++
+ defineExpose({
+   validate() {
+-    const missing = fields.value.filter((f) => f.required && (props.modelValue[f.key] === undefined || props.modelValue[f.key] === '' || props.modelValue[f.key] === null))
+-    return { ok: !missing.length, missing: missing.map((m) => m.key) }
++    const result = collectValidation(fields.value, props.modelValue, draftErrors)
++    for (const key of Object.keys(fieldErrors)) {
++      if (!Object.prototype.hasOwnProperty.call(result.errors, key)) delete fieldErrors[key]
++    }
++    Object.assign(fieldErrors, result.errors)
++    return result
+   },
+ })
+ </script>
+ 
+ <style scoped>
+ .hint { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
++.field-error { font-size: 12px; color: var(--el-color-danger); margin-top: 4px; }
+ </style>
+diff --git a/frontend/src/utils/schemaForm.js b/frontend/src/utils/schemaForm.js
+new file mode 100644
+index 0000000..1013f89
+--- /dev/null
++++ b/frontend/src/utils/schemaForm.js
+@@ -0,0 +1,179 @@
++export function buildFields(schema) {
++  const root = schema || {}
++  const propsMap = root.properties || {}
++  const required = new Set(root.required || [])
++  return Object.entries(propsMap).map(([key, definition]) => {
++    const def = definition || {}
++    let kind = def.type || 'string'
++    if (Array.isArray(def.enum) && def.enum.length) kind = 'enum'
++    const advanced = Boolean(
++      def.$ref || def.oneOf || def.anyOf || def.allOf ||
++      (def.type === 'object' && def.properties),
++    )
++    return {
++      key,
++      label: def.title || key,
++      description: def.description || '',
++      required: required.has(key),
++      kind,
++      definition: def,
++      enum: def.enum || [],
++      default: def.default,
++      minimum: def.minimum,
++      maximum: def.maximum,
++      exclusiveMinimum: def.exclusiveMinimum,
++      exclusiveMaximum: def.exclusiveMaximum,
++      minLength: def.minLength,
++      maxLength: def.maxLength,
++      pattern: def.pattern,
++      format: def.format,
++      advanced,
++    }
++  })
++}
++
++export function applyDefaults(schema, value) {
++  const propsMap = (schema && schema.properties) || {}
++  const next = { ...(value || {}) }
++  for (const [key, definition] of Object.entries(propsMap)) {
++    if (next[key] !== undefined) continue
++    const def = definition || {}
++    if (Object.prototype.hasOwnProperty.call(def, 'default')) {
++      next[key] = def.default
++    }
++  }
++  return next
++}
++
++function boundMessage(definition, value) {
++  if (typeof value !== 'number') return ''
++  if (definition.minimum != null && value < definition.minimum) {
++    return `涓嶈兘灏忎簬 ${definition.minimum}`
++  }
++  if (definition.maximum != null && value > definition.maximum) {
++    return `涓嶈兘澶т簬 ${definition.maximum}`
++  }
++  if (definition.exclusiveMinimum != null && value <= definition.exclusiveMinimum) {
++    return `蹇呴』澶т簬 ${definition.exclusiveMinimum}`
++  }
++  if (definition.exclusiveMaximum != null && value >= definition.exclusiveMaximum) {
++    return `蹇呴』灏忎簬 ${definition.exclusiveMaximum}`
++  }
++  return ''
++}
++
++function isValidUri(value) {
++  try {
++    const url = new URL(value)
++    return Boolean(url.protocol && url.host)
++  } catch {
++    return false
++  }
++}
++
++export function validateValue(definition, value) {
++  if (!definition || value === undefined || value === null || value === '') return ''
++  const type = definition.type
++
++  if (type === 'integer') {
++    if (!Number.isInteger(value)) return '蹇呴』鏄暣鏁?
++    const bound = boundMessage(definition, value)
++    if (bound) return bound
++  } else if (type === 'number') {
++    if (typeof value !== 'number' || !Number.isFinite(value)) return '蹇呴』鏄暟瀛?
++    const bound = boundMessage(definition, value)
++    if (bound) return bound
++  } else if (type === 'string') {
++    if (typeof value !== 'string') return '蹇呴』鏄瓧绗︿覆'
++    if (definition.minLength != null && value.length < definition.minLength) return '闀垮害涓嶈冻'
++    if (definition.maxLength != null && value.length > definition.maxLength) return '闀垮害瓒呭嚭'
++    if (definition.pattern) {
++      try {
++        if (!new RegExp(definition.pattern).test(value)) return '鏍煎紡涓嶇鍚堣姹?
++      } catch {
++        return '鏍煎紡涓嶇鍚堣姹?
++      }
++    }
++    if (definition.format === 'uri' && !isValidUri(value)) return '蹇呴』鏄湁鏁?URL'
++    if (definition.format === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
++      return '蹇呴』鏄湁鏁堥偖绠?
++    }
++    if (definition.format === 'date') {
++      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00`))) {
++        return '蹇呴』鏄湁鏁堟棩鏈?
++      }
++    }
++  } else if (type === 'array') {
++    if (!Array.isArray(value)) return '蹇呴』鏄暟缁?
++  } else if (type === 'object') {
++    if (typeof value !== 'object' || Array.isArray(value)) return '蹇呴』鏄璞?
++  } else if (type === 'boolean') {
++    if (typeof value !== 'boolean') return '蹇呴』鏄竷灏斿€?
++  }
++
++  if (Array.isArray(definition.enum) && definition.enum.length && !definition.enum.includes(value)) {
++    return '涓嶅湪鍏佽鐨勯€夐」涓?
++  }
++  return ''
++}
++
++export function jsonErrorMessage(error, text) {
++  const message = error && error.message ? error.message : String(error)
++  const match = String(message).match(/position\s+(\d+)/i)
++  if (match) {
++    const pos = Number(match[1])
++    const line = String(text || '').slice(0, pos).split('\n').length
++    return `JSON 鏃犳晥: ${message} (绗?${line} 琛?`
++  }
++  return `JSON 鏃犳晥: ${message}`
++}
++
++export function stringifyComplex(value) {
++  if (value == null || value === '') return ''
++  if (typeof value === 'string') return value
++  try {
++    return JSON.stringify(value, null, 2)
++  } catch {
++    return String(value)
++  }
++}
++
++export function isComplexField(field) {
++  return Boolean(
++    field.advanced ||
++    field.kind === 'object' ||
++    field.kind === 'array' ||
++    field.kind === 'complex',
++  )
++}
++
++function isEmptyValue(value) {
++  return value === undefined || value === null || value === ''
++}
++
++/** Rebuild errors from current values. Keep draftErrors only for complex fields that never called set(). */
++export function collectValidation(fields, values, draftErrors = {}) {
++  const errors = {}
++  const missing = []
++  const valueMap = values || {}
++  for (const field of fields || []) {
++    const value = valueMap[field.key]
++    const draftError = isComplexField(field) ? draftErrors[field.key] : undefined
++    if (draftError) {
++      errors[field.key] = draftError
++    }
++    if (field.required && isEmptyValue(value)) {
++      missing.push(field.key)
++      if (!errors[field.key]) errors[field.key] = '蹇呭～'
++      continue
++    }
++    if (draftError) continue
++    const message = validateValue(field.definition, value)
++    if (message) errors[field.key] = message
++  }
++  return {
++    ok: missing.length === 0 && Object.keys(errors).length === 0,
++    missing,
++    errors,
++  }
++}
+diff --git a/frontend/tests/unit/schemaForm.test.mjs b/frontend/tests/unit/schemaForm.test.mjs
+new file mode 100644
+index 0000000..f47d8fb
+--- /dev/null
++++ b/frontend/tests/unit/schemaForm.test.mjs
+@@ -0,0 +1,66 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import {
++  applyDefaults,
++  buildFields,
++  collectValidation,
++  validateValue,
++} from '../../src/utils/schemaForm.js'
++
++test('integer remains integer and keeps constraints', () => {
++  const [field] = buildFields({
++    type: 'object',
++    properties: {
++      count: { type: 'integer', minimum: 1, maximum: 5, default: 2 },
++    },
++  })
++  assert.equal(field.kind, 'integer')
++  assert.equal(field.minimum, 1)
++  assert.equal(field.maximum, 5)
++  assert.equal(field.default, 2)
++  assert.match(validateValue(field.definition, 2.5), /鏁存暟/)
++})
++
++test('defaults initialize missing values without overwriting input', () => {
++  const schema = {
++    properties: {
++      count: { type: 'integer', default: 2 },
++      mode: { type: 'string', enum: ['a', 'b'], default: 'a' },
++    },
++  }
++  assert.deepEqual(applyDefaults(schema, { count: 4 }), { count: 4, mode: 'a' })
++})
++
++test('validates string pattern and uri format', () => {
++  assert.match(validateValue({ type: 'string', pattern: '^a+$' }, 'bbb'), /鏍煎紡/)
++  assert.match(validateValue({ type: 'string', format: 'uri' }, 'not url'), /URL/)
++  assert.equal(validateValue({ type: 'string', format: 'uri' }, 'https://a.test'), '')
++})
++
++test('marks nested and combinator schemas for advanced JSON', () => {
++  const fields = buildFields({
++    properties: {
++      nested: { type: 'object', properties: { x: { type: 'string' } } },
++      choice: { oneOf: [{ type: 'string' }, { type: 'number' }] },
++    },
++  })
++  assert.equal(fields[0].advanced, true)
++  assert.equal(fields[1].advanced, true)
++})
++
++test('collectValidation clears required error after value is applied', () => {
++  const fields = buildFields({
++    type: 'object',
++    required: ['name'],
++    properties: { name: { type: 'string' } },
++  })
++  const sticky = {}
++  const first = collectValidation(fields, {}, sticky)
++  assert.equal(first.ok, false)
++  assert.equal(first.errors.name, '蹇呭～')
++  Object.assign(sticky, first.errors)
++  const second = collectValidation(fields, { name: 'ok' }, sticky)
++  assert.equal(second.ok, true)
++  assert.equal(second.errors.name, undefined)
++  assert.deepEqual(second.errors, {})
++})

@@ -1,0 +1,32 @@
+# Task 13 review — Needs fixes
+
+Assessment: Needs fixes
+Critical: none
+Important: 1 (stale 跨已注册资源串扰)
+Minor: 3 (rolled for whole-branch review)
+
+## Spec
+
+- 单一 mcpState 五步条：configured / schemaValid / negotiated / listed / lastCall。通过。
+- 文案+图标，非仅颜色。通过。
+- HTTP 200 且 ok=false 不当成功 toast。通过。
+- MCP_RECOVERY + SchemaForm.validate 调用前。通过。
+- 已注册走 resource_id 历史；临时地址「不属于已注册资源」。通过。
+- 对话框 min(920px, calc(100vw - 24px))。通过。
+- 同一来源 stale 成功 list 前不清除。通过（applyProbeResult）。
+
+## Important
+
+切换已注册资源时 stale 被 OR 保留，成功 list 前无法按新资源纠正。
+
+- frontend/src/views/Resources.vue watch ~922-927：来源 key 变化时 `{ ...emptyMcpState(), stale: mcpState.value.stale }`
+- frontend/src/utils/mcpWorkbench.js syncSourceState 54-55：`stale = Boolean(prev?.stale || catalogStale)`
+- applyRegisteredCatalog 随后用新详情 catalog.stale，但 OR 掉旧 true 后清不掉
+
+修法：resource_id / 探测来源身份变化时重置 stale，再只写入新详情 mcp_catalog.stale。同一来源上 list_changed 仍须等到本次 tools/list 成功才清除。加单测：换 resource_id 不得继承 stale。
+
+## Minor
+
+1. 窄屏未按 390px 浏览器点通（Task 14）。
+2. 无「换 resource_id 不得继承 stale」断言。
+3. 成功 list 不清掉已消失的 selected tool。

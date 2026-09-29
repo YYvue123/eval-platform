@@ -1,0 +1,36 @@
+# Task 14 review package (no commit)
+
+Implementer: DONE_WITH_CONCERNS
+Report: .superpowers/sdd/task-14-report.md
+Evidence: docs/superpowers/evidence/subproject-a.md + a-ui-*.png
+Brief: .superpowers/sdd/task-14-brief.md
+
+## Claimed results
+
+- Backend focused 81 OK / 75.696s
+- Discover 208 OK / 157.301s, no database is locked
+- Frontend unit 34/34; 55 permission codes; ux-static; build
+- Isolated UI 8001/5174 (8000/5173 occupied)
+- IDs: demo/parse_ui, demo/stats_ui, demo/skill_ui, demo/mcp_http_ui, demo/mcp_stdio_ui
+- Skill converted=[1,2,0.5] mean=1.1666666666666667 parent trial-1790623722560
+- Regression: Skill picker isInvocableTool includes registered
+
+## Files to inspect (read-only)
+
+- docs/superpowers/evidence/subproject-a.md
+- docs/superpowers/evidence/a-ui-*.png (spot-check vs captions)
+- frontend/src/utils/resourceWizard.js (isInvocableTool)
+- frontend/src/views/Resources.vue (loadSkillTools, page-desc, detail stub)
+- frontend/tests/unit/resourceWizard.test.mjs
+- frontend/vite.a-ui.config.js
+- .superpowers/sdd/task-14-report.md
+
+## Named risks for the reviewer
+
+1. Global constraint: 产品文案不写研发口号. page-desc currently: 「真实调用，无 Mock 假成功。」 Evidence claims slogan check passed.
+2. a-ui-parse-fail-390.png caption is 缺参失败; image may be the detail drawer instead, including 「调用记录 API 未完整开放」.
+3. Several screenshots crop the result column; numeric claims rely on calls API — verify evidence IDs look real, not invented.
+4. Skill picker filter uses row.status not health_status; confirm registered tools actually appear.
+5. Extra vite.a-ui.config.js not in plan — allowed helper or leftover?
+
+Do not re-run full unittest discover. Do not mutate. Assessment Approved | Needs fixes.

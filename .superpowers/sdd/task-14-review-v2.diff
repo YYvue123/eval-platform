@@ -1,0 +1,18 @@
+# Task 14 review v2
+
+Prior: Needs fixes (slogan written as pass; 390 fail PNG was detail drawer; stdio success PNG was pre-call).
+
+Fix claims:
+- Resources.vue page-desc and detail Alert are operational copy (no Mock 假成功 / API 未完整开放)
+- a-ui-parse-fail-390.png is trial fail at 390
+- history 4-row screenshot + calls API excerpts for skill_step
+- a-ui-mcp-stdio-call-1440.png lastCall success
+- evidence markdown no longer claims old slogan passed
+
+Read:
+- frontend/src/views/Resources.vue lines 1–120
+- docs/superpowers/evidence/subproject-a.md (product copy + A-REV08/09/A-MCP captions)
+- PNGs named in the evidence 截图索引
+- .superpowers/sdd/task-14-report.md
+
+Do not mutate. Do not re-run discover. Assessment Approved | Needs fixes.

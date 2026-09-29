@@ -1,0 +1,6 @@
+# C Task 4 review
+
+Brief task-c4-brief.md Report task-c4-report.md
+Read real03_models real06_agent real07_formal_task and new tests.
+Must: empty L3 URL -> blocked; no secrets in return; no pass without api_url; tests must not call paid models.
+Do not mutate. Assessment Approved | Needs fixes.

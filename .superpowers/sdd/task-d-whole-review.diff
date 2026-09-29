@@ -1,0 +1,60 @@
+# Subproject D whole-plan review — Approved
+
+Assessment: Approved
+Critical: none
+Important: none
+Minor: residual 02-spec gaps already recorded in Task 6 evidence (不阻塞按本计划关闭 D)
+
+Do not implement. No git commit.
+
+## Ledger + per-task reviews
+
+Plan: `docs/superpowers/plans/2026-09-29-subproject-d-frontend.md`（Tasks 1–6）
+Ledger: `.superpowers/sdd/progress.md` Subproject D 六条均为 complete + review approved。
+
+| 文件 | Assessment |
+| --- | --- |
+| `.superpowers/sdd/task-d1-review.diff` | Approved |
+| `.superpowers/sdd/task-d2-review.diff` | Approved |
+| `.superpowers/sdd/task-d3-review.diff` | Approved |
+| `.superpowers/sdd/task-d4-review.diff` | Approved |
+| `.superpowers/sdd/task-d5-review.diff` | Approved |
+| `.superpowers/sdd/task-d6-review.diff` | Approved |
+
+无 Needs fixes / 未评任务。
+
+## Confirm（对照计划 + 源码抽检）
+
+| 项 | 结论 | 位置 |
+| --- | --- | --- |
+| asyncState + PageAsyncState | 通过 | `frontend/src/utils/asyncState.js` 六态；`PageAsyncState.vue` StatusBadge+title+next，success 走 slot |
+| listQuery + skipErrorToast | 通过 | `listQuery.js` 页眉禁止 catch 静默 `items=[]`；`request.js` L52 + L74–90；`getUnreadCount` 带 `skipErrorToast: true` |
+| 403 `/not-found` + 口号 | 通过 | `router/index.js` L82–87 `reason=forbidden&from=`；`NotFound.vue` 403 文案；Agents page-desc 精确句；Models「无法探测或试调用」；无 `plannerModels[0]`；`verify-ux-static.mjs` 拒绝「留空则使用本地 Mock」 |
+| 列表 URL 分页 + ResourcePicker more | 通过 | Datasets/Tasks/Quality/Prompts/EvalServices/Users/AuditLog：`readListQuery`/`writeListQuery`；`ResourcePicker.vue` `__more__` + `loadMore` |
+| 其余页 + audit 导出 disabled + 用户禁用 | 通过 | Task 5 范围内页有 PAS/`loadError` 或等价失败态；`AuditLog.vue` 导出 disabled +「当前环境未开放导出」；`Users.vue` `usersApi.update(..., { status })`；无 invite |
+| 证据 + unit + verify:ux-static + build | 通过 | `docs/superpowers/evidence/subproject-d.md`；12 张截图非占位；本评审复跑三项命令 |
+
+对照 02 全站「24 页适用六态」：计划任务表未把 Models/Resources 列表纳入 PAS 强制项；Task 6 矩阵以 G 诚实标出，不算本计划未完成任务。
+
+## 命令（本评审复跑）
+
+工作目录：`E:\eval-platform\frontend`（PowerShell 分步，等价 `test:unit` → `verify:ux-static` → `build`）。
+
+- `npm run test:unit`：`# tests 65` / `# pass 65` / `# fail 0`
+- `npm run verify:ux-static`：`[verify:ux-static] OK`（`routes sampled=20 nav=13 warnings=0`；55 权限码）
+- `npm run build`：`✓ 2303 modules transformed` / `✓ built in 22.28s` / 退出码 0
+
+与证据文件及 `task-d6-review.diff` 一致（本轮补跑了 D6 未复跑的 production build）。
+
+## 截图
+
+`docs/superpowers/evidence/d-screenshots/`：Login/Resources/Agents/Tasks × 1440/1024/390，体积 34–373 KB。
+
+## Minor（全计划残留，非新阻塞）
+
+1. **Models / Resources 列表**仍无 `PageAsyncState`/`loadError`：失败可保持旧行或看似空表（`Models.vue` `loadData` 仅 `finally`；`Resources.vue` `loadData` 无 catch 旗标）。
+2. **Quality 检测规则** `loadRules` 无 catch、表不分页（API 无 page/total）。
+3. **门禁单测**多为 SFC 源码正则；loading/error/forbidden/uncreated **无浏览器截图**（证据已标明）。
+4. 其它已入账缺口：Dashboard `?denied` 横幅、EvalServices `Promise.all` 耦合、详情空表无 EmptyState、390 Resources 拥挤、Agents 非 PAS。
+
+未把 Mock / 未测六态标为 browser pass。

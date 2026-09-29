@@ -1,0 +1,7 @@
+# C Task 2 review (no commit)
+
+Brief: .superpowers/sdd/task-c2-brief.md
+Report: .superpowers/sdd/task-c2-report.md
+Read tools/real_fill/scenarios.py real02_dataset and test_real02 in backend/tests/test_real_fill.py
+Must: isolated, 4 items, description has AI 生成确定性题集, dataset_id/version_id, quality API if present.
+Do not mutate. Assessment Approved | Needs fixes.

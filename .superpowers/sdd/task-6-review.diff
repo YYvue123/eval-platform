@@ -1,0 +1,1162 @@
+﻿# Task 6 review package
+# Branch: fix/review-followup-d1
+# HEAD: 380650893eb44871e4722100c8060def66619d56
+# Note: user forbade commits; this is working-tree diff of Task 6 files vs HEAD
+# Files:
+ backend/app/api/resources.py                  | 182 ++++++++++++++++-------
+ backend/app/services/skill_runtime.py         |  81 +++++++++-
+ backend/app/services/tool_gateway/__init__.py | 204 ++++++++++++++++++++++----
+ backend/tests/test_tool_gateway.py            |  51 +++++--
+ 4 files changed, 420 insertions(+), 98 deletions(-)
+
+# Full diff -U10
+
+diff --git a/backend/app/api/resources.py b/backend/app/api/resources.py
+index 774820e..4ba672b 100644
+--- a/backend/app/api/resources.py
++++ b/backend/app/api/resources.py
+@@ -1,26 +1,27 @@
+ """鏅鸿兘宸ュ叿搴曞骇锛歁anifest 娉ㄥ唽銆佸彂鐜般€佷俊灏佽皟鐢ㄣ€佷簨浠躲€?""
+ from fastapi import APIRouter, Depends, HTTPException, Query, Request
+ from pydantic import BaseModel
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.api.deps import require_permission, require_actor
++from app.api.deps import require_actor
+ from app.database import get_db
+-from app.models import BaseResource, ResourceCallLog, ResourceEvent, User
++from app.models import BaseResource, ResourceCallLog, ResourceEvent
+ from app.services.actor_context import ActorContext
+ from app.services.audit import get_client_ip, log_audit
+ from app.services.http_adapter import health_http_tool
+ from app.services.object_policy import apply_object_scope, object_is_visible
+-from app.services.protocol import validate_manifest
++from app.services.protocol import executable_errors, validate_manifest
++from app.services.redaction import redact_secrets
+ from app.services.serializers import now
+-from app.services.tool_gateway import ensure_resource_version, invoke_tool
++from app.services.tool_gateway import ensure_resource_version, invoke_tool, manifests_equal
+ from app.utils.jsonutil import dumps, iso, loads
+ 
+ router = APIRouter()
+ 
+ 
+ class ManifestBody(BaseModel):
+     manifest: dict
+ 
+ 
+ class InvokeBody(BaseModel):
+@@ -32,38 +33,21 @@ class InvokeBody(BaseModel):
+ 
+ 
+ class MatchBody(BaseModel):
+     resource_type: str = ""
+     judge_type: str = ""
+     call_mode: str = ""
+     name: str = ""
+ 
+ 
+ def _redact_manifest(manifest: dict) -> dict:
+-    """杩斿洖鑴辨晱 manifest锛歵oken/瀵嗛挜鍙繚鐣欐槸鍚﹀凡閰嶇疆銆?""
+-    data = loads(dumps(manifest or {}), {})
+-
+-    def walk(node):
+-        if isinstance(node, dict):
+-            out = {}
+-            for k, v in node.items():
+-                lk = str(k).lower()
+-                if lk in {"token", "api_key", "apikey", "authorization", "secret", "password"} and v:
+-                    out[k] = {"configured": True, "redacted": True}
+-                else:
+-                    out[k] = walk(v)
+-            return out
+-        if isinstance(node, list):
+-            return [walk(x) for x in node]
+-        return node
+-
+-    return walk(data)
++    return redact_secrets(manifest or {})
+ 
+ 
+ def resource_out(r: BaseResource):
+     return {
+         "id": r.id,
+         "resource_id": r.resource_id,
+         "resource_type": r.resource_type,
+         "name": r.name,
+         "version": r.version,
+         "spec_version": r.spec_version,
+@@ -88,20 +72,27 @@ async def _emit(db, event_type: str, resource_id: str, payload: dict | None = No
+ async def _load_resource(db, rid: str) -> BaseResource | None:
+     r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == rid))).scalar_one_or_none()
+     if r:
+         return r
+     try:
+         return await db.get(BaseResource, int(rid))
+     except ValueError:
+         return None
+ 
+ 
++async def _visible_resource(db, rid: str, actor: ActorContext) -> BaseResource:
++    r = await _load_resource(db, rid)
++    if not r or not object_is_visible(r, actor):
++        raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
++    return r
++
++
+ @router.get("")
+ async def list_resources(
+     page: int = Query(1, ge=1),
+     page_size: int = Query(20, ge=1, le=200),
+     resource_type: str = Query(""),
+     status: str = Query(""),
+     search: str = Query(""),
+     db: AsyncSession = Depends(get_db),
+     actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+@@ -114,143 +105,180 @@ async def list_resources(
+         q = q.where(or_(BaseResource.name.contains(search), BaseResource.resource_id.contains(search)))
+     total = await db.scalar(select(func.count()).select_from(q.subquery()))
+     rows = (await db.execute(q.order_by(BaseResource.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+     return {"items": [resource_out(r) for r in rows], "total": total or 0}
+ 
+ 
+ @router.post("/match")
+ async def match_resources(
+     body: MatchBody,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:list")),
++    actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+     rows = (await db.execute(select(BaseResource).where(BaseResource.status == "online"))).scalars().all()
++    rows = [r for r in rows if object_is_visible(r, actor)]
+     matched = []
+     for r in rows:
+         mf = loads(r.manifest_json, {})
+         spec = mf.get("evaluation_spec") or {}
+         caps = mf.get("capabilities") or {}
+         if body.resource_type and r.resource_type != body.resource_type:
+             continue
+         if body.judge_type and spec.get("judge_type") != body.judge_type:
+             continue
+         if body.call_mode and caps.get("call_mode") != body.call_mode:
+             continue
+         if body.name and body.name.lower() not in (r.name or "").lower() and body.name.lower() not in r.resource_id:
+             continue
+         matched.append(resource_out(r))
+     return {"items": matched, "total": len(matched)}
+ 
+ 
+ @router.get("/registry")
+ async def resource_registry(
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:list")),
++    actor: ActorContext = Depends(require_actor("resource:list")),
+ ):
+     """杩涚▼鍐呮敞鍐屼腑蹇冿細鍦ㄧ嚎璧勬簮鍙戠幇锛涜繛缁け璐?5 娆″仴搴峰墧闄ゃ€?""
+     rows = (await db.execute(select(BaseResource))).scalars().all()
+     items = []
+     for r in rows:
++        if not object_is_visible(r, actor):
++            continue
+         if not r.builtin and int(r.consecutive_fail or 0) >= 5 and r.status == "online":
+             r.status = "unhealthy"
+             r.health_status = "abnormal"
+             await _emit(db, "resource.unhealthy", r.resource_id, {"consecutive_fail": r.consecutive_fail})
+         if r.status in {"online", "pending"}:
+             items.append({
+                 **resource_out(r),
+                 "instance": "in-process",
+                 "last_heartbeat": iso(getattr(r, "last_heartbeat", None) or r.updated_at),
+             })
+     return {"items": items, "total": len(items), "backend": "in-process"}
+ 
+ 
+ @router.post("/{rid:path}/heartbeat")
+ async def resource_heartbeat(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:invoke")),
++    actor: ActorContext = Depends(require_actor("resource:invoke")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     from datetime import datetime
+     r.last_heartbeat = datetime.utcnow()
+     r.health_status = "online"
+     if r.status == "unhealthy":
+         r.status = "online"
+         r.consecutive_fail = 0
+     return {"ok": True, "resource_id": r.resource_id, "status": r.status}
+ 
+ 
+ @router.get("/events")
+ async def list_events(
+     limit: int = Query(50, ge=1, le=200),
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    rows = (await db.execute(select(ResourceEvent).order_by(ResourceEvent.id.desc()).limit(limit))).scalars().all()
++    rows = (await db.execute(select(ResourceEvent).order_by(ResourceEvent.id.desc()).limit(limit * 5))).scalars().all()
++    visible = []
++    cache: dict[str, bool] = {}
++    for e in rows:
++        rid = e.resource_id or ""
++        if rid not in cache:
++            resource = await _load_resource(db, rid) if rid else None
++            cache[rid] = bool(resource and object_is_visible(resource, actor))
++        if cache[rid]:
++            visible.append(e)
++        if len(visible) >= limit:
++            break
++    rows = visible
+     return [
+         {
+             "id": e.id,
+             "event_type": e.event_type,
+             "resource_id": e.resource_id,
+             "payload": loads(e.payload_json, {}),
+             "created_at": iso(e.created_at),
+         }
+         for e in rows
+     ]
+ 
+ 
+ @router.post("/register")
+ async def register_resource(
+     body: ManifestBody,
+     request: Request,
+     db: AsyncSession = Depends(get_db),
+     actor: ActorContext = Depends(require_actor("resource:create")),
+ ):
+-    errors = validate_manifest(body.manifest)
++    errors = validate_manifest(body.manifest) + executable_errors(body.manifest)
+     if errors:
+         raise HTTPException(400, "Manifest 鏍￠獙澶辫触: " + "锛?.join(errors))
++    if body.manifest.get("resource_type") == "skill":
++        chain = (body.manifest.get("skill") or {}).get("chain") or []
++        for index, step in enumerate(chain):
++            resource_id = (
++                str(step.get("resource_id") or "").strip()
++                if isinstance(step, dict)
++                else ""
++            )
++            if not resource_id:
++                raise HTTPException(400, f"skill.chain[{index}] 缂哄皯 resource_id")
++            referenced = await _load_resource(db, resource_id)
++            if not referenced or not object_is_visible(referenced, actor):
++                raise HTTPException(
++                    400,
++                    f"skill.chain[{index}] 寮曠敤鐨勮祫婧愪笉瀛樺湪鎴栨棤鏉冭闂?,
++                )
++            if referenced.resource_type == "skill":
++                raise HTTPException(
++                    400,
++                    f"skill.chain[{index}] Skill 涓嶅厑璁稿祵濂?Skill",
++                )
+     rid = body.manifest["resource_id"]
+     existing = (await db.execute(select(BaseResource).where(BaseResource.resource_id == rid))).scalar_one_or_none()
+     report = {"passed": True, "checks": ["schema", "resource_id", "capabilities"]}
+     created = False
+     if existing:
+         if existing.builtin:
+             raise HTTPException(403, "绂佹瑕嗙洊骞冲彴鍐呯疆璧勬簮")
+         if not object_is_visible(existing, actor):
+             raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
+         if int(existing.tenant_id or -1) != int(actor.tenant_id):
+             raise HTTPException(403, "绂佹瑕嗙洊鍏朵粬绉熸埛璧勬簮")
++        if (existing.version or "") == str(body.manifest["version"]) and not manifests_equal(existing.manifest_json, body.manifest):
++            raise HTTPException(409, "鐩稿悓鐗堟湰鍐呭宸插喕缁擄紝璇峰崌绾?version 鍚庡啀娉ㄥ唽")
+         existing.manifest_json = dumps(body.manifest)
+         existing.name = body.manifest["name"]
+         existing.version = body.manifest["version"]
+         existing.description = body.manifest.get("description", "")
+         existing.spec_version = str(body.manifest.get("spec_version", "0.6.1"))
+         existing.quality_report = dumps(report)
+-        existing.status = "online"
+-        existing.health_status = "online"
++        if existing.status not in {"online", "offline", "unhealthy"}:
++            existing.status = "registered"
++        existing.health_status = existing.health_status or "unknown"
+         existing.updated_at = now()
+         r = existing
+     else:
+         created = True
+         r = BaseResource(
+             resource_id=rid,
+             resource_type=body.manifest["resource_type"],
+             name=body.manifest["name"],
+             version=body.manifest["version"],
+             spec_version=str(body.manifest.get("spec_version", "0.6.1")),
+             description=body.manifest.get("description", ""),
+-            status="online",
++            status="registered",
+             manifest_json=dumps(body.manifest),
+             quality_report=dumps(report),
+-            health_status="online",
++            health_status="unknown",
+             creator_id=actor.user_id,
+             tenant_id=actor.tenant_id,
+             visibility="private",
+         )
+         db.add(r)
+         await db.flush()
+     await ensure_resource_version(db, r, creator_id=actor.user_id)
+     await _emit(db, "resource.registered" if created else "resource.updated", rid, {"version": r.version})
+     await log_audit(db, "resource", "register", user_id=actor.user_id, username=actor.username, target_id=r.id, ip=get_client_ip(request), detail=rid)
+     return resource_out(r)
+@@ -279,95 +307,145 @@ class McpProbeBody(BaseModel):
+     method: str = "initialize"
+     params: dict = {}
+     token: str = ""
+     egress_allowlist: list[str] = []
+ 
+ 
+ @router.post("/mcp/probe")
+ async def mcp_probe(
+     body: McpProbeBody,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:invoke")),
++    actor: ActorContext = Depends(require_actor("resource:invoke")),
+ ):
+     """鎺㈡祴杩滅▼鎴栧凡娉ㄥ唽 MCP锛歩nitialize / tools/list / tools/call銆傛潵婧愪簰鏂ャ€?""
+     from app.services.skill_runtime import run_mcp
+     from datetime import datetime
+ 
+     rid = (body.resource_id or "").strip()
+     endpoint = (body.endpoint or "").strip()
+     if rid and endpoint:
+         raise HTTPException(400, "mcp_source_mutex:resource_id 涓?endpoint 涓嶈兘鍚屾椂鎻愪緵锛岃浜岄€変竴")
+     if not rid and not endpoint:
+         raise HTTPException(400, "璇锋彁渚?resource_id 鎴?HTTP endpoint")
+ 
+     mode = "registered" if rid else "remote"
+     target = rid if rid else endpoint
+     manifest: dict = {}
+     if rid:
+-        r = await _load_resource(db, rid)
+-        if not r:
+-            raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++        r = await _visible_resource(db, rid, actor)
+         manifest = loads(r.manifest_json, {})
+         # 娉ㄥ唽璧勬簮鎺㈡祴鏃跺拷鐣?body.endpoint/token锛岄伩鍏嶈瀵?     else:
+         if not endpoint.startswith("http"):
+             raise HTTPException(400, "endpoint 椤讳负 http(s) URL")
+         interfaces = {"endpoint": endpoint, "auth": {"token": body.token} if body.token else {}}
+         if body.egress_allowlist:
+             interfaces["egress_allowlist"] = body.egress_allowlist
+         manifest = {"interfaces": interfaces, "capabilities": {"timeout": 30}}
+     try:
+         result = await run_mcp(manifest, {"method": body.method, "params": body.params or {}, "id": 1})
+     except Exception as exc:
+         raise HTTPException(400, str(exc)) from exc
++    protocol_error = False
++    if isinstance(result, dict):
++        if result.get("error") or result.get("isError") is True or result.get("stubbed") or result.get("mocked"):
++            protocol_error = True
++        inner = result.get("result")
++        if isinstance(inner, dict) and (inner.get("isError") is True or inner.get("error")):
++            protocol_error = True
+     return {
+-        "ok": True,
++        "ok": not protocol_error,
+         "mode": mode,
+         "target": target,
+         "probed_at": datetime.utcnow().isoformat() + "Z",
+         "result": result,
+     }
+ 
+ 
+ @router.post("/{rid:path}/health")
+ async def resource_health(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     if r.builtin or r.resource_id.startswith("builtin/"):
+         r.health_status = "online"
+         return {"ok": True, "status": "online", "detail": "builtin"}
+     result = await health_http_tool(loads(r.manifest_json, {}))
+     r.health_status = "online" if result.get("ok") else "abnormal"
+     return result
+ 
+ 
+ @router.post("/{rid:path}/offline")
+ async def offline_resource(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    current: User = Depends(require_permission("resource:edit")),
++    actor: ActorContext = Depends(require_actor("resource:edit")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     if r.builtin:
+         raise HTTPException(400, "鍐呯疆宸ュ叿涓嶅彲涓嬬嚎")
+     r.status = "offline"
+     await _emit(db, "resource.offline", r.resource_id, {})
+     return resource_out(r)
+ 
+ 
++@router.get("/calls/{rid:path}")
++async def resource_call_history(
++    rid: str,
++    page: int = Query(1, ge=1),
++    page_size: int = Query(20, ge=1, le=100),
++    status: str = Query(""),
++    db: AsyncSession = Depends(get_db),
++    actor: ActorContext = Depends(require_actor("resource:view")),
++):
++    resource = await _visible_resource(db, rid, actor)
++    query = select(ResourceCallLog).where(
++        ResourceCallLog.resource_id == resource.resource_id,
++        ResourceCallLog.tenant_id == str(actor.tenant_id),
++    )
++    if status:
++        query = query.where(ResourceCallLog.status == status)
++    total = await db.scalar(select(func.count()).select_from(query.subquery()))
++    rows = (
++        await db.execute(
++            query.order_by(ResourceCallLog.id.desc())
++            .offset((page - 1) * page_size)
++            .limit(page_size)
++        )
++    ).scalars().all()
++    return {
++        "items": [
++            {
++                "id": row.id,
++                "resource_id": row.resource_id,
++                "status": row.status,
++                "latency_ms": row.latency_ms,
++                "error_message": row.error_message,
++                "correlation_id": row.correlation_id,
++                "parent_correlation_id": row.parent_correlation_id,
++                "tenant_id": row.tenant_id,
++                "user_id": row.user_id,
++                "version": row.version,
++                "trace_id": row.trace_id,
++                "input_digest": row.input_digest,
++                "output_digest": row.output_digest,
++                "input_hash": row.input_hash,
++                "output_hash": row.output_hash,
++                "source": row.source,
++                "created_at": iso(row.created_at),
++            }
++            for row in rows
++        ],
++        "total": total or 0,
++    }
++
++
+ @router.get("/{rid:path}")
+ async def get_resource(
+     rid: str,
+     db: AsyncSession = Depends(get_db),
+-    _: User = Depends(require_permission("resource:view")),
++    actor: ActorContext = Depends(require_actor("resource:view")),
+ ):
+-    r = await _load_resource(db, rid)
+-    if not r:
+-        raise HTTPException(404, "璧勬簮涓嶅瓨鍦?)
++    r = await _visible_resource(db, rid, actor)
+     return resource_out(r)
+diff --git a/backend/app/services/skill_runtime.py b/backend/app/services/skill_runtime.py
+index 7c64058..dd161dd 100644
+--- a/backend/app/services/skill_runtime.py
++++ b/backend/app/services/skill_runtime.py
+@@ -1,22 +1,41 @@
+ """Skill 閾惧紡鎵ц涓?MCP JSON-RPC 杩愯鏃躲€?""
+ from __future__ import annotations
+ 
++import os
+ import re
+-from typing import Any
++from typing import Any, Awaitable, Callable
+ 
+ from app.services.builtin_tools import run_builtin_tool
+ from app.services.mcp_client import mcp_initialize, mcp_request, mcp_tools_call, mcp_tools_list
+ 
+ STEP_REF = re.compile(r"^(?:step_(\d+)|([A-Za-z_][\w-]*))(?:\.(.+))?$")
+ 
+ 
++class SkillStepError(RuntimeError):
++    def __init__(
++        self,
++        step_id: str,
++        code: str,
++        message: str,
++        completed_steps: list[str],
++    ):
++        completed = ", ".join(completed_steps) if completed_steps else "鏃?
++        self.code = code or "SKILL_STEP_FAILED"
++        self.step_id = step_id
++        self.completed_steps = list(completed_steps)
++        self.public_message = (
++            f"Skill 姝ラ {step_id} 鎵ц澶辫触: {message}锛涘凡瀹屾垚姝ラ: {completed}"
++        )
++        super().__init__(self.public_message)
++
++
+ def _dig(obj: Any, path: str) -> Any:
+     cur = obj
+     if not path:
+         return cur
+     for part in path.split("."):
+         if cur is None:
+             return None
+         if isinstance(cur, dict):
+             if part in cur:
+                 cur = cur[part]
+@@ -27,20 +46,33 @@ def _dig(obj: Any, path: str) -> Any:
+         elif isinstance(cur, list):
+             try:
+                 cur = cur[int(part)]
+             except (ValueError, IndexError):
+                 return None
+         else:
+             return None
+     return cur
+ 
+ 
++def _step_result(result: Any) -> Any:
++    """鎶婂垪琛ㄥ瀷宸ュ叿缁撴灉鏄犲皠涓哄彲琚?sN.output.values 寮曠敤鐨勫璞°€?""
++    if isinstance(result, list):
++        return {"values": result}
++    if (
++        isinstance(result, dict)
++        and "values" not in result
++        and isinstance(result.get("result"), list)
++    ):
++        return {**result, "values": result["result"]}
++    return result
++
++
+ def resolve_value(value: Any, *, inputs: dict, steps_by_id: dict[str, dict], step_index: int) -> Any:
+     if isinstance(value, list):
+         return [resolve_value(v, inputs=inputs, steps_by_id=steps_by_id, step_index=step_index) for v in value]
+     if not isinstance(value, dict):
+         return value
+     if "$ref" not in value:
+         return {k: resolve_value(v, inputs=inputs, steps_by_id=steps_by_id, step_index=step_index) for k, v in value.items()}
+ 
+     ref = str(value.get("$ref") or "")
+     if ref.startswith("$input.") or ref == "$input":
+@@ -80,21 +112,28 @@ def _detect_resource_cycle(chain: list[dict]) -> None:
+     杩欓噷妫€娴?step 缁戝畾寮曠敤褰㈡垚鐨勭幆閫氳繃鍚戝墠寮曠敤宸叉嫆缁濄€傞澶栵細chain 涓?resource 浜掔浉鍙潬 $ref 璧勬簮鍚嶅惊鐜厤缃€?""
+     ids = []
+     for step in chain:
+         rid = str(step.get("resource_id") or step.get("$ref") or step.get("ref") or "")
+         if rid and not rid.startswith("step_") and not rid.startswith("$"):
+             ids.append(rid)
+     # 鏃犲悜鑷幆閰嶇疆锛欰 鐨勫敮涓€姝ラ寮曠敤 A 鑷韩浣滀负璧勬簮涓?input 寮曡嚜韬緭鍑?鈥?鐢卞悜鍓嶅紩鐢ㄨ鐩?     return
+ 
+ 
+-def run_skill(manifest: dict, body: dict) -> dict:
++async def run_skill(
++    manifest: dict,
++    body: dict,
++    *,
++    step_invoker: Callable[[str, str, dict], Awaitable[dict]],
++) -> dict:
++    from app.services.tool_gateway import response_result
++
+     skill = manifest.get("skill") or {}
+     chain = skill.get("chain") or []
+     if not chain:
+         raise ValueError("Skill 鏈０鏄?chain")
+     _detect_resource_cycle(chain)
+     execution_type = str(skill.get("execution_type") or "workflow")
+     if execution_type not in {"workflow", "prompt_template", "code", "agent"}:
+         raise ValueError(f"涓嶆敮鎸佺殑 Skill execution_type: {execution_type}")
+     if execution_type != "workflow":
+         # 鏈細璇濅粎瀹屾暣瀹炵幇 workflow锛涘叾瀹冪被鍨嬫槑纭嫆缁濓紝閬垮厤鍋囨垚鍔?@@ -114,48 +153,76 @@ def run_skill(manifest: dict, body: dict) -> dict:
+ 
+         raw_input = step.get("input") if isinstance(step.get("input"), dict) else {}
+         # 鍏煎锛氭棤 input 缁戝畾鏃跺悎骞?body
+         if not raw_input:
+             payload = {**inputs, **(step.get("params") or {})}
+         else:
+             payload = resolve_value(raw_input, inputs=inputs, steps_by_id=steps_by_id, step_index=i)
+             if not isinstance(payload, dict):
+                 raise ValueError(f"姝ラ {step_id} 瑙ｆ瀽鍚庣殑 input 蹇呴』鏄璞?)
+ 
+-        result = run_builtin_tool(rid, payload)
++        envelope = await step_invoker(step_id, rid, payload)
++        response_body = envelope.get("body") or {}
++        if not isinstance(response_body, dict) or response_body.get("status") != "success":
++            error = response_body.get("error") if isinstance(response_body, dict) else {}
++            error = error if isinstance(error, dict) else {}
++            raise SkillStepError(
++                step_id,
++                str(error.get("code") or "SKILL_STEP_FAILED"),
++                str(error.get("message") or "涓嬫父宸ュ叿鎵ц澶辫触"),
++                [item["step_id"] for item in steps_out],
++            )
++        result = _step_result(response_result(envelope))
+         entry = {"step_id": step_id, "ref": rid, "resource_id": rid, "result": result, "output": result}
+         steps_out.append(entry)
+         steps_by_id[step_id] = entry
+         steps_by_id[f"step_{i}"] = entry
+ 
+-    scores = [float((s["result"] or {}).get("score") or 0) for s in steps_out]
+-    passed = all(bool((s["result"] or {}).get("passed")) for s in steps_out) if steps_out else False
+-    avg = round(sum(scores) / len(scores), 4) if scores else 0.0
++    scores = [
++        float(s["result"]["score"])
++        for s in steps_out
++        if isinstance(s.get("result"), dict)
++        and s["result"].get("score") is not None
++    ]
++    pass_values = [
++        bool(s["result"]["passed"])
++        for s in steps_out
++        if isinstance(s.get("result"), dict) and "passed" in s["result"]
++    ]
++    avg = round(sum(scores) / len(scores), 4) if scores else None
++    passed = all(pass_values) if pass_values else None
++    final_result = steps_out[-1]["result"] if steps_out else None
+     return {
+         "score": avg,
+         "passed": passed,
+         "metrics": {"chain_score": avg, "steps": len(steps_out), "execution_type": execution_type},
+         "steps": steps_out,
++        "result": final_result,
+         "priority": skill.get("priority", 0),
+     }
+ 
+ 
+ async def run_mcp(manifest: dict | None, body: dict) -> dict:
+     """鏈湴 builtin 鎴栬繙绋?HTTP MCP銆?""
+     method = str(body.get("method") or "")
+     params = body.get("params") if isinstance(body.get("params"), dict) else {}
+     req_id = body.get("id", 1)
+     mf = manifest or {}
+     interfaces = mf.get("interfaces") or {}
+     endpoint = str(interfaces.get("endpoint") or interfaces.get("url") or "")
+     auth = interfaces.get("auth") or {}
+-    token = auth.get("token") if isinstance(auth, dict) else None
++    token = None
++    if isinstance(auth, dict):
++        if auth.get("credential_ref"):
++            token = os.environ.get(str(auth["credential_ref"])) or None
++        else:
++            token = auth.get("token") or None
+     timeout = int((mf.get("capabilities") or {}).get("timeout") or 30)
+     channel = str(interfaces.get("channel") or "https")
+ 
+     if endpoint.startswith("http"):
+         if method in {"initialize", "mcp/initialize"}:
+             data = await mcp_initialize(endpoint, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf)
+             return data
+         if method in {"tools/list", "list_tools"}:
+             data = await mcp_tools_list(endpoint, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf)
+             return data
+diff --git a/backend/app/services/tool_gateway/__init__.py b/backend/app/services/tool_gateway/__init__.py
+index afef03f..f17922d 100644
+--- a/backend/app/services/tool_gateway/__init__.py
++++ b/backend/app/services/tool_gateway/__init__.py
+@@ -1,81 +1,153 @@
+ """缁熶竴宸ュ叿缃戝叧锛氫俊灏佹牎楠屻€佸箓绛夈€侀檺娴併€佸垎鍙戙€?""
+ from __future__ import annotations
+ 
+-import asyncio
+-from typing import Any
++import time
+ 
+ from fastapi import HTTPException
+ from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ 
+-from app.models import BaseResource, IdempotencyRecord, ResourceCallLog, ResourceVersion, User
++from app.models import BaseResource, IdempotencyRecord, ResourceCallLog, ResourceVersion
+ from app.services.actor_context import ActorContext
+ from app.services.builtin_tools import run_builtin_tool
+ from app.services.gateway import check_gateway, record_gateway
+ from app.services.http_adapter import invoke_http_tool
+ from app.services.protocol import (
+     make_envelope,
+     make_response,
+     normalize_invoke_body,
+     request_hash,
+     validate_request_envelope,
+ )
+ from app.services.skill_runtime import run_mcp, run_skill
+-from app.services.side_effect_policy import has_side_effects, stub_side_effect_result
++from app.services.object_policy import object_is_visible
++from app.services.redaction import evidence_digest, redact_error_text
++from app.services.side_effect_policy import has_side_effects, side_effect_block
+ from app.utils.jsonutil import dumps, loads
+ 
+ 
+ class IdempotencyConflict(HTTPException):
+     def __init__(self, detail: str = "骞傜瓑閿啿绐侊細鐩稿悓 correlation 涓嶅悓 payload"):
+         super().__init__(status_code=409, detail=detail)
+ 
+ 
++class NestedSkillError(RuntimeError):
++    code = "SKILL_NESTING_FORBIDDEN"
++    public_message = "Skill 涓嶅厑璁稿祵濂?Skill"
++
++
++def _canon(value):
++    if isinstance(value, dict):
++        return {k: _canon(value[k]) for k in sorted(value)}
++    if isinstance(value, list):
++        return [_canon(x) for x in value]
++    return value
++
++
++def manifests_equal(left, right) -> bool:
++    def load(raw):
++        if isinstance(raw, str):
++            return loads(raw, {})
++        return raw or {}
++
++    return dumps(_canon(load(left))) == dumps(_canon(load(right)))
++
++
++def _evidence_log(
++    *,
++    resource_id: str,
++    task_id: int | None,
++    status: str,
++    latency_ms: int,
++    error_message: str,
++    correlation_id: str,
++    parent_correlation_id: str,
++    tenant_id: str,
++    user_id: int | None,
++    version: str,
++    trace_id: str,
++    source: str,
++    params: dict,
++    output,
++) -> ResourceCallLog:
++    input_digest, input_hash = evidence_digest(params)
++    output_digest, output_hash = evidence_digest(output)
++    return ResourceCallLog(
++        resource_id=resource_id,
++        task_id=task_id,
++        status=status,
++        latency_ms=latency_ms,
++        error_message=error_message,
++        correlation_id=correlation_id,
++        parent_correlation_id=parent_correlation_id,
++        tenant_id=tenant_id,
++        user_id=user_id,
++        version=version,
++        trace_id=trace_id,
++        input_digest=input_digest,
++        output_digest=output_digest,
++        input_hash=input_hash,
++        output_hash=output_hash,
++        source=source,
++    )
++
++
+ async def ensure_resource_version(db: AsyncSession, r: BaseResource, creator_id: int | None = None) -> ResourceVersion:
+     ver = r.version or "1.0.0"
+     existing = await db.scalar(
+         select(ResourceVersion).where(
+             ResourceVersion.resource_id == r.resource_id,
+             ResourceVersion.version == ver,
+         )
+     )
++    current = r.manifest_json or "{}"
+     if existing:
++        if not manifests_equal(existing.manifest_json, current):
++            raise HTTPException(409, "鍚岀増鏈?Manifest 鍐呭涓庡喕缁撳揩鐓т笉涓€鑷达紝璇峰崌绾?version")
+         return existing
+     row = ResourceVersion(
+         resource_id=r.resource_id,
+         version=ver,
+         manifest_json=r.manifest_json or "{}",
+         creator_id=creator_id,
+         immutable=True,
+     )
+     db.add(row)
+     await db.flush()
+     return row
+ 
+ 
+ async def invoke_tool(
+     db: AsyncSession,
+     *,
+     actor: ActorContext | None,
+     resource_id: str,
+     body: dict | None,
+     correlation_id: str | None = None,
++    parent_correlation_id: str | None = None,
+     parent_trace_id: str | None = None,
+     continue_trace_id: str | None = None,
+     task_id: int | None = None,
+     caller_id: str = "gateway",
+     require_action: bool = False,
++    _depth: int = 0,
+ ) -> dict:
+     """缁熶竴璋冪敤鍏ュ彛锛岃繑鍥炴爣鍑嗗搷搴斾俊灏併€?""
+     r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == resource_id))).scalar_one_or_none()
+-    if not r or r.status not in {"online", "pending"}:
++    if not r or r.status not in {"online", "pending", "registered"}:
+         raise HTTPException(404, "璧勬簮涓嶅彲鐢?)
++    if actor is not None:
++        if not object_is_visible(r, actor):
++            raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
++    elif not r.builtin:
++        raise HTTPException(404, "璧勬簮涓嶅瓨鍦ㄦ垨鏃犳潈璁块棶")
+ 
+     tenant_key = str(actor.tenant_id) if actor else ""
+     action, params = normalize_invoke_body(body)
+     req = make_envelope(
+         "platform",
+         resource_id,
+         {"action": action, "parameters": params},
+         tenant_id=tenant_key,
+         correlation_id=correlation_id,
+         parent_trace_id=parent_trace_id,
+@@ -98,76 +170,154 @@ async def invoke_tool(
+             IdempotencyRecord.version == rv.version,
+             IdempotencyRecord.action == action,
+             IdempotencyRecord.correlation_id == cid,
+         )
+     )
+     if existing:
+         if existing.request_hash != rh:
+             raise IdempotencyConflict()
+         return loads(existing.response_json, {})
+ 
+-    manifest = loads(r.manifest_json, {})
++    manifest = loads(rv.manifest_json, {})
++    trace_id = (req.get("trace") or {}).get("trace_id") or ""
++    actor_user = actor.user_id if actor else None
++    started = time.perf_counter()
+     if has_side_effects(manifest):
+-        try:
+-            result = stub_side_effect_result(manifest)
+-        except PermissionError as exc:
+-            resp = make_response(
+-                req,
+-                "error",
+-                {},
+-                error={"code": "SIDE_EFFECT_DENIED", "message": str(exc), "retryable": False, "trace_id": req["trace"]["trace_id"]},
+-            )
+-            db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="failed", correlation_id=cid, error_message=str(exc)[:500]))
+-            return resp
+-        record_gateway(r.resource_id, True)
+-        r.call_count = int(r.call_count or 0) + 1
+-        resp = make_response(req, "success", result, usage={"total_tokens": 0})
+-        await _persist_idempotent(db, tenant_key, resource_id, rv.version, action, cid, rh, resp)
+-        db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="success", correlation_id=cid))
++        blocked = side_effect_block(manifest)
++        error = {
++            "code": blocked.code,
++            "message": str(blocked),
++            "retryable": False,
++            "trace_id": trace_id,
++        }
++        resp = make_response(
++            req,
++            "error",
++            {},
++            error=error,
++        )
++        db.add(_evidence_log(
++            resource_id=resource_id,
++            task_id=task_id,
++            status="blocked",
++            latency_ms=int((time.perf_counter() - started) * 1000),
++            correlation_id=cid,
++            error_message=str(blocked)[:500],
++            parent_correlation_id=parent_correlation_id or "",
++            tenant_id=tenant_key,
++            user_id=actor_user,
++            version=rv.version,
++            trace_id=trace_id,
++            source=caller_id,
++            params=params,
++            output=error,
++        ))
+         return resp
+ 
+     try:
+         if r.resource_type == "skill":
+-            result = run_skill(manifest, params)
++            if _depth >= 1:
++                raise NestedSkillError()
++
++            async def invoke_skill_step(
++                step_id: str,
++                step_resource_id: str,
++                step_payload: dict,
++            ) -> dict:
++                return await invoke_tool(
++                    db,
++                    actor=actor,
++                    resource_id=step_resource_id,
++                    body=step_payload,
++                    correlation_id=f"{cid}:{step_id}",
++                    parent_correlation_id=cid,
++                    parent_trace_id=trace_id,
++                    continue_trace_id=trace_id,
++                    task_id=task_id,
++                    caller_id="skill_step",
++                    _depth=_depth + 1,
++                )
++
++            result = await run_skill(
++                manifest,
++                params,
++                step_invoker=invoke_skill_step,
++            )
+         elif r.resource_type == "mcp":
+             result = await run_mcp(manifest, params)
+         elif r.resource_id.startswith("builtin/") or r.builtin:
+             result = run_builtin_tool(r.resource_id, params)
+         else:
+             result = await invoke_http_tool(manifest, req)
+         r.call_count = int(r.call_count or 0) + 1
+         r.consecutive_fail = 0
+         r.health_status = "online"
+         record_gateway(r.resource_id, True)
+         usage = result.get("usage") if isinstance(result, dict) else None
+         resp = make_response(req, "success", result if isinstance(result, dict) else {"result": result}, usage=usage)
+         await _persist_idempotent(db, tenant_key, resource_id, rv.version, action, cid, rh, resp)
+-        db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="success", correlation_id=cid))
++        db.add(_evidence_log(
++            resource_id=resource_id,
++            task_id=task_id,
++            status="success",
++            correlation_id=cid,
++            latency_ms=int((time.perf_counter() - started) * 1000),
++            error_message="",
++            parent_correlation_id=parent_correlation_id or "",
++            tenant_id=tenant_key,
++            user_id=actor_user,
++            version=rv.version,
++            trace_id=trace_id,
++            source=caller_id,
++            params=params,
++            output=result,
++        ))
+         return resp
+     except HTTPException:
+         raise
+     except Exception as exc:
+         r.fail_count = int(r.fail_count or 0) + 1
+         r.consecutive_fail = int(r.consecutive_fail or 0) + 1
+         record_gateway(r.resource_id, False)
++        public_message = getattr(exc, "public_message", None)
++        safe_message = (
++            redact_error_text(public_message)
++            if isinstance(public_message, str) and public_message.strip()
++            else f"宸ュ叿鎵ц澶辫触 ({type(exc).__name__})"
++        )
++        error = {
++            "code": getattr(exc, "code", None) or "TOOL_EXEC_FAILED",
++            "message": safe_message,
++            "retryable": True,
++            "trace_id": req["trace"]["trace_id"],
++        }
+         resp = make_response(
+             req,
+             "error",
+             {},
+-            error={"code": "TOOL_EXEC_FAILED", "message": str(exc), "retryable": True, "trace_id": req["trace"]["trace_id"]},
++            error=error,
+         )
+-        db.add(ResourceCallLog(
++        db.add(_evidence_log(
+             resource_id=resource_id,
+             task_id=task_id,
+             status="failed",
+-            error_message=str(exc)[:2000],
++            error_message=safe_message[:2000],
+             correlation_id=cid,
++            latency_ms=int((time.perf_counter() - started) * 1000),
++            parent_correlation_id=parent_correlation_id or "",
++            tenant_id=tenant_key,
++            user_id=actor_user,
++            version=rv.version,
++            trace_id=trace_id,
++            source=caller_id,
++            params=params,
++            output=error,
+         ))
+         # 澶辫触涓嶅啓鍏ュ箓绛夋垚鍔熻褰曪紝鍏佽閲嶈瘯
+         return resp
+ 
+ 
+ async def _persist_idempotent(
+     db: AsyncSession,
+     tenant_id: str,
+     resource_id: str,
+     version: str,
+diff --git a/backend/tests/test_tool_gateway.py b/backend/tests/test_tool_gateway.py
+index 53e2ad7..23ed373 100644
+--- a/backend/tests/test_tool_gateway.py
++++ b/backend/tests/test_tool_gateway.py
+@@ -9,21 +9,22 @@ from tests import isolated_env  # noqa: F401
+ 
+ from fastapi.testclient import TestClient
+ 
+ from app.main import app
+ from app.services.protocol import (
+     make_envelope,
+     make_response,
+     validate_request_envelope,
+     request_hash,
+ )
+-from app.services.side_effect_policy import assert_egress_allowed, stub_side_effect_result
++from app.services.builtin_tools import run_builtin_tool
++from app.services.side_effect_policy import SideEffectBlocked, assert_egress_allowed, stub_side_effect_result
+ from app.services.skill_runtime import run_skill
+ 
+ 
+ class ProtocolEnvelopeTest(unittest.TestCase):
+     def test_response_body_status_and_trace_continue(self):
+         req = make_envelope("platform", "builtin/exact_match", {"action": "execute", "parameters": {"a": 1}}, caller_id="gateway")
+         tid = req["trace"]["trace_id"]
+         resp = make_response(req, "success", {"score": 1.0, "passed": True}, usage={"total_tokens": 0})
+         self.assertEqual(resp["body"]["status"], "success")
+         self.assertEqual(resp["body"]["result"]["score"], 1.0)
+@@ -100,70 +101,93 @@ class ToolGatewayApiTest(unittest.TestCase):
+         )
+         self.assertEqual(r1.status_code, 200, r1.text)
+         r2 = self.client.post(
+             "/api/resources/invoke",
+             json={"resource_id": "builtin/exact_match", "correlation_id": cid, "body": {"prediction": "B", "reference": "A"}},
+             headers=self.h,
+         )
+         self.assertEqual(r2.status_code, 409, r2.text)
+ 
+ 
+-class SkillRefTest(unittest.TestCase):
+-    def test_workflow_input_binding(self):
++class SkillRefTest(unittest.IsolatedAsyncioTestCase):
++    @staticmethod
++    async def builtin_invoker(step_id: str, resource_id: str, payload: dict) -> dict:
++        request = make_envelope(
++            "skill-unit",
++            resource_id,
++            {"action": "execute", "parameters": payload},
++            correlation_id=f"unit:{step_id}",
++            caller_id="skill_step",
++        )
++        return make_response(
++            request,
++            "success",
++            run_builtin_tool(resource_id, payload),
++        )
++
++    async def test_workflow_input_binding(self):
+         mf = {
+             "skill": {
+                 "execution_type": "workflow",
+                 "chain": [
+                     {
+                         "step_id": "a",
+                         "resource_id": "builtin/exact_match",
+                         "input": {
+                             "prediction": {"$ref": "$input.prediction"},
+                             "reference": {"$ref": "$input.reference"},
+                         },
+                     }
+                 ],
+             }
+         }
+-        out = run_skill(mf, {"prediction": "鍖椾含", "reference": "鍖椾含"})
++        out = await run_skill(
++            mf,
++            {"prediction": "鍖椾含", "reference": "鍖椾含"},
++            step_invoker=self.builtin_invoker,
++        )
+         self.assertTrue(out["passed"])
+         self.assertEqual(out["steps"][0]["step_id"], "a")
+ 
+-    def test_forward_ref_rejected(self):
++    async def test_forward_ref_rejected(self):
+         mf = {
+             "skill": {
+                 "execution_type": "workflow",
+                 "chain": [
+                     {
+                         "step_id": "a",
+                         "resource_id": "builtin/exact_match",
+                         "input": {"prediction": {"$ref": "step_1.output.score"}, "reference": "x"},
+                     },
+                     {"step_id": "b", "resource_id": "builtin/exact_match", "input": {"prediction": "1", "reference": "1"}},
+                 ],
+             }
+         }
+         with self.assertRaises(ValueError):
+-            run_skill(mf, {})
++            await run_skill(mf, {}, step_invoker=self.builtin_invoker)
+ 
+-    def test_non_workflow_rejected(self):
++    async def test_non_workflow_rejected(self):
+         mf = {"skill": {"execution_type": "code", "chain": [{"$ref": "builtin/exact_match"}]}}
+         with self.assertRaises(ValueError):
+-            run_skill(mf, {"prediction": "a", "reference": "a"})
++            await run_skill(
++                mf,
++                {"prediction": "a", "reference": "a"},
++                step_invoker=self.builtin_invoker,
++            )
+ 
+ 
+ class SideEffectPolicyTest(unittest.TestCase):
+     def test_stub_result(self):
+         mf = {"side_effects": [{"type": "network", "mock_strategy": "stub"}]}
+-        r = stub_side_effect_result(mf)
+-        self.assertTrue(r["stubbed"])
+-        self.assertEqual(r["mock_strategy"], "stub")
++        with self.assertRaises(SideEffectBlocked) as ctx:
++            stub_side_effect_result(mf)
++        self.assertEqual(ctx.exception.code, "SIDE_EFFECT_BLOCKED")
+ 
+     def test_deny(self):
+         mf = {"side_effects": [{"type": "fs", "mock_strategy": "deny"}]}
+         with self.assertRaises(PermissionError):
+             stub_side_effect_result(mf)
+ 
+     def test_egress_allowlist(self):
+         mf = {"interfaces": {"egress_allowlist": ["api.example.com"]}}
+         assert_egress_allowed("https://api.example.com/v1", mf)
+         with self.assertRaises(PermissionError):
+@@ -254,21 +278,24 @@ class McpSkillApiTest(unittest.TestCase):
+                 "idempotent": True,
+                 "timeout": 10,
+             },
+             "interfaces": {"endpoint": "https://example.com/x", "method": "POST", "auth_type": "none"},
+             "side_effects": [{"type": "network", "mock_strategy": "stub"}],
+         }
+         reg = self.client.post("/api/resources/register", json={"manifest": mf}, headers=self.h)
+         self.assertEqual(reg.status_code, 200, reg.text)
+         inv = self.client.post("/api/resources/invoke", json={"resource_id": rid, "body": {}}, headers=self.h)
+         self.assertEqual(inv.status_code, 200, inv.text)
+-        self.assertTrue(inv.json()["body"]["result"].get("stubbed"))
++        body = inv.json()["body"]
++        self.assertEqual(body.get("status"), "error")
++        self.assertEqual(body.get("error", {}).get("code"), "SIDE_EFFECT_BLOCKED")
++        self.assertFalse((body.get("result") or {}).get("stubbed"))
+ 
+ 
+ class RemoteMcpClientTest(unittest.IsolatedAsyncioTestCase):
+     async def test_remote_initialize_mocked(self):
+         from app.services.mcp_client import mcp_initialize
+ 
+         fake = {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
+         with patch("app.services.mcp_client.httpx.AsyncClient") as client_cls:
+             inst = client_cls.return_value.__aenter__.return_value
+             resp = AsyncMock()

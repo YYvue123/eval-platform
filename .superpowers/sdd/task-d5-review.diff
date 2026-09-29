@@ -1,0 +1,46 @@
+# D Task 5 review — Approved
+
+Assessment: Approved
+Critical: none
+Important: none
+Minor: 4（不阻塞 Task 6）
+
+Do not implement. No git commit.
+
+## Spec gate
+
+| 要求 | 结论 | 位置 |
+| --- | --- | --- |
+| TaskDetail `results` 带 `page`/`page_size`/`total`，非 `{ page_size: 100 }` dump；成功后 pager 常显；catch → `loadError` + `PageAsyncState`，失败不伪装成空结果 | 通过 | `TaskDetail.vue` L200、`resultsTotal` L205、L116–125 无条件 pager；catch L219–220；`pageState` 含 error 时 L26–30 覆盖内容 |
+| DatasetDetail `loadDetail`/`loadItems` catch → `loadError`；去掉 `itemTotal > itemPageSize`；样本 pager / 「第 x 页」常显；失败不看起来像 0 条样本 | 通过 | `DatasetDetail.vue` L205–226、L78–86；全文件无 `itemTotal > itemPageSize`；error 时整页 `PageAsyncState` |
+| Dashboard 异常任务成功空表 → EmptyState；`loadError` 隐藏内容 | 通过 | `Dashboard.vue` L18–19、L86–102、L182–191 |
+| Leaderboard 去掉独立 obs 皮肤作页面身份；`page-header` + `el-card`/`el-button`/`el-table`；色来自 CSS 变量；保留发布/刷新/回滚/导出与筛选；`PageAsyncState` 加载/失败/空 | 通过 | `Leaderboard.vue` L3–12、L31–78、L300–321；无 `obs-`/copper/glow；kicker 改为中文操作元数据（cohort/冻结尺度） |
+| TaskTemplates 成功空表 EmptyState；失败 `loadError` + `PageAsyncState`；保留分类目录 | 通过 | `TaskTemplates.vue` L10–26、L75–86 |
+| Benchmarks / Safety / Ops / RolePermission / NotificationManage / ApiDocs / Profile：load/fail/empty | 通过 | 各页均有 `PageAsyncState` + `loadError`；空表 EmptyState 或等价（ApiDocs 失败展示错误+下一步，非空白 host） |
+| Login 提交锁 `loading`；登录错误写表单；catch 非空 | 通过 | `Login.vue` L42、L47、L77–78、L112–121 |
+| Audit 导出 disabled + `当前环境未开放导出`；禁止「API 未完整开放」/「API 尚未完整开放」；`auditApi` 仅 list | 通过 | `AuditLog.vue` L7；`frontend/src/api/index.js` L35–37 |
+| Users 禁用/启用 `usersApi.update(id, { status })` + `user:edit`；禁用前确认；不造邀请；`creatorOptions` catch 写错误旗标 | 通过 | `Users.vue` L88–95、L445–454、L472–477；无 invite |
+| 其余页 `remainingPages.test.mjs` 源码断言 | 通过 | `frontend/tests/unit/remainingPages.test.mjs` L12–79 |
+| 未新增权限码；未开始 Task 6 | 通过 | 禁用走已有 `user:edit`；报告声明未启动证据任务 |
+
+与 `docs/superpowers/plans/2026-09-29-subproject-d-frontend.md` Task 5、`task-d5-brief.md` 强制项一致。
+
+## 命令（本评审复跑）
+
+```powershell
+cd E:\eval-platform\frontend
+npm run test:unit
+npm run verify:ux-static
+```
+
+- `npm run test:unit`：`# tests 65` / `# pass 65` / `# fail 0`
+- `npm run verify:ux-static`：`[verify:ux-static] OK`（`routes sampled=20 nav=13 warnings=0`）
+
+与 `task-d5-report.md` 一致。未做浏览器端到端（报告已声明）。
+
+## Minor
+
+1. `remainingPages.test.mjs` 为源码正则，未 mount Vue、未点分页/禁用确认/登录提交。与 D1–D4 门禁测同型；强制行为可在各 view 的 `load`/`catch`/`pager-line` 可读核对。
+2. `Benchmarks.vue` `loadSims`（L166–172）与 `Leaderboard.vue` 成本表（L285–291）失败会写入同一 `loadError`，从而把已成功的主列表打成错误页。简报要求页面有失败态，未要求副区独立旗标；与 D4 EvalServices 耦合同类，不必为本任务返工。
+3. `Leaderboard.vue` `drawRadar`（L274）把缺场景 `null` 画成 `0`，与页头「缺指标不填零」不完全一致。规格强制项是去掉 obs 皮肤与六态，不是雷达编码；可留到后续。
+4. `AuditLog.vue` 导出提示只在 `title`（原生 tooltip），按钮旁无常显 hint。文案与 disabled 已满足字面强制项。

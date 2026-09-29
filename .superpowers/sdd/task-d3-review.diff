@@ -1,0 +1,43 @@
+# D Task 3 review — Approved
+
+Assessment: Approved
+Critical: none
+Important: none
+Minor: 3（不阻塞 Task 4）
+
+Do not implement. No git commit.
+
+## Spec gate
+
+| 要求 | 结论 | 位置 |
+| --- | --- | --- |
+| 无权限 → `/not-found?reason=forbidden&from=`；不再 `query.denied` / `firstAccessiblePath` | 通过 | `frontend/src/router/index.js` L82–87；显式 `/not-found` 在 catch-all 之前 L43–55 |
+| 未登录仍 `/login?redirect=`；已登录访问 `/login` 仍 `safeHomePath` | 通过 | `router/index.js` L73–80 |
+| NotFound 403 文案（无权/没有权限 + 联系管理员/可访问工作台）；兼容 `denied`；`from` 文本无 XSS | 通过 | `frontend/src/views/NotFound.vue` L4–13、L29–30：`{{ fromPath }}`，无 `v-html` |
+| Agents page-desc 精确句；无「无 Mock」/「非 Mock」；试用开关新文案 | 通过 | `Agents.vue` L6、L181–183 |
+| 无 `plannerModels.value[0]` 自动选中；空选保持空；placeholder 必选；生成计划未选 disabled；`createSession` 未选则 return | 通过 | `Agents.vue` L67–80、L354、L714–717；全文件无 `[0]` |
+| Models `field-hint` 精确；无 Mock 回退句 | 通过 | `Models.vue` L96 |
+| verify-ux-static：error `留空则使用本地 Mock`；缺 `无法探测或试调用` 为 error；不再把「不会回退到本地 Mock」当通过条件；Login/NotFound/router 仍命中 `safeHomePath\|firstAccessiblePath` | 通过 | `verify-ux-static.mjs` L36–51 |
+| 单测源码断言上述门禁 | 通过 | `frontend/tests/unit/forbiddenNav.test.mjs` L13–58 |
+| Dashboard `route.query.denied` banner 可保留 | 通过 | `Dashboard.vue` 仍读 `denied`；router 不再写入 |
+
+与 `docs/superpowers/plans/2026-09-29-subproject-d-frontend.md` Task 3、`task-d3-brief.md` 强制项一致。未开始 Task 4（列表分页）。
+
+## 命令（本评审复跑）
+
+```powershell
+cd E:\eval-platform\frontend
+npm run test:unit
+npm run verify:ux-static
+```
+
+- `npm run test:unit`：`# tests 53` / `# pass 53` / `# fail 0`
+- `npm run verify:ux-static`：`[verify:ux-static] OK`（`routes sampled=20 nav=13 warnings=0`）
+
+与 `task-d3-report.md` 一致。未做浏览器端到端（报告已声明）。
+
+## Minor
+
+1. `forbiddenNav.test.mjs` 为源码正则，未执行 `beforeEach` / 未 mount Vue。与 D1/D2 门禁测同型；强制分支在 `router/index.js` L71–89、`NotFound.vue` L4–30、`Agents.vue` L6/L79/`createSession` 可读核对。
+2. 规划模型选择器仍在默认折叠的「高级：预算与规划模型」内（`Agents.vue` L59–80）。`placeholder="必选"` 与 disabled 满足条文；主路径只见徽章，未选时用户可能不清楚为何无法点「生成计划」。不必为本任务返工。
+3. `createSession` 校验 `plannerModelId` 后 POST 体不含该 id（L721–725）；规划模型实际用于 `startRuntime`（L898–910）。简报禁止的是未选时静默第一项，已满足。

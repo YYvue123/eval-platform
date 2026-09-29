@@ -1,0 +1,815 @@
+﻿# Task 11
+
+diff --git a/frontend/src/api/index.js b/frontend/src/api/index.js
+index 90d196e..7a61bf9 100644
+--- a/frontend/src/api/index.js
++++ b/frontend/src/api/index.js
+@@ -111,17 +111,19 @@ export const resourcesApi = {
+   register: (manifest) => request.post('/resources/register', { manifest }),
+   invoke: (data) => request.post('/resources/invoke', data),
+   mcpProbe: (data) => request.post('/resources/mcp/probe', data),
+   offline: (id) => request.post(`/resources/${encodeURIComponent(id)}/offline`),
+   match: (data) => request.post('/resources/match', data),
+   events: (params) => request.get('/resources/events', { params }),
+   health: (id) => request.post(`/resources/${encodeURIComponent(id)}/health`),
+   registry: () => request.get('/resources/registry'),
+-  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`)
++  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`),
++  calls: (id, params) =>
++    request.get(`/resources/calls/${encodeURIComponent(id)}`, { params }),
+ }
+ 
+ export const batchApi = {
+   run: (data) => request.post('/batch/run', data),
+   status: (id) => request.get(`/batch/status/${id}`),
+   cancel: (id) => request.delete(`/batch/${id}`),
+   shard: (id, shardId, params) => request.get(`/batch/${id}/shards/${shardId}`, { params }),
+   putResults: (id, shardId, data) => request.put(`/batch/${id}/shards/${shardId}/results`, data),
+diff --git a/frontend/src/components/StatusBadge.vue b/frontend/src/components/StatusBadge.vue
+index e98fd6e..19f7493 100644
+--- a/frontend/src/components/StatusBadge.vue
++++ b/frontend/src/components/StatusBadge.vue
+@@ -14,16 +14,19 @@ const MAP = {
+   idle: { label: '灏氭湭寮€濮?, tone: 'neutral' },
+   planning: { label: '姝ｅ湪瑙勫垝', tone: 'info' },
+   needs_input: { label: '寰呰ˉ鍏?, tone: 'warning' },
+   awaiting_approval: { label: '寰呭鎵?, tone: 'warning' },
+   approved: { label: '宸插鎵?, tone: 'success' },
+   running: { label: '鎵ц涓?, tone: 'info' },
+   budget_paused: { label: '棰勭畻鏆傚仠', tone: 'warning' },
+   failed: { label: '鎵ц澶辫触', tone: 'danger' },
++  blocked: { label: '宸查樆鏂?, tone: 'warning' },
++  cancelled: { label: '宸插彇娑?, tone: 'neutral' },
++  report_pending: { label: '鎶ュ憡鏈敓鎴?, tone: 'warning' },
+   completed: { label: '宸插畬鎴?, tone: 'success' },
+ }
+ 
+ const label = computed(() => props.text || MAP[props.phase]?.label || props.phase)
+ const tone = computed(() => MAP[props.phase]?.tone || 'neutral')
+ </script>
+ 
+ <style scoped>
+diff --git a/frontend/src/views/Resources.vue b/frontend/src/views/Resources.vue
+index 912750b..1cc56a0 100644
+--- a/frontend/src/views/Resources.vue
++++ b/frontend/src/views/Resources.vue
+@@ -116,19 +116,25 @@
+           :closable="false"
+           title="鐗堟湰鍒楄〃 / 璋冪敤璁板綍 API 鏈畬鏁村紑鏀撅紝璇︽儏涓嶅睍绀洪潤鎬佸亣鏁版嵁"
+           style="margin-top: 12px"
+         />
+       </template>
+     </el-drawer>
+ 
+     <!-- 璇曠敤鍙?-->
+-    <el-dialog v-model="showTrial" :title="`璇曠敤 路 ${trialRow?.name || ''}`" width="900px" destroy-on-close @closed="onTrialClosed">
++    <el-dialog
++      v-model="showTrial"
++      :title="`璇曠敤 路 ${trialRow?.name || ''}`"
++      width="min(900px, calc(100vw - 24px))"
++      destroy-on-close
++      @closed="onTrialClosed"
++    >
+       <el-row :gutter="16">
+-        <el-col :span="12">
++        <el-col :xs="24" :sm="24" :md="12" :lg="12">
+           <div class="panel-title">鍙傛暟</div>
+           <el-radio-group v-model="trialMode" size="small" style="margin-bottom: 8px">
+             <el-radio-button value="form">Schema 琛ㄥ崟</el-radio-button>
+             <el-radio-button value="json">楂樼骇 JSON</el-radio-button>
+           </el-radio-group>
+           <SchemaForm v-show="trialMode === 'form'" ref="schemaFormRef" v-model="trialBody" :schema="trialSchema" />
+           <el-input
+             v-show="trialMode === 'json'"
+@@ -140,32 +146,66 @@
+           <el-alert
+             v-if="sideEffectHint"
+             type="warning"
+             :closable="false"
+             :title="sideEffectHint"
+             style="margin-top: 8px"
+           />
+         </el-col>
+-        <el-col :span="12">
++        <el-col :xs="24" :sm="24" :md="12" :lg="12">
+           <div class="panel-title">缁撴灉</div>
+           <div v-if="!trialResult" class="hint">灏氭湭璋冪敤</div>
+           <template v-else>
+-            <StatusBadge :phase="trialResult.ok ? 'completed' : 'failed'" :text="trialResult.statusText" />
+-            <p class="hint">鑰楁椂 {{ trialResult.latency_ms ?? '鈥? }} ms 路 {{ trialResult.error_code || '' }}</p>
++            <StatusBadge :phase="trialBadgePhase(trialResult)" :text="trialResult.statusText" />
++            <p class="hint">
++              鏈嶅姟绔墽琛岃€楁椂 {{ formatLatencyMs(trialResult.latency_ms) }} ms 路
++              娴忚鍣ㄧ瓑寰呰€楁椂 {{ formatLatencyMs(trialResult.browser_latency_ms) }} ms
++              <template v-if="trialResult.error_code"> 路 {{ trialResult.error_code }}</template>
++            </p>
+             <pre class="payload">{{ pretty(trialResult.summary) }}</pre>
+             <el-collapse>
+               <el-collapse-item title="鍘熷鍝嶅簲锛堣劚鏁忚鍥撅級" name="raw">
+                 <pre class="payload">{{ pretty(trialResult.raw) }}</pre>
+               </el-collapse-item>
+             </el-collapse>
+             <el-button size="small" @click="copyTrial">澶嶅埗 JSON</el-button>
+           </template>
+         </el-col>
+       </el-row>
++      <div class="history-block">
++        <div class="panel-title">鏈€杩戣皟鐢?/div>
++        <p v-if="callHistoryLoading" class="hint">姝ｅ湪鍔犺浇璋冪敤鍘嗗彶</p>
++        <el-alert
++          v-else-if="callHistoryError"
++          type="error"
++          :closable="false"
++          :title="callHistoryError"
++        />
++        <p v-else-if="!callHistory.length" class="hint">鏆傛棤璋冪敤璁板綍</p>
++        <div v-else class="history-scroll">
++          <el-table :data="callHistory" size="small">
++            <el-table-column label="鐘舵€? min-width="110">
++              <template #default="{ row }">
++                <StatusBadge :phase="callStatusPhase(row.status)" :text="row.status" />
++              </template>
++            </el-table-column>
++            <el-table-column label="鏈嶅姟绔墽琛岃€楁椂" min-width="140">
++              <template #default="{ row }">{{ formatLatencyMs(row.latency_ms) }} ms</template>
++            </el-table-column>
++            <el-table-column prop="version" label="鐗堟湰" min-width="80" />
++            <el-table-column prop="trace_id" label="trace" min-width="160" show-overflow-tooltip />
++            <el-table-column prop="created_at" label="鏃堕棿" min-width="170" />
++            <el-table-column label="閿欒" min-width="180" show-overflow-tooltip>
++              <template #default="{ row }">{{ row.error_message || '' }}</template>
++            </el-table-column>
++          </el-table>
++          <p class="hint">鍏?{{ callHistoryTotal }} 鏉?/p>
++        </div>
++      </div>
+       <template #footer>
+         <el-button @click="showTrial = false">鍏抽棴</el-button>
+         <el-button type="primary" :loading="trialLoading" @click="runTrial">瀹為檯璋冪敤</el-button>
+       </template>
+     </el-dialog>
+ 
+     <!-- 娉ㄥ唽鍚戝 -->
+     <el-dialog v-model="showWizard" title="娣诲姞璧勬簮" width="760px" destroy-on-close @closed="resetWizard">
+@@ -203,33 +243,66 @@
+           <el-input v-model="wizard.version" />
+         </el-form-item>
+         <el-form-item label="璋冪敤鏂瑰紡">
+           <el-select v-model="wizard.call_mode" style="width: 200px">
+             <el-option label="sync" value="sync" />
+             <el-option label="async锛堟湭瀹屾暣楠屾敹锛? value="async" disabled />
+           </el-select>
+         </el-form-item>
++        <el-form-item label="骞傜瓑" required>
++          <el-select v-model="wizard.idempotent" style="width: 320px">
++            <el-option label="鏄細鐩稿悓璇锋眰鍙畨鍏ㄩ噸璇? :value="true" />
++            <el-option label="鍚︼細閲嶅璋冪敤浼氫骇鐢熸柊鏁堟灉" :value="false" />
++          </el-select>
++        </el-form-item>
+       </el-form>
+ 
+       <div v-else-if="wizardStep === 2">
+         <template v-if="wizard.kind === 'mcp'">
+           <el-form label-width="120px">
+             <el-form-item label="Endpoint" required>
+-              <el-input v-model="wizard.endpoint" placeholder="https://..." />
++              <el-input v-model="wizard.endpoint" placeholder="https://..." @input="invalidateChecks" />
+             </el-form-item>
+-            <el-form-item label="Token">
+-              <el-input v-model="wizard.token" type="password" show-password placeholder="浠呮湰娆℃彁浜わ紝涓嶅啓鍏?localStorage" />
++            <el-form-item label="鍑瘉寮曠敤">
++              <el-input v-model="wizard.credentialRef" placeholder="鐜鍙橀噺鍚嶏紝涓嶆彁浜ゆ槑鏂? @input="invalidateChecks" />
+             </el-form-item>
+             <el-form-item label="Egress 鐧藉悕鍗?>
+-              <el-input v-model="wizard.allowlist" placeholder="host1,host2" />
++              <el-input v-model="wizard.allowlist" placeholder="host1,host2" @input="invalidateChecks" />
+             </el-form-item>
+           </el-form>
+         </template>
++        <template v-else-if="wizard.kind === 'skill'">
++          <p class="hint">姣忎竴姝ラ€夋嫨宸叉巿鏉冨伐鍏枫€傜浜屾鍙互鐢?$ref 璇诲彇涓婁竴姝?output銆?/p>
++          <div v-for="(step, idx) in wizard.skillSteps" :key="idx" class="field-row">
++            <el-input v-model="step.step_id" placeholder="姝ラ ID" style="width: 120px" @input="invalidateChecks" />
++            <el-input v-model="step.resource_id" placeholder="builtin/exact_match" style="width: 220px" @input="invalidateChecks" />
++            <el-input v-model="step.input_ref" placeholder="涓婁竴姝?$ref锛屽彲绌? @input="invalidateChecks" />
++            <el-button v-if="wizard.skillSteps.length > 1" link type="danger" @click="wizard.skillSteps.splice(idx, 1); invalidateChecks()">鍒?/el-button>
++          </div>
++          <el-button size="small" @click="wizard.skillSteps.push({ step_id: `s${wizard.skillSteps.length + 1}`, resource_id: '', input_ref: '' })">鍔犳楠?/el-button>
++        </template>
+         <template v-else>
++          <el-form label-width="120px">
++            <el-form-item label="Endpoint" required>
++              <el-input v-model="wizard.endpoint" placeholder="https://tool.example/invoke" @input="invalidateChecks" />
++            </el-form-item>
++            <el-form-item label="鏂规硶">
++              <el-select v-model="wizard.method" style="width: 160px" @change="invalidateChecks">
++                <el-option label="POST" value="POST" />
++                <el-option label="GET" value="GET" />
++              </el-select>
++            </el-form-item>
++            <el-form-item label="瓒呮椂(绉?">
++              <el-input-number v-model="wizard.timeout" :min="1" :max="300" :step="1" @change="invalidateChecks" />
++            </el-form-item>
++            <el-form-item label="鍑瘉寮曠敤">
++              <el-input v-model="wizard.credentialRef" placeholder="鐜鍙橀噺鍚嶏紝涓嶆彁浜ゆ槑鏂? @input="invalidateChecks" />
++            </el-form-item>
++          </el-form>
+           <p class="hint">閰嶇疆杈撳叆 Schema锛堝父瑙佸瓧娈碉級锛涘彲鍒囨崲楂樼骇 JSON锛屽垏鎹笉涓㈠瓧娈点€?/p>
+           <el-radio-group v-model="wizard.paramMode" size="small" style="margin-bottom: 8px">
+             <el-radio-button value="form">瀛楁缂栬緫</el-radio-button>
+             <el-radio-button value="json">楂樼骇 JSON Schema</el-radio-button>
+           </el-radio-group>
+           <div v-if="wizard.paramMode === 'form'">
+             <div v-for="(f, idx) in wizard.fields" :key="idx" class="field-row">
+               <el-input v-model="f.key" placeholder="瀛楁鍚? style="width: 120px" />
+@@ -257,23 +330,23 @@
+           </el-tag>
+           <el-tag type="info">瀹為檯璋冪敤锛氭湭鎵ц锛堟敞鍐屽悗鍦ㄨ瘯鐢ㄥ彴楠岃瘉锛?/el-tag>
+         </el-space>
+         <el-button style="margin-top: 12px" :loading="checking" @click="runWizardChecks">杩愯宸插疄鐜版鏌?/el-button>
+         <pre v-if="checkLog" class="payload">{{ checkLog }}</pre>
+       </div>
+ 
+       <div v-else>
+-        <pre class="payload">{{ pretty(buildManifest()) }}</pre>
++        <pre class="payload">{{ pretty(redactManifest(buildManifest())) }}</pre>
+         <p class="hint">鍑瘉浠呭湪鏈璇锋眰鎻愪氦锛涘垪琛?璇︽儏杩斿洖鑴辨晱鐘舵€侊紝涓嶅洖鏄惧師鏂?token銆?/p>
+       </div>
+ 
+       <template #footer>
+         <el-button @click="showWizard = false">鍙栨秷</el-button>
+-        <el-button v-if="wizardStep > 0" @click="wizardStep -= 1">涓婁竴姝?/el-button>
++        <el-button v-if="wizardStep > 0" @click="prevWizard">涓婁竴姝?/el-button>
+         <el-button v-if="wizardStep < 4" type="primary" @click="nextWizard">涓嬩竴姝?/el-button>
+         <el-button
+           v-else-if="userStore.hasPermission('resource:create')"
+           type="primary"
+           :loading="registering"
+           @click="submitWizard"
+         >纭娉ㄥ唽</el-button>
+       </template>
+@@ -364,16 +437,24 @@
+ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+ import { useRoute, useRouter } from 'vue-router'
+ import { ElMessage, ElMessageBox } from 'element-plus'
+ import { resourcesApi, batchApi } from '@/api'
+ import { useUserStore } from '@/stores/user'
+ import StatusBadge from '@/components/StatusBadge.vue'
+ import SchemaForm from '@/components/SchemaForm.vue'
+ import ResourcePicker from '@/components/ResourcePicker.vue'
++import {
++  buildTrialResult,
++  callStatusPhase,
++  firstValidationMessage,
++  formatLatencyMs,
++  pickHistoryLatency,
++  trialBadgePhase,
++} from '@/utils/resourceTrial'
+ 
+ const userStore = useUserStore()
+ const route = useRoute()
+ const router = useRouter()
+ 
+ const loading = ref(false)
+ const items = ref([])
+ const total = ref(0)
+@@ -391,16 +472,21 @@ const showTrial = ref(false)
+ const trialRow = ref(null)
+ const trialMode = ref('form')
+ const trialBody = ref({})
+ const trialJsonText = ref('{}')
+ const trialSchema = ref({ type: 'object', properties: {} })
+ const trialLoading = ref(false)
+ const trialResult = ref(null)
+ const schemaFormRef = ref(null)
++const trialCorrelationId = ref('')
++const callHistory = ref([])
++const callHistoryTotal = ref(0)
++const callHistoryLoading = ref(false)
++const callHistoryError = ref('')
+ 
+ const showWizard = ref(false)
+ const wizardStep = ref(0)
+ const registering = ref(false)
+ const checking = ref(false)
+ const checkLog = ref('')
+ const checks = ref({ schema: false, connect: null })
+ const wizard = ref(emptyWizard())
+@@ -445,18 +531,26 @@ function emptyWizard() {
+   return {
+     kind: 'tool',
+     ns: 'demo',
+     slug: '',
+     name: '',
+     description: '',
+     version: '1.0.0',
+     call_mode: 'sync',
++    idempotent: true,
+     endpoint: '',
++    method: 'POST',
++    timeout: 30,
++    credentialRef: '',
+     token: '',
++    skillSteps: [
++      { step_id: 's1', resource_id: 'builtin/exact_match', input_ref: '' },
++      { step_id: 's2', resource_id: 'builtin/exact_match', input_ref: 's1.output' },
++    ],
+     allowlist: '',
+     paramMode: 'form',
+     fields: [
+       { key: 'prediction', type: 'string', required: true },
+       { key: 'reference', type: 'string', required: true },
+     ],
+     schemaJson: '',
+     rawManifest: '',
+@@ -554,18 +648,46 @@ function openTrial(row) {
+   }
+   if (row.resource_type === 'mcp') {
+     trialBody.value = { method: 'initialize', id: 1, ...defaults }
+   } else {
+     trialBody.value = { ...defaults }
+   }
+   trialJsonText.value = pretty(trialBody.value)
+   trialResult.value = null
++  trialCorrelationId.value = ''
++  callHistory.value = []
++  callHistoryTotal.value = 0
++  callHistoryError.value = ''
+   trialMode.value = Object.keys(propsMap).length ? 'form' : 'json'
+   showTrial.value = true
++  loadCallHistory()
++}
++
++async function loadCallHistory() {
++  if (!trialRow.value) return
++  callHistoryLoading.value = true
++  callHistoryError.value = ''
++  try {
++    const result = await resourcesApi.calls(trialRow.value.resource_id, {
++      page: 1, page_size: 10,
++    })
++    callHistory.value = result.items || []
++    callHistoryTotal.value = result.total || 0
++    if (trialResult.value) {
++      trialResult.value = {
++        ...trialResult.value,
++        latency_ms: pickHistoryLatency(callHistory.value, trialCorrelationId.value),
++      }
++    }
++  } catch (error) {
++    callHistoryError.value = error?.response?.data?.message || error.message
++  } finally {
++    callHistoryLoading.value = false
++  }
+ }
+ 
+ function syncJsonToBody() {
+   try {
+     trialBody.value = JSON.parse(trialJsonText.value || '{}')
+   } catch (e) {
+     ElMessage.error(`JSON 鏃犳晥锛?{e.message}`)
+   }
+@@ -589,73 +711,73 @@ async function runTrial() {
+   if (trialMode.value === 'json') {
+     try {
+       trialBody.value = JSON.parse(trialJsonText.value || '{}')
+     } catch (e) {
+       ElMessage.error(`JSON 鏃犳晥锛屾湭鍙戦€侊細${e.message}`)
+       return
+     }
+   } else if (schemaFormRef.value) {
+-    const v = schemaFormRef.value.validate()
+-    if (!v.ok) {
+-      ElMessage.error(`缂哄皯蹇呭～锛?{v.missing.join(', ')}`)
++    const validation = schemaFormRef.value.validate()
++    if (!validation.ok) {
++      ElMessage.error(firstValidationMessage(validation))
+       return
+     }
+   }
+   if (sideEffectHint.value) {
+     try {
+       await ElMessageBox.confirm(sideEffectHint.value, '纭鐪熷疄璋冪敤', { type: 'warning' })
+     } catch {
+       return
+     }
+   }
+   trialLoading.value = true
+   trialResult.value = null
+   const started = performance.now()
++  const correlationId = `trial-${Date.now()}`
++  trialCorrelationId.value = correlationId
+   try {
+     const res = await resourcesApi.invoke({
+       resource_id: trialRow.value.resource_id,
+       body: trialBody.value,
+-      correlation_id: `trial-${Date.now()}`,
++      correlation_id: correlationId,
+     })
+-    const bodyStatus = res.body?.status || res.header?.status || ''
+-    const appFailed = ['failed', 'error', 'denied'].includes(String(bodyStatus).toLowerCase()) || res.body?.ok === false
+-    trialResult.value = {
+-      ok: !appFailed,
+-      statusText: appFailed ? `涓氬姟澶辫触 (${bodyStatus || 'failed'})` : `涓氬姟鐘舵€?${bodyStatus || 'success'}`,
+-      latency_ms: Math.round(performance.now() - started),
+-      error_code: res.body?.error_code || res.body?.result?.error || '',
+-      summary: res.body?.result ?? res.body,
+-      raw: res,
+-    }
+-    if (appFailed) ElMessage.error(trialResult.value.statusText)
+-    else ElMessage.success('璋冪敤宸茶繑鍥烇紙璇锋牳瀵逛笟鍔＄姸鎬侊級')
++    trialResult.value = buildTrialResult(res, performance.now() - started)
++    if (trialResult.value.ok) ElMessage.success(trialResult.value.statusText)
++    else ElMessage.error(trialResult.value.statusText)
+   } catch (e) {
+     trialResult.value = {
+       ok: false,
++      status: 'failed',
+       statusText: '璇锋眰澶辫触',
+-      latency_ms: Math.round(performance.now() - started),
++      latency_ms: null,
++      browser_latency_ms: Math.round(performance.now() - started),
+       error_code: e?.response?.status || '',
+       summary: e?.response?.data || e?.message,
+       raw: e?.response?.data || String(e),
+     }
+     ElMessage.error(String(e?.response?.data?.message || e?.message || e))
+   } finally {
+     trialLoading.value = false
++    await loadCallHistory()
+   }
+ }
+ 
+ function copyTrial() {
+   navigator.clipboard?.writeText(pretty(trialResult.value?.raw))
+   ElMessage.success('宸插鍒?)
+ }
+ 
+ function onTrialClosed() {
+   trialRow.value = null
+   trialResult.value = null
++  trialCorrelationId.value = ''
++  callHistory.value = []
++  callHistoryTotal.value = 0
++  callHistoryError.value = ''
+ }
+ 
+ function openWizard() {
+   wizard.value = emptyWizard()
+   wizardStep.value = 0
+   checks.value = { schema: false, connect: null }
+   checkLog.value = ''
+   showWizard.value = true
+@@ -691,74 +813,156 @@ function pullSchemaFromJson() {
+ }
+ 
+ function buildManifest() {
+   if (wizard.value.rawManifest.trim()) {
+     return JSON.parse(wizard.value.rawManifest)
+   }
+   const rid = `${wizard.value.ns}/${wizard.value.slug}`.toLowerCase()
+   if (wizard.value.kind === 'mcp') {
+-    const interfaces = { endpoint: wizard.value.endpoint, method: 'POST', auth_type: wizard.value.token ? 'bearer' : 'none' }
+-    if (wizard.value.token) interfaces.auth = { token: wizard.value.token }
++    const interfaces = {
++      endpoint: wizard.value.endpoint,
++      method: 'POST',
++      auth_type: wizard.value.credentialRef ? 'bearer' : 'none',
++    }
++    if (wizard.value.credentialRef) interfaces.auth = { credential_ref: wizard.value.credentialRef }
+     if (wizard.value.allowlist.trim()) {
+       interfaces.egress_allowlist = wizard.value.allowlist.split(',').map((s) => s.trim()).filter(Boolean)
+     }
+     return {
+       spec_version: '0.6.1',
+       resource_id: rid,
+       resource_type: 'mcp',
+       name: wizard.value.name,
+       description: wizard.value.description,
+       version: wizard.value.version,
+       owner: { name: 'tenant', contact: 'n/a', email: 'n/a@local' },
+       capabilities: {
+         input_schema: { type: 'object', properties: { method: { type: 'string' }, params: { type: 'object' } } },
+         output_schema: { type: 'object' },
+         call_mode: 'sync',
+-        timeout: 30,
++        idempotent: wizard.value.idempotent === true,
++        timeout: Number(wizard.value.timeout) || 30,
+       },
+       interfaces,
+     }
+   }
+   const schema = wizard.value.paramMode === 'json' && wizard.value.schemaJson.trim()
+     ? JSON.parse(wizard.value.schemaJson)
+     : schemaFromFields()
+-  return {
++  const base = {
+     spec_version: '0.6.1',
+     resource_id: rid,
+     resource_type: wizard.value.kind,
+     name: wizard.value.name,
+     description: wizard.value.description,
+     version: wizard.value.version,
+     owner: { name: 'tenant', contact: 'n/a', email: 'n/a@local' },
+     capabilities: {
+       input_schema: schema,
+       output_schema: { type: 'object' },
+       call_mode: wizard.value.call_mode,
+-      timeout: 30,
++      idempotent: wizard.value.idempotent === true,
++      timeout: Number(wizard.value.timeout) || 30,
+       side_effects: 'none',
+     },
+-    interfaces: {
+-      endpoint: wizard.value.kind === 'skill' ? `local://skill/${rid}` : `local://tool/${rid}`,
+-      method: 'exec',
+-      auth_type: 'none',
+-    },
+   }
++  if (wizard.value.kind === 'skill') {
++    base.skill = {
++      execution_type: 'workflow',
++      chain: wizard.value.skillSteps.filter((step) => step.resource_id).map((step, index) => {
++        const item = { step_id: step.step_id || `s${index + 1}`, resource_id: step.resource_id }
++        if (step.input_ref) item.input = { value: { $ref: step.input_ref } }
++        return item
++      }),
++    }
++    base.interfaces = { method: 'workflow', auth_type: 'none' }
++  } else {
++    const interfaces = {
++      endpoint: wizard.value.endpoint,
++      method: wizard.value.method || 'POST',
++      auth_type: wizard.value.credentialRef ? 'bearer' : 'none',
++    }
++    if (wizard.value.credentialRef) interfaces.auth = { credential_ref: wizard.value.credentialRef }
++    base.interfaces = interfaces
++  }
++  return base
++}
++
++function redactManifest(mf) {
++  const walk = (node) => {
++    if (Array.isArray(node)) return node.map(walk)
++    if (node && typeof node === 'object') {
++      const out = {}
++      for (const [k, v] of Object.entries(node)) {
++        if (['token', 'api_key', 'apikey', 'secret', 'password', 'authorization'].includes(String(k).toLowerCase()) && v) {
++          out[k] = { configured: true, redacted: true }
++        } else {
++          out[k] = walk(v)
++        }
++      }
++      return out
++    }
++    return node
++  }
++  return walk(mf)
++}
++
++function invalidateChecks() {
++  checks.value = { schema: false, connect: null }
++  checkLog.value = ''
++}
++
++function prevWizard() {
++  checks.value = { schema: false, connect: null }
++  checkLog.value = ''
++  wizardStep.value -= 1
++}
++
++function manifestGaps(mf) {
++  const missing = []
++  if (!mf?.resource_id) missing.push('resource_id')
++  if (!mf?.name) missing.push('name')
++  if (!mf?.resource_type) missing.push('resource_type')
++  if (!mf?.owner?.name) missing.push('owner.name')
++  const caps = mf?.capabilities
++  if (!caps || typeof caps !== 'object') missing.push('capabilities')
++  else {
++    if (!caps.input_schema || typeof caps.input_schema !== 'object') missing.push('capabilities.input_schema')
++    if (!caps.output_schema || typeof caps.output_schema !== 'object') missing.push('capabilities.output_schema')
++    if (!['sync', 'async', 'stream', 'batch'].includes(caps.call_mode)) missing.push('capabilities.call_mode')
++    if (!Object.prototype.hasOwnProperty.call(caps, 'idempotent')) missing.push('capabilities.idempotent')
++    if (!Number.isInteger(caps.timeout)) missing.push('capabilities.timeout')
++  }
++  if (!mf?.interfaces || typeof mf.interfaces !== 'object') missing.push('interfaces')
++  return missing
+ }
+ 
+ function nextWizard() {
+   if (wizardStep.value === 0 && !wizard.value.kind) return
+   if (wizardStep.value === 1) {
+     if (!wizard.value.ns || !wizard.value.slug || !wizard.value.name) {
+       ElMessage.warning('璇峰～鍐欏懡鍚嶇┖闂淬€佹爣璇嗕笌鍚嶇О')
+       return
+     }
+   }
+   if (wizardStep.value === 2) {
+-    if (wizard.value.paramMode === 'form') {
++    if (wizard.value.kind === 'tool' && !/^https?:\/\//.test(wizard.value.endpoint || '')) {
++      ElMessage.warning('宸ュ叿闇€瑕?http(s) 鍦板潃')
++      return
++    }
++    if (wizard.value.kind === 'mcp' && !/^https?:\/\//.test(wizard.value.endpoint || '')) {
++      ElMessage.warning('MCP 闇€瑕?http(s) 鍦板潃')
++      return
++    }
++    if (wizard.value.kind === 'skill' && !wizard.value.skillSteps.some((step) => step.resource_id)) {
++      ElMessage.warning('Skill 鑷冲皯闇€瑕佷竴涓伐鍏锋楠?)
++      return
++    }
++    if (wizard.value.paramMode === 'form' && wizard.value.kind !== 'skill') {
+       wizard.value.schemaJson = pretty(schemaFromFields())
+     }
+     try {
+       buildManifest()
+     } catch (e) {
+       ElMessage.error(`Manifest 鏃犳硶鏋勫缓锛?{e.message}`)
+       return
+     }
+@@ -767,18 +971,21 @@ function nextWizard() {
+ }
+ 
+ async function runWizardChecks() {
+   checking.value = true
+   checkLog.value = ''
+   checks.value = { schema: false, connect: null }
+   try {
+     const mf = buildManifest()
+-    checks.value.schema = !!(mf.resource_id && mf.name && mf.resource_type)
+-    checkLog.value += `缁撴瀯妫€鏌ワ細${checks.value.schema ? 'OK' : 'FAIL'}\n`
++    const missing = manifestGaps(mf)
++    checks.value.schema = missing.length === 0
++    checkLog.value += checks.value.schema
++      ? '缁撴瀯妫€鏌ワ細OK锛堜笌鍚庣蹇呭～瀛楁瀵归綈锛涗笉绛変簬杩炴帴鎴栬皟鐢ㄦ垚鍔燂級\n'
++      : `缁撴瀯妫€鏌?FAIL锛岀己灏戯細${missing.join('銆?)}\n`
+     if (wizard.value.kind === 'mcp' && wizard.value.endpoint) {
+       try {
+         const res = await resourcesApi.mcpProbe({
+           endpoint: wizard.value.endpoint,
+           token: wizard.value.token || '',
+           method: 'initialize',
+           egress_allowlist: wizard.value.allowlist
+             ? wizard.value.allowlist.split(',').map((s) => s.trim()).filter(Boolean)
+@@ -1016,13 +1223,16 @@ onUnmounted(() => clearInterval(batchTimer))
+   word-break: break-all;
+   max-height: 280px;
+   overflow: auto;
+   background: #f8fafc;
+   padding: 8px;
+   border-radius: 8px;
+ }
+ .panel-title { font-weight: 600; margin-bottom: 8px; }
++.history-block { margin-top: 16px; }
++.history-scroll { overflow-x: auto; max-width: 100%; }
++.resources-page { overflow-x: hidden; }
+ .drawer-actions { display: flex; gap: 8px; margin-top: 12px; }
+ .field-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+ .batch-card { margin-top: 8px; font-size: 13px; }
+ .probe-result { margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+ </style>
+
+##### frontend/src/utils/resourceTrial.js
+
+diff --git a/frontend/src/utils/resourceTrial.js b/frontend/src/utils/resourceTrial.js
+new file mode 100644
+index 0000000..7d86d89
+--- /dev/null
++++ b/frontend/src/utils/resourceTrial.js
+@@ -0,0 +1,54 @@
++export function formatLatencyMs(value) {
++  if (value == null || value === '') return '鈥?
++  const n = Number(value)
++  if (!Number.isFinite(n)) return '鈥?
++  return String(n)
++}
++
++export function pickHistoryLatency(items, correlationId) {
++  const list = Array.isArray(items) ? items : []
++  if (!list.length) return null
++  const match = correlationId
++    ? list.find((row) => row?.correlation_id === correlationId)
++    : null
++  const row = match || list[0]
++  if (!row || row.latency_ms == null || row.latency_ms === '') return null
++  const n = Number(row.latency_ms)
++  return Number.isFinite(n) ? n : null
++}
++
++export function callStatusPhase(status) {
++  const s = String(status || '').toLowerCase()
++  if (s === 'blocked' || s === 'denied') return 'blocked'
++  if (s === 'success' || s === 'completed' || s === 'ok') return 'completed'
++  if (s === 'running' || s === 'pending') return 'running'
++  return 'failed'
++}
++
++export function trialBadgePhase(result) {
++  if (result?.ok) return 'completed'
++  const s = String(result?.status || '').toLowerCase()
++  if (s === 'blocked' || s === 'denied') return 'blocked'
++  return 'failed'
++}
++
++export function firstValidationMessage(validation) {
++  const first = Object.entries(validation?.errors || {})[0]
++  return first ? `${first[0]}锛?{first[1]}` : '璇锋鏌ヨ緭鍏?
++}
++
++export function buildTrialResult(res, browserElapsedMs) {
++  const status = String(res?.body?.status || '').toLowerCase()
++  const error = res?.body?.error || null
++  const ok = status === 'success' && !error
++  return {
++    ok,
++    status,
++    statusText: ok ? '鎵ц鎴愬姛' : `鎵ц澶辫触${error?.code ? ` (${error.code})` : ''}`,
++    latency_ms: null,
++    browser_latency_ms: Math.round(browserElapsedMs),
++    error_code: error?.code || '',
++    summary: ok ? res?.body?.result : error,
++    raw: res,
++  }
++}
+
+##### frontend/tests/unit/resourceTrial.test.mjs
+
+diff --git a/frontend/tests/unit/resourceTrial.test.mjs b/frontend/tests/unit/resourceTrial.test.mjs
+new file mode 100644
+index 0000000..7a050de
+--- /dev/null
++++ b/frontend/tests/unit/resourceTrial.test.mjs
+@@ -0,0 +1,72 @@
++import test from 'node:test'
++import assert from 'node:assert/strict'
++import {
++  buildTrialResult,
++  callStatusPhase,
++  firstValidationMessage,
++  formatLatencyMs,
++  pickHistoryLatency,
++  trialBadgePhase,
++} from '../../src/utils/resourceTrial.js'
++
++test('trial success requires status success and no error', () => {
++  const ok = buildTrialResult(
++    { body: { status: 'success', result: { n: 1 } } },
++    12.4,
++  )
++  assert.equal(ok.ok, true)
++  assert.equal(ok.statusText, '鎵ц鎴愬姛')
++  assert.equal(ok.latency_ms, null)
++  assert.equal(ok.browser_latency_ms, 12)
++  assert.deepEqual(ok.summary, { n: 1 })
++
++  const denied = buildTrialResult(
++    { body: { status: 'denied', error: { code: 'POLICY' } } },
++    8,
++  )
++  assert.equal(denied.ok, false)
++  assert.equal(denied.statusText, '鎵ц澶辫触 (POLICY)')
++  assert.equal(denied.error_code, 'POLICY')
++  assert.deepEqual(denied.summary, { code: 'POLICY' })
++})
++
++test('unknown latency is em dash, never zero', () => {
++  assert.equal(formatLatencyMs(null), '鈥?)
++  assert.equal(formatLatencyMs(undefined), '鈥?)
++  assert.equal(formatLatencyMs(''), '鈥?)
++  assert.equal(formatLatencyMs('n/a'), '鈥?)
++  assert.equal(formatLatencyMs(42), '42')
++  assert.notEqual(formatLatencyMs(null), '0')
++})
++
++test('history latency prefers matching item, otherwise absent', () => {
++  const items = [
++    { correlation_id: 'a', latency_ms: 11 },
++    { correlation_id: 'trial-1', latency_ms: 77 },
++  ]
++  assert.equal(pickHistoryLatency(items, 'trial-1'), 77)
++  assert.equal(pickHistoryLatency([{ latency_ms: null }], 'x'), null)
++  assert.equal(pickHistoryLatency([], 'x'), null)
++})
++
++test('blocked and denied map to blocked, not completed', () => {
++  assert.equal(callStatusPhase('blocked'), 'blocked')
++  assert.equal(callStatusPhase('denied'), 'blocked')
++  assert.equal(callStatusPhase('success'), 'completed')
++  assert.notEqual(callStatusPhase('denied'), 'completed')
++})
++
++test('validation message uses first errors entry', () => {
++  assert.equal(
++    firstValidationMessage({ ok: false, missing: ['a'], errors: { age: '蹇呴』鏄暣鏁?, a: '蹇呭～' } }),
++    'age锛氬繀椤绘槸鏁存暟',
++  )
++  assert.equal(firstValidationMessage({ ok: false, missing: [], errors: {} }), '璇锋鏌ヨ緭鍏?)
++})
++
++test('trial badge uses blocked for denied even if status is not success', () => {
++  assert.equal(trialBadgePhase({ ok: true, status: 'success' }), 'completed')
++  assert.equal(trialBadgePhase({ ok: false, status: 'denied' }), 'blocked')
++  assert.equal(trialBadgePhase({ ok: false, status: 'success' }), 'failed')
++})
++

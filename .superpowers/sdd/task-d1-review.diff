@@ -1,0 +1,39 @@
+# D Task 1 review — Approved
+
+Assessment: Approved
+Critical: none
+Important: none
+Minor: 2 (不阻塞后续 D 任务)
+
+Do not implement. No git commit.
+
+## Spec gate
+
+| 要求 | 结论 | 位置 |
+| --- | --- | --- |
+| 六态 `loading\|error\|forbidden\|empty\|uncreated\|success` | 通过 | `frontend/src/utils/asyncState.js` L1–9；`ASYNC_STATE_COPY` L12–19；`frontend/tests/unit/asyncState.test.mjs` L10–35 |
+| forbidden 优先于 loading | 通过 | `asyncState.js` L2 before L3；`asyncState.test.mjs` L37–41（forbidden+loading+error → `forbidden`） |
+| empty vs uncreated 靠 `createdOnce` | 通过 | `asyncState.js` L7–8；`asyncState.test.mjs` L44–48（true→empty，false/undefined→uncreated） |
+| PageAsyncState：StatusBadge + title + next，非纯颜色 | 通过 | `PageAsyncState.vue` L5–8：`:phase` + `:text="copy.title"` + `__title` + `__next`；phase 映射 L23–28 |
+| 无 Mock 口号 | 通过 | `ASYNC_STATE_COPY` 文案；测试 L51–58、L68 `doesNotMatch(/[Mm]ock/)` |
+| success 默认 slot | 通过 | `PageAsyncState.vue` L2–3 |
+
+优先级与 brief 片段一致：`forbidden` → `loading` → `error` → 空列表（`createdOnce`）→ `success`。
+
+## 命令（本评审复跑）
+
+```powershell
+cd E:\eval-platform\frontend
+npm run test:unit
+npm run verify:ux-static
+```
+
+- `npm run test:unit`：`# tests 39` / `# pass 39` / `# fail 0`
+- `npm run verify:ux-static`：`[verify:ux-static] OK`（`routes sampled=20 nav=13 warnings=0`）
+
+与 `task-d1-report.md` 一致。
+
+## Minor
+
+1. `PageAsyncState` 单测只读 SFC 源码（`asyncState.test.mjs` L61–74），未 mount Vue。报告已写明；brief 强制项（六分支 / forbidden / createdOnce）已由纯函数测试覆盖。
+2. empty 与 uncreated 的 badge phase 同为 `idle`（`PageAsyncState.vue` L27–28）。区分靠 `copy.title`/`copy.next` 与 `StatusBadge` 的 `text`，仍非颜色唯一通道；后续页接入时勿只看徽章色。
