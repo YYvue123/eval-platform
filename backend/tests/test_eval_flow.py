@@ -297,6 +297,9 @@ class EvalFlowTest(unittest.TestCase):
             self.assertEqual(opt_api.status_code, 200, opt_api.text)
             copied = client.post(f"/api/prompts/{pid}/copy", headers=h)
             self.assertEqual(copied.status_code, 200, copied.text)
+            listed = client.get("/api/prompts", headers=h, params={"search": copied.json()["name"], "page_size": 50})
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertTrue(any(i["id"] == copied.json()["id"] for i in listed.json()["items"]))
             stats = client.get(f"/api/prompts/{pid}/stats", headers=h)
             self.assertEqual(stats.status_code, 200)
             deleted = client.delete(f"/api/prompts/{pid}", headers=h)
@@ -389,6 +392,24 @@ class EvalFlowTest(unittest.TestCase):
             self.assertEqual(tpls.status_code, 200, tpls.text)
             self.assertGreaterEqual(tpls.json()["total"], 33)
             self.assertTrue(any(x.get("pack_dataset_id") for x in tpls.json()["items"]))
+            custom_code = f"custom.chat.{int(time.time())}"
+            created_tpl = client.post("/api/tasks/templates", headers=h, json={
+                "code": custom_code,
+                "name": "手工模板",
+                "category": "scene",
+                "scene": "chat",
+                "rubric": "看回答是否覆盖要点",
+            })
+            self.assertEqual(created_tpl.status_code, 200, created_tpl.text)
+            edited = client.put(f"/api/tasks/templates/{custom_code}", headers=h, json={
+                "code": custom_code,
+                "name": "手工模板-已改",
+                "category": "scene",
+                "scene": "chat",
+                "rubric": "改后的标尺",
+            })
+            self.assertEqual(edited.status_code, 200, edited.text)
+            self.assertEqual(edited.json()["name"], "手工模板-已改")
             ds = client.post("/api/datasets", json={"name": f"tpl-{int(time.time())}"}, headers=h).json()
             payload = json.dumps([{"input": "AIGC 标识", "reference": "含 AIGC 标识"}]).encode()
             client.post(f"/api/datasets/{ds['id']}/import", headers=h, files={"file": ("qa.json", payload, "application/json")})

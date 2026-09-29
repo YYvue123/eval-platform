@@ -47,6 +47,40 @@ async def task_has_score_errors(db: AsyncSession, task_id: int) -> bool:
     return False
 
 
+def _cohort_options(tasks: list[EvalTask]) -> list[dict]:
+    groups: dict[str, dict] = {}
+    for t in tasks:
+        cid = cohort_id_of(t)
+        g = groups.get(cid)
+        if not g:
+            g = {
+                "id": cid,
+                "count": 0,
+                "scene": t.scene or "",
+                "dataset_version_id": t.dataset_version_id,
+                "dataset_id": t.dataset_id,
+                "judge_resource_id": t.judge_resource_id or "",
+                "tool_version": getattr(t, "tool_version", "") or "",
+            }
+            groups[cid] = g
+        g["count"] += 1
+    out = sorted(groups.values(), key=lambda x: (-x["count"], x["id"]))
+    for g in out:
+        bits = []
+        if g["scene"]:
+            bits.append(str(g["scene"]))
+        ds = g["dataset_version_id"] or g["dataset_id"]
+        if ds:
+            bits.append(f"数据 {ds}")
+        if g["judge_resource_id"]:
+            bits.append(str(g["judge_resource_id"]))
+        if g["tool_version"]:
+            bits.append(f"工具 {g['tool_version']}")
+        bits.append(f"{g['count']} 个结果")
+        g["label"] = " · ".join(bits)
+    return out
+
+
 def cohort_id_of(task: EvalTask) -> str:
     """同 cohort 才可比较：数据集版本 + 裁判 + 工具版本 + 指标权重。"""
     raw = "|".join([
@@ -219,11 +253,14 @@ async def compute_board(
     release = await current_release(db, board) if use_frozen_scale else None
     scale_lo = release.scale_lo if release else None
     scale_hi = release.scale_hi if release else None
+    cohort_options: list[dict] = []
 
     async def _filter_cohort(tasks: list[EvalTask]) -> list[EvalTask]:
+        nonlocal cohort_options
+        cohort_options = _cohort_options(tasks)
         if not tasks:
             return []
-        # 默认取最大 cohort；或指定 cohort
+        # 默认取样本最多的 cohort；或指定 cohort
         if cohort_id:
             return [t for t in tasks if cohort_id_of(t) == cohort_id]
         counts: dict[str, int] = {}
@@ -241,7 +278,7 @@ async def compute_board(
         norms = freeze_normalize(raw_scores, scale_lo, scale_hi)
         items = [_item(t, names, ns, extra={"board": "ability"}) for t, ns in zip(tasks, norms)]
         items = rank_with_ties(items, "norm_score")[:10]
-        return _board_out(board, items, release, excluded, scale_lo, scale_hi)
+        return _board_out(board, items, release, excluded, scale_lo, scale_hi, cohort_options)
 
     if board == "special":
         tasks = await _filter_cohort(
@@ -256,7 +293,7 @@ async def compute_board(
             _item(t, names, ns, extra={"board": "special", "task_type": t.task_type})
             for t, ns in zip(tasks, norms)
         ]
-        return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi)
+        return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi, cohort_options)
 
     if board == "value":
         tasks = await _filter_cohort(await latest_success_tasks(db, industry=industry, scene=scene))
@@ -279,7 +316,7 @@ async def compute_board(
                     "value_score": round(value, 6),
                 },
             ))
-        return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi)
+        return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi, cohort_options)
 
     # overall
     weights = await load_weights(db, "overall")
@@ -316,10 +353,10 @@ async def compute_board(
     norms = freeze_normalize([i.get("weighted_score") for i in items], scale_lo, scale_hi)
     for i, ns in zip(items, norms):
         i["norm_score"] = ns
-    return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi)
+    return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi, cohort_options)
 
 
-def _board_out(board, items, release, excluded, scale_lo, scale_hi) -> dict:
+def _board_out(board, items, release, excluded, scale_lo, scale_hi, cohorts=None) -> dict:
     cohort = items[0]["cohort_id"] if items else ""
     return {
         "board": board,
@@ -331,6 +368,7 @@ def _board_out(board, items, release, excluded, scale_lo, scale_hi) -> dict:
         "frozen_scale": {"lo": scale_lo, "hi": scale_hi} if scale_lo is not None else None,
         "release_id": release.id if release else None,
         "release_current": bool(release),
+        "cohorts": cohorts or [],
     }
 
 

@@ -140,6 +140,13 @@ def _rule_out(r: QualityRule) -> dict:
     }
 
 
+async def _dataset_names(db: AsyncSession, ids: set[int]) -> dict[int, str]:
+    if not ids:
+        return {}
+    rows = (await db.execute(select(Dataset).where(Dataset.id.in_(ids)))).scalars().all()
+    return {d.id: d.name for d in rows}
+
+
 def _issue_out(i: QualityIssue) -> dict:
     return {
         "id": i.id,
@@ -173,11 +180,13 @@ async def list_reports(
         q = q.where(QualityReport.dataset_id == dataset_id)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     rows = (await db.execute(q.order_by(QualityReport.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
+    names = await _dataset_names(db, {r.dataset_id for r in rows if r.dataset_id})
     return {
         "items": [
             {
                 "id": r.id,
                 "dataset_id": r.dataset_id,
+                "dataset_name": names.get(r.dataset_id) or "",
                 "version_id": r.version_id,
                 "status": r.status,
                 "score": r.score,
@@ -238,7 +247,13 @@ async def list_issues(
         q = q.where(QualityIssue.status == status)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     rows = (await db.execute(q.order_by(QualityIssue.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    return {"items": [_issue_out(x) for x in rows], "total": total or 0}
+    names = await _dataset_names(db, {x.dataset_id for x in rows if x.dataset_id})
+    items = []
+    for x in rows:
+        item = _issue_out(x)
+        item["dataset_name"] = names.get(x.dataset_id) or ""
+        items.append(item)
+    return {"items": items, "total": total or 0}
 
 
 @router.post("/issues/{issue_id}/handle")

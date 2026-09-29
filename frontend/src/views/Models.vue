@@ -105,6 +105,7 @@
                 <el-option label="网关" value="gateway" />
                 <el-option label="明文（仅联调）" value="plain" />
               </el-select>
+              <div class="field-hint">HTTPS 按证书校验直接调用。mTLS 需要服务器已配置客户端证书和私钥，否则调用会失败。VPN 和网关不会由平台自行建隧道，只表示地址已经走企业网络或网关，请求仍按 HTTPS 校验。明文关闭证书校验，仅非生产联调可用。</div>
             </el-form-item>
             <el-form-item label="超时/重试">
               <el-input-number v-model="form.timeout" :min="5" /> 秒，重试

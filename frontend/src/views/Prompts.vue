@@ -115,7 +115,10 @@
           <el-table-column prop="sample_count" label="样本" width="70" />
           <el-table-column prop="created_at" label="时间" />
         </el-table>
-        <h4>提示词实验（develop/holdout）</h4>
+        <h4>提示词实验（develop / holdout）</h4>
+        <p class="hint">
+          样本按固定比例分成互不重叠的两份：develop 用来对比当前版本和候选版本，holdout 不参与这次改写，只用来看提升是否还能成立。holdout 差达到阈值才建议发布。这里的对比是规则渲染和参考答案匹配，不能代替真实模型评测。
+        </p>
         <el-form inline>
           <el-form-item>
             <el-select v-model="expForm.dataset_id" placeholder="数据集" filterable style="width: 160px">
@@ -400,10 +403,18 @@ async function restore(row) {
 }
 
 async function copyOne() {
-  await promptsApi.copy(detail.value.id)
-  ElMessage.success('已复制')
-  showDetail.value = false
-  loadData()
+  try {
+    const created = await promptsApi.copy(detail.value.id)
+    ElMessage.success(`已复制为「${created.name || '新模板'}」`)
+    showDetail.value = false
+    skipFilterWatch = true
+    page.value = 1
+    search.value = ''
+    queueMicrotask(() => { skipFilterWatch = false })
+    await loadData()
+  } catch (e) {
+    ElMessage.error(listErr(e, '复制失败'))
+  }
 }
 
 async function removeOne() {
@@ -440,4 +451,5 @@ watch(() => route.query, () => {
 .pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .result { margin-top: 12px; white-space: pre-wrap; background: var(--bg-page); padding: 12px; border-radius: 8px; }
 h4 { margin: 16px 0 8px; }
+.hint { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 </style>

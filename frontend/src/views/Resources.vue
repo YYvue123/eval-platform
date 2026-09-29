@@ -6,7 +6,6 @@
         <p class="page-desc">发现、注册并试用工具 / Skill / MCP；调用结果与最近记录在试用台查看。</p>
       </div>
       <div class="header-actions">
-        <el-button v-if="userStore.hasPermission('resource:invoke')" @click="showBatch = true">冻结批次</el-button>
         <el-button v-if="userStore.hasPermission('resource:invoke')" @click="openMcpWorkbench()">MCP 连接</el-button>
         <el-button v-if="userStore.hasPermission('resource:create')" type="primary" @click="openWizard()">添加资源</el-button>
       </div>
@@ -571,36 +570,15 @@
       </template>
     </el-dialog>
 
-    <!-- 批次（保留） -->
-    <el-dialog v-model="showBatch" title="冻结批量快照" width="560px">
-      <el-form label-width="110px">
-        <el-form-item label="数据集">
-          <ResourcePicker v-model="batchForm.dataset_id" kind="dataset" />
-        </el-form-item>
-        <el-form-item label="版本 ID"><el-input-number v-model="batchForm.version_id" :min="0" /></el-form-item>
-        <el-form-item label="分片大小"><el-input-number v-model="batchForm.shard_size" :min="1" :max="500" /></el-form-item>
-        <el-form-item label="Token 预算"><el-input-number v-model="batchForm.token_budget" :min="0" /></el-form-item>
-      </el-form>
-      <el-card v-if="batchInfo" shadow="never" class="batch-card">
-        <p>batch={{ batchInfo.batch_id }} · 状态 <strong>{{ batchInfo.status }}</strong></p>
-        <el-progress :percentage="batchInfo.progress || 0" />
-      </el-card>
-      <template #footer>
-        <el-button @click="closeBatch">关闭</el-button>
-        <el-button v-if="batchInfo?.batch_id" @click="refreshBatch">刷新</el-button>
-        <el-button v-if="batchInfo?.batch_id && !['success','cancelled'].includes(batchInfo.status)" @click="cancelBatch">取消</el-button>
-        <el-button type="primary" :loading="batchLoading" @click="runBatch">创建批次</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck, CircleClose, Minus, Warning } from '@element-plus/icons-vue'
-import { resourcesApi, batchApi } from '@/api'
+import { resourcesApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import StatusBadge from '@/components/StatusBadge.vue'
 import SchemaForm from '@/components/SchemaForm.vue'
@@ -708,12 +686,6 @@ const probeForm = ref({
   token: '',
   allowlistText: '',
 })
-
-const showBatch = ref(false)
-const batchLoading = ref(false)
-const batchForm = ref({ dataset_id: null, version_id: 0, shard_size: 50, token_budget: 0 })
-const batchInfo = ref(null)
-let batchTimer
 
 const kindIntro = computed(() => {
   if (wizard.value.kind === 'mcp') return 'Streamable HTTP 填写 endpoint；stdio 只能选择服务端允许的别名，不能填写任意命令。'
@@ -1482,64 +1454,6 @@ async function mcpCallSelected() {
   }
 }
 
-async function runBatch() {
-  if (!batchForm.value.dataset_id) {
-    ElMessage.warning('请选择数据集')
-    return
-  }
-  batchLoading.value = true
-  try {
-    const payload = {
-      dataset_id: batchForm.value.dataset_id,
-      shard_size: batchForm.value.shard_size,
-      token_budget: batchForm.value.token_budget || 0,
-    }
-    if (batchForm.value.version_id) payload.version_id = batchForm.value.version_id
-    batchInfo.value = await batchApi.run(payload)
-    ElMessage.success('已创建批次')
-    startBatchPoll()
-  } finally {
-    batchLoading.value = false
-  }
-}
-
-async function refreshBatch() {
-  if (!batchInfo.value?.batch_id) return
-  batchInfo.value = await batchApi.status(batchInfo.value.batch_id)
-}
-
-async function cancelBatch() {
-  if (!batchInfo.value?.batch_id) return
-  await batchApi.cancel(batchInfo.value.batch_id)
-  await refreshBatch()
-  ElMessage.success('已取消')
-}
-
-function startBatchPoll() {
-  clearInterval(batchTimer)
-  let inFlight = false
-  const tick = async () => {
-    if (!batchInfo.value?.batch_id || inFlight) return
-    if (['success', 'cancelled', 'paused_budget', 'failed'].includes(batchInfo.value.status)) {
-      clearInterval(batchTimer)
-      batchTimer = null
-      return
-    }
-    inFlight = true
-    try {
-      await refreshBatch()
-    } finally {
-      inFlight = false
-    }
-  }
-  batchTimer = setInterval(tick, 3000)
-}
-
-function closeBatch() {
-  clearInterval(batchTimer)
-  showBatch.value = false
-}
-
 onMounted(async () => {
   if (route.query.tab) tab.value = String(route.query.tab)
   if (route.query.q) search.value = String(route.query.q)
@@ -1551,8 +1465,6 @@ onMounted(async () => {
     } catch { /* */ }
   }
 })
-
-onUnmounted(() => clearInterval(batchTimer))
 </script>
 
 <style scoped>
@@ -1602,6 +1514,5 @@ onUnmounted(() => clearInterval(batchTimer))
 .skill-step { margin-bottom: 12px; }
 .step-error { color: var(--el-color-danger); font-size: 12px; margin: 4px 0 0; }
 .opt { display: flex; justify-content: space-between; gap: 12px; width: 100%; }
-.batch-card { margin-top: 8px; font-size: 13px; }
 .probe-result { margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 </style>

@@ -9,6 +9,7 @@
         </p>
       </div>
       <div class="op-btns">
+        <el-button @click="goBack">返回</el-button>
         <el-button v-if="userStore.hasPermission('quality:run')" @click="runQuality">质量检测</el-button>
         <el-button
           v-if="userStore.hasPermission('dataset:edit') && ['draft', 'rejected'].includes(detail.status)"
@@ -145,7 +146,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { datasetsApi, qualityApi } from '@/api'
 import { useUserStore } from '@/stores/user'
@@ -153,6 +154,7 @@ import PageAsyncState from '@/components/PageAsyncState.vue'
 import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
 const loadError = ref('')
@@ -185,6 +187,11 @@ const pageState = computed(() => deriveAsyncState({
   items: detail.value?.id ? [detail.value] : [],
   createdOnce: createdOnce.value,
 }))
+
+function goBack() {
+  if (window.history.length > 1) router.back()
+  else router.push('/datasets')
+}
 
 function loadErr(e, fallback) {
   const d = e?.response?.data

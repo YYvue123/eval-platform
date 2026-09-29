@@ -141,33 +141,6 @@ export const qualityApi = {
   download: (id) => request.get(`/quality/${id}/download`, { responseType: 'blob' })
 }
 
-export const benchmarksApi = {
-  list: (params) => request.get('/benchmarks', { params }),
-  metrics: () => request.get('/benchmarks/metrics'),
-  packs: () => request.get('/benchmarks/packs'),
-  pack: (code) => request.get(`/benchmarks/packs/${encodeURIComponent(code)}`),
-  simulators: () => request.get('/benchmarks/simulators'),
-  simulate: (data) => request.post('/benchmarks/simulate', data),
-  get: (code) => request.get(`/benchmarks/${encodeURIComponent(code)}`),
-  markReady: (code, data) => request.post(`/benchmarks/${encodeURIComponent(code)}/mark-ready`, data || {}),
-  checkMutTool: (data) => request.post('/benchmarks/mut/check-tool', data),
-  validateSample: (data) => request.post('/benchmarks/validate-sample', data),
-}
-
-export const safetyApi = {
-  categories: () => request.get('/safety/categories'),
-  getSet: (category, params) => request.get(`/safety/sets/${encodeURIComponent(category)}`, { params }),
-  score: (data) => request.post('/safety/score', data),
-  adaptiveNext: (data) => request.post('/safety/adaptive/next', data),
-  calibrate: () => request.post('/safety/calibrate'),
-  calibrateOne: (category, params) => request.post(`/safety/calibrate/${encodeURIComponent(category)}`, null, { params }),
-  reviews: (params) => request.get('/safety/reviews', { params }),
-  createReview: (data) => request.post('/safety/reviews', data),
-  resolveReview: (id, data) => request.post(`/safety/reviews/${encodeURIComponent(id)}/resolve`, data),
-  candidates: () => request.get('/safety/candidates'),
-  validateCandidate: (id) => request.post(`/safety/candidates/${encodeURIComponent(id)}/validate`),
-}
-
 export const tasksApi = {
   list: (params) => request.get('/tasks', { params }),
   get: (id) => request.get(`/tasks/${id}`),
@@ -178,6 +151,8 @@ export const tasksApi = {
   retry: (id) => request.post(`/tasks/${id}/retry`),
   catalog: () => request.get('/tasks/catalog'),
   templates: (params) => request.get('/tasks/templates', { params }),
+  createTemplate: (data) => request.post('/tasks/templates', data),
+  updateTemplate: (code, data) => request.put(`/tasks/templates/${encodeURIComponent(code)}`, data),
   submit: (id) => request.post(`/tasks/${id}/submit`),
   audit: (id, data) => request.post(`/tasks/${id}/audit`, data),
   events: (id) => request.get(`/tasks/${id}/events`),

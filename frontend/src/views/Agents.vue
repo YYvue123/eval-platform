@@ -65,7 +65,7 @@
                 </el-form-item>
                 <el-form-item label="规划模型">
                   <el-select v-model="plannerModelId" clearable filterable placeholder="必选" style="width: 100%">
-                    <el-option v-for="m in plannerModels" :key="m.id" :label="`#${m.id} ${m.name}`" :value="m.id" />
+                    <el-option v-for="m in plannerModels" :key="m.id" :label="m.name" :value="m.id" />
                   </el-select>
                   <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
                 </el-form-item>
@@ -89,13 +89,12 @@
                 <StatusBadge :phase="productPhase" />
                 <el-tag v-if="session.plan?.trial_run" size="small" type="info">试跑</el-tag>
                 <el-tag v-else-if="session.plan?.ready" size="small">正式</el-tag>
-                <span v-if="session.plan?.token_budget != null" class="hint">预算 {{ session.plan.token_budget }}</span>
+                <span v-if="session.plan?.token_budget != null" class="hint">计划预算 {{ session.plan.token_budget }}</span>
                 <span v-if="pollError" class="warn-inline">{{ pollError }}</span>
               </div>
             </div>
             <div class="head-actions">
               <el-button size="small" @click="drawerOpen = true">计划 / 证据</el-button>
-              <el-button size="small" @click="showAdvanced = !showAdvanced">{{ showAdvanced ? '收起高级' : '高级' }}</el-button>
             </div>
           </div>
 
@@ -120,7 +119,7 @@
                 · 模型
                 <strong>{{ modelLabel }}</strong>
               </li>
-              <li>模式：{{ session.plan.trial_run ? '试跑' : '正式' }} · 预算 {{ session.plan.token_budget ?? 0 }}</li>
+              <li>模式：{{ session.plan.trial_run ? '试跑' : '正式' }} · 计划预算 {{ session.plan.token_budget ?? 0 }}</li>
             </ul>
             <el-collapse>
               <el-collapse-item title="技术详情（hash）" name="hash">
@@ -140,59 +139,75 @@
           </el-card>
 
           <!-- 待补充：动态澄清 -->
-          <el-card v-if="productPhase === 'needs_input' || productPhase === 'awaiting_approval'" shadow="never" class="clarify-card">
-            <div class="plan-title">{{ productPhase === 'needs_input' ? '需要补充' : '修改计划（提交后旧审批失效）' }}</div>
-            <el-form label-width="100px" size="small">
-              <el-form-item
-                v-for="c in dynamicClarifications"
-                :key="c.field + c.question"
-                :label="fieldLabel(c.field)"
-              >
-                <div class="clarify-q">{{ c.question }}</div>
-                <ResourcePicker
-                  v-if="c.field === 'dataset_id'"
-                  v-model="clarifyForm.dataset_id"
-                  kind="dataset"
-                  placeholder="搜索数据集"
-                />
-                <ResourcePicker
-                  v-else-if="c.field === 'model_id'"
-                  v-model="clarifyForm.model_id"
-                  kind="model"
-                  placeholder="搜索被测模型"
-                />
-                <el-input-number
-                  v-else-if="c.field === 'token_budget'"
-                  v-model="clarifyForm.token_budget"
-                  :min="0"
-                />
-                <el-switch
-                  v-else-if="c.field === 'trial_run' || (c.field === 'token_budget' && false)"
-                  v-model="clarifyForm.trial_run"
-                />
-                <el-input
-                  v-else-if="c.field === 'objective'"
-                  v-model="goalText"
-                  type="textarea"
-                  :rows="2"
-                />
-                <div v-else class="hint">请在下方选择资源或调整试用开关后提交</div>
-              </el-form-item>
-              <el-form-item label="试用模式">
-                <el-switch v-model="clarifyForm.trial_run" />
-                <span class="hint">开启后按小规模真实样本执行，用量计入同一预算。</span>
-              </el-form-item>
-              <el-form-item v-if="!hasClarifyField('dataset_id')" label="数据集">
-                <ResourcePicker v-model="clarifyForm.dataset_id" kind="dataset" />
-              </el-form-item>
-              <el-form-item v-if="!hasClarifyField('model_id')" label="被测模型">
-                <ResourcePicker v-model="clarifyForm.model_id" kind="model" />
-              </el-form-item>
-            </el-form>
+          <el-card v-if="showClarify" shadow="never" class="clarify-card">
+            <div class="plan-title">{{ clarifyTitle }}</div>
+            <div v-if="productPhase === 'budget_paused'" class="budget-box">
+              <p class="clarify-q">
+                这次运行已经用了 <strong>{{ run?.tokens_used || 0 }}</strong> token，限额是
+                <strong>{{ run?.token_budget || '未限额' }}</strong>，所以停在预算不足。
+                把下面的新预算调大，再点「用新预算重新运行」。执行记录会换成一次新运行；原来这次不会原地继续。
+              </p>
+              <div class="clarify-label">新的运行预算</div>
+              <el-input-number v-model="clarifyForm.token_budget" :min="0" controls-position="right" />
+            </div>
+            <p v-else class="clarify-lead">每一项单独占一行。提交后计划摘要里的数字会变，旧审批作废，需要重新审批。</p>
+            <div
+              v-for="c in editableClarifications"
+              :key="c.field + c.question"
+              class="clarify-block"
+            >
+              <div class="clarify-label">{{ fieldLabel(c.field) }}</div>
+              <p class="clarify-q">{{ c.question }}</p>
+              <ResourcePicker
+                v-if="c.field === 'dataset_id'"
+                v-model="clarifyForm.dataset_id"
+                kind="dataset"
+                placeholder="搜索数据集"
+              />
+              <ResourcePicker
+                v-else-if="c.field === 'model_id'"
+                v-model="clarifyForm.model_id"
+                kind="model"
+                placeholder="搜索被测模型"
+              />
+              <el-input-number
+                v-else-if="c.field === 'token_budget'"
+                v-model="clarifyForm.token_budget"
+                :min="0"
+                controls-position="right"
+              />
+              <el-input
+                v-else-if="c.field === 'objective'"
+                v-model="goalText"
+                type="textarea"
+                :rows="2"
+              />
+            </div>
+            <el-alert
+              v-for="(g, i) in resourceGapTexts"
+              :key="'gap-' + i"
+              class="gap-alert"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="g"
+            />
+            <div class="clarify-block">
+              <div class="clarify-label">试用模式</div>
+              <p class="clarify-q">开启后按小规模真实样本执行，用量计入同一预算。正式评测需要正数 Token 预算，并满足数据和模型门禁。</p>
+              <el-switch v-model="clarifyForm.trial_run" />
+            </div>
+            <div v-if="!hasClarifyField('dataset_id')" class="clarify-block">
+              <div class="clarify-label">数据集</div>
+              <ResourcePicker v-model="clarifyForm.dataset_id" kind="dataset" placeholder="搜索数据集" />
+            </div>
+            <div v-if="!hasClarifyField('model_id')" class="clarify-block">
+              <div class="clarify-label">被测模型</div>
+              <ResourcePicker v-model="clarifyForm.model_id" kind="model" placeholder="搜索被测模型" />
+            </div>
           </el-card>
 
-          <!-- 主动作条 -->
-          <div class="primary-bar">
+          <div class="action-dock">
             <el-button
               v-if="primaryAction"
               type="primary"
@@ -207,8 +222,83 @@
               :disabled="a.disabled"
               @click="a.run"
             >{{ a.label }}</el-button>
-            <span v-if="primaryHint" class="hint">{{ primaryHint }}</span>
+            <el-button @click="toggleAdvanced">{{ showAdvanced ? '收起高级' : '高级' }}</el-button>
+            <span v-if="primaryHint" class="dock-hint">{{ primaryHint }}</span>
           </div>
+
+          <el-card v-if="showAdvanced" shadow="never" class="adv-card">
+            <el-tabs>
+              <el-tab-pane label="Runtime">
+                <el-form label-width="100px" size="small">
+                  <el-form-item label="规划模型">
+                    <el-select v-model="plannerModelId" clearable filterable placeholder="必选" style="width: 100%">
+                      <el-option v-for="m in plannerModels" :key="m.id" :label="m.name" :value="m.id" />
+                    </el-select>
+                    <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
+                  </el-form-item>
+                </el-form>
+                <el-button
+                  v-if="userStore.hasPermission('agent:invoke')"
+                  :loading="runLoading"
+                  :disabled="!plannerModelId"
+                  @click="startRuntime"
+                >启动 Runtime 工具循环</el-button>
+                <el-button
+                  v-if="run && userStore.hasPermission('agent:invoke') && !['success','cancelled','paused_budget'].includes(run.status)"
+                  :loading="cancelLoading"
+                  @click="cancelRuntime"
+                >{{ cancelLoading ? '取消中…' : '取消 run' }}</el-button>
+                <el-button
+                  v-if="run && userStore.hasPermission('agent:invoke') && ['waiting','failed','queued'].includes(run.status)"
+                  type="primary"
+                  :loading="resumeLoading"
+                  @click="resumeRuntime"
+                >从 checkpoint 恢复</el-button>
+              </el-tab-pane>
+              <el-tab-pane label="知识候选">
+                <p class="empty-note">这里是待人工审核的经验条目。诊断或人工提交之后才会出现，不会在每次生成计划时自动填上。</p>
+                <el-button size="small" @click="loadCandidates">刷新</el-button>
+                <el-table :data="candidates" size="small" style="margin-top: 8px">
+                  <el-table-column prop="id" label="#" width="50" />
+                  <el-table-column prop="title" label="候选" show-overflow-tooltip />
+                  <el-table-column prop="status" label="状态" width="80" />
+                  <el-table-column width="90">
+                    <template #default="{ row }">
+                      <el-button
+                        v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
+                        link
+                        type="primary"
+                        @click="reviewCand(row, true)"
+                      >通过</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-tab-pane>
+              <el-tab-pane label="子任务 / 建议">
+                <p class="empty-note">会话关联评测任务后，点操作条里的「按需协作」，这里才会出现监控、诊断或评审子任务。没有关联任务时保持为空。</p>
+                <el-table v-if="delegations.length" :data="delegations" size="small">
+                  <el-table-column prop="id" label="子任务" width="70" />
+                  <el-table-column prop="role" label="角色" width="100" />
+                  <el-table-column prop="status" label="状态" width="90" />
+                </el-table>
+                <p v-if="!delegations.length && !(session.suggestions || []).length" class="empty-note">当前没有子任务，也没有待采纳建议。</p>
+                <el-table v-if="session.suggestions?.length" :data="session.suggestions" size="small" style="margin-top: 8px">
+                  <el-table-column prop="action" label="建议" width="120" />
+                  <el-table-column prop="reason" label="原因" />
+                  <el-table-column width="100">
+                    <template #default="{ row }">
+                      <el-button
+                        v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
+                        link
+                        type="primary"
+                        @click="act(row, true)"
+                      >采纳</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-tab-pane>
+            </el-tabs>
+          </el-card>
 
           <!-- 执行时间线 / 结果 -->
           <el-card v-if="run" shadow="never" class="run-card">
@@ -241,78 +331,6 @@
             <el-button type="primary" link @click="$router.push(`/tasks/${session.task_id}`)">查看任务 / 报告</el-button>
             <el-button link @click="startNew">基于此目标新建</el-button>
           </el-card>
-
-          <!-- 高级：Runtime / 知识 / 委派 -->
-          <el-card v-if="showAdvanced" shadow="never" class="adv-card">
-            <el-tabs>
-              <el-tab-pane label="Runtime">
-                <el-form label-width="100px" size="small">
-                  <el-form-item label="规划模型">
-                    <el-select v-model="plannerModelId" clearable filterable placeholder="必选" style="width: 100%">
-                      <el-option v-for="m in plannerModels" :key="m.id" :label="`#${m.id} ${m.name}`" :value="m.id" />
-                    </el-select>
-                    <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
-                  </el-form-item>
-                </el-form>
-                <el-button
-                  v-if="userStore.hasPermission('agent:invoke')"
-                  :loading="runLoading"
-                  :disabled="!plannerModelId"
-                  @click="startRuntime"
-                >启动 Runtime 工具循环</el-button>
-                <el-button
-                  v-if="run && userStore.hasPermission('agent:invoke') && !['success','cancelled'].includes(run.status)"
-                  :loading="cancelLoading"
-                  @click="cancelRuntime"
-                >{{ cancelLoading ? '取消中…' : '取消 run' }}</el-button>
-                <el-button
-                  v-if="run && userStore.hasPermission('agent:invoke') && ['waiting','failed','queued'].includes(run.status)"
-                  type="primary"
-                  :loading="resumeLoading"
-                  @click="resumeRuntime"
-                >从 checkpoint 恢复</el-button>
-              </el-tab-pane>
-              <el-tab-pane label="知识候选">
-                <el-button size="small" @click="loadCandidates">刷新</el-button>
-                <el-table :data="candidates" size="small" style="margin-top: 8px">
-                  <el-table-column prop="id" label="#" width="50" />
-                  <el-table-column prop="title" label="候选" show-overflow-tooltip />
-                  <el-table-column prop="status" label="状态" width="80" />
-                  <el-table-column width="90">
-                    <template #default="{ row }">
-                      <el-button
-                        v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
-                        link
-                        type="primary"
-                        @click="reviewCand(row, true)"
-                      >通过</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </el-tab-pane>
-              <el-tab-pane label="子任务 / 建议">
-                <el-table v-if="delegations.length" :data="delegations" size="small">
-                  <el-table-column prop="id" label="子任务" width="70" />
-                  <el-table-column prop="role" label="角色" width="100" />
-                  <el-table-column prop="status" label="状态" width="90" />
-                </el-table>
-                <el-table v-if="session.suggestions?.length" :data="session.suggestions" size="small" style="margin-top: 8px">
-                  <el-table-column prop="action" label="建议" width="120" />
-                  <el-table-column prop="reason" label="原因" />
-                  <el-table-column width="100">
-                    <template #default="{ row }">
-                      <el-button
-                        v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
-                        link
-                        type="primary"
-                        @click="act(row, true)"
-                      >采纳</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </el-tab-pane>
-            </el-tabs>
-          </el-card>
         </template>
       </main>
     </div>
@@ -334,7 +352,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { agentsApi, modelsApi } from '@/api'
@@ -389,6 +407,22 @@ const pollInFlight = ref(false)
 let pendingConfirmInvocationId = ''
 
 const dynamicClarifications = computed(() => session.value?.plan?.clarifications || [])
+const editableClarifications = computed(() => dynamicClarifications.value.filter((c) => {
+  if (c.field === 'resource') return false
+  if (productPhase.value === 'budget_paused' && c.field === 'token_budget') return false
+  return true
+}))
+const resourceGapTexts = computed(() => {
+  const fromPlan = session.value?.plan?.resource_gaps || []
+  const fromClarify = dynamicClarifications.value.filter((c) => c.field === 'resource').map((c) => c.question)
+  return [...new Set([...fromPlan, ...fromClarify].filter(Boolean))]
+})
+const showClarify = computed(() => ['needs_input', 'awaiting_approval', 'planning', 'budget_paused'].includes(productPhase.value))
+const clarifyTitle = computed(() => {
+  if (productPhase.value === 'awaiting_approval') return '修改计划（提交后旧审批失效）'
+  if (productPhase.value === 'budget_paused') return '预算已暂停，请调整后再提交'
+  return '需要补充'
+})
 
 function hasClarifyField(field) {
   return dynamicClarifications.value.some((c) => c.field === field)
@@ -467,7 +501,12 @@ const productPhase = computed(() => {
     if (TASK_DONE.includes(ts)) return 'report_pending'
     if (!ts) return 'running'
   }
-  if (r?.status === 'success' && !s.task_id) return 'completed'
+  if (r?.status === 'success' && !s.task_id) {
+    if (activeApproval.value) return 'approved'
+    if (s.plan?.ready && (s.status === 'waiting_confirm' || s.status === 'approved')) return 'awaiting_approval'
+    if (!s.plan?.ready || (s.plan?.clarifications || []).length) return 'needs_input'
+    return 'completed'
+  }
   if (activeApproval.value) return 'approved'
   if (s.plan?.ready && s.status === 'waiting_confirm') return 'awaiting_approval'
   if (s.status === 'approved') return 'approved'
@@ -486,23 +525,33 @@ const runPhase = computed(() => {
 })
 
 const primaryAction = computed(() => {
+  if (!currentId.value) return null
   const p = productPhase.value
-  if (p === 'needs_input') return { key: 'clarify', label: '补充并更新计划' }
+  if (p === 'needs_input' || p === 'planning') return { key: 'clarify', label: '补充并更新计划' }
   if (p === 'awaiting_approval') return { key: 'approve', label: '审批计划' }
   if (p === 'approved') return { key: 'confirm', label: '确认并执行' }
-  if (p === 'running') return { key: 'view_task', label: '查看任务' }
-  if (p === 'failed' && run.value) return { key: 'resume', label: '安全恢复' }
-  if (p === 'cancelled') return null
-  if (p === 'budget_paused') return null
+  if (p === 'running') {
+    return session.value?.task_id
+      ? { key: 'view_task', label: '查看任务' }
+      : { key: 'noop', label: '执行中', disabled: true }
+  }
+  if (p === 'failed') {
+    if (run.value && ['waiting', 'failed', 'queued'].includes(run.value.status)) return { key: 'resume', label: '安全恢复' }
+    if (session.value?.task_id) return { key: 'view_task', label: '查看失败任务' }
+    return { key: 'clarify', label: '修改计划' }
+  }
+  if (p === 'cancelled') return { key: 'restart', label: '基于此目标新建' }
+  if (p === 'budget_paused') return { key: 'raise_budget', label: '用新预算重新运行' }
   if (p === 'report_pending') return { key: 'view_task', label: '查看任务' }
   if (p === 'completed' && session.value?.report_status === 'available') return { key: 'report', label: '查看报告' }
   if (p === 'completed' && session.value?.task_id) return { key: 'view_task', label: '查看任务' }
-  return null
+  if (p === 'completed') return { key: 'restart', label: '基于此目标新建' }
+  return { key: 'clarify', label: '更新计划' }
 })
 
 const primaryLoading = computed(() => {
   const k = primaryAction.value?.key
-  if (k === 'clarify') return clarifying.value
+  if (k === 'clarify' || k === 'raise_budget') return clarifying.value || runLoading.value
   if (k === 'approve') return approving.value
   if (k === 'confirm') return confirming.value
   if (k === 'resume') return resumeLoading.value
@@ -510,17 +559,23 @@ const primaryLoading = computed(() => {
 })
 
 const primaryDisabled = computed(() => {
+  if (primaryAction.value?.disabled) return true
   const k = primaryAction.value?.key
   if (k === 'approve' && !userStore.hasPermission('agent:confirm')) return true
   if (k === 'confirm' && (!userStore.hasPermission('agent:confirm') || !activeApproval.value)) return true
-  if (k === 'clarify' && !userStore.hasPermission('agent:invoke')) return true
+  if ((k === 'clarify' || k === 'raise_budget') && !userStore.hasPermission('agent:invoke')) return true
   return false
 })
 
 const primaryHint = computed(() => {
-  if (productPhase.value === 'approved' && !activeApproval.value) return '审批已失效，请重新签发'
-  if (productPhase.value === 'budget_paused') return '请提高预算后新建 run（后端不支持就地调额）'
-  if (primaryAction.value?.key === 'resume' && !['waiting', 'failed', 'queued'].includes(run.value?.status)) {
+  const p = productPhase.value
+  if (p === 'approved' && !activeApproval.value) return '审批已失效，请重新签发后再执行。'
+  if (p === 'budget_paused') return '新预算必须大于这次已用 token。确认后会重新启动一次运行，执行记录换成新的 run。'
+  if (p === 'needs_input' || p === 'planning') return '补全缺项后点「补充并更新计划」。计划就绪后，主按钮会变成「审批计划」。'
+  if (p === 'awaiting_approval') return '核对数据集、模型和预算后审批。若要改配置，点「保存计划修改」，旧审批会失效。'
+  if (p === 'cancelled') return '本次运行已取消，可以基于同一目标新建会话。'
+  if (p === 'running' && !session.value?.task_id) return '工具循环还在执行，评测任务尚未创建。'
+  if (primaryAction.value?.key === 'resume' && run.value && !['waiting', 'failed', 'queued'].includes(run.value.status)) {
     return '当前状态不可恢复'
   }
   return ''
@@ -554,6 +609,17 @@ const secondaryActions = computed(() => {
   return list
 })
 
+function toggleAdvanced() {
+  showAdvanced.value = !showAdvanced.value
+  if (showAdvanced.value) {
+    loadCandidates().catch(() => {})
+    if (currentId.value && session.value?.task_id) loadDelegations().catch(() => {})
+    nextTick(() => {
+      document.querySelector('.adv-card')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+  }
+}
+
 async function runPrimary() {
   const k = primaryAction.value?.key
   if (k === 'clarify') return clarify()
@@ -564,6 +630,8 @@ async function runPrimary() {
     return
   }
   if (k === 'resume') return resumeRuntime()
+  if (k === 'restart') return startNew()
+  if (k === 'raise_budget') return raiseBudgetAndRerun()
 }
 
 function stopPoll() {
@@ -696,6 +764,7 @@ async function loadSession() {
     if (data.task_id) await loadDelegations(sid, gen)
     const runId = data.active_run_id || data.last_run_id
     if (runId) await loadRun(runId, sid, gen)
+    if (gen === sessionGen && currentId.value === sid) applyPausedBudgetDefault()
   } catch (e) {
     if (gen === sessionGen) ElMessage.error(e?.response?.data?.detail || e?.message || '加载会话失败')
   } finally {
@@ -746,7 +815,13 @@ async function clarify() {
     if (clarifyForm.value.model_id) payload.model_id = clarifyForm.value.model_id
     await agentsApi.clarify(currentId.value, payload)
     pendingConfirmInvocationId = ''
-    ElMessage.success('计划已更新（旧审批失效）')
+    const prev = Number(session.value?.plan?.token_budget || 0)
+    const next = Number(clarifyForm.value.token_budget || 0)
+    ElMessage.success(
+      prev !== next
+        ? `计划预算已从 ${prev} 改为 ${next}。配置已变，之前的审批作废，需要重新审批后才能执行评测任务。`
+        : '计划已按当前选项重新保存。配置若有变化，之前的审批会作废。',
+    )
     await loadSession()
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || e?.message || '澄清失败')
@@ -895,7 +970,63 @@ function schedulePoll() {
   pollTimer = setTimeout(tick, 2000)
 }
 
-async function startRuntime() {
+function applyPausedBudgetDefault() {
+  if (run.value?.status !== 'paused_budget') return
+  const used = Number(run.value.tokens_used || 0)
+  const cap = Number(run.value.token_budget || 0)
+  const floor = Math.max(used, cap)
+  if (Number(clarifyForm.value.token_budget || 0) <= floor) {
+    clarifyForm.value.token_budget = floor + 2000
+  }
+  if (!plannerModelId.value && run.value.planner_model_id) {
+    plannerModelId.value = run.value.planner_model_id
+  }
+}
+
+async function raiseBudgetAndRerun() {
+  const used = Number(run.value?.tokens_used || 0)
+  const oldCap = Number(run.value?.token_budget || 0)
+  const next = Number(clarifyForm.value.token_budget || 0)
+  const floor = Math.max(used, oldCap)
+  if (next <= floor) {
+    ElMessage.warning(`新预算需要大于 ${floor}。这次已用 ${used}，原限额 ${oldCap || '未限额'}。`)
+    return
+  }
+  if (!plannerModelId.value && run.value?.planner_model_id) {
+    plannerModelId.value = run.value.planner_model_id
+  }
+  if (!plannerModelId.value) {
+    showAdvanced.value = true
+    ElMessage.warning('请在按钮下方的高级面板里选择规划模型')
+    return
+  }
+  clarifying.value = true
+  const prevPlan = Number(session.value?.plan?.token_budget || 0)
+  try {
+    const payload = {
+      objective: goalText.value || session.value.requirement,
+      trial_run: clarifyForm.value.trial_run,
+      token_budget: next,
+    }
+    if (clarifyForm.value.dataset_id) payload.dataset_id = clarifyForm.value.dataset_id
+    if (clarifyForm.value.model_id) payload.model_id = clarifyForm.value.model_id
+    await agentsApi.clarify(currentId.value, payload)
+    tokenBudget.value = next
+    await launchRuntime({ quiet: true, budget: next })
+    ElMessage.success(`运行限额已从 ${oldCap || '未限额'} 提高到 ${next}，计划预算从 ${prevPlan} 改为 ${next}。下方执行记录已换成新的运行。`)
+  } catch (e) {
+    await loadSession().catch(() => {})
+    ElMessage.error(e?.response?.data?.detail || e?.message || '调整预算失败')
+  } finally {
+    clarifying.value = false
+  }
+}
+
+function startRuntime() {
+  return launchRuntime({}).catch(() => {})
+}
+
+async function launchRuntime({ quiet = false, budget = null } = {}) {
   if (!currentId.value || !plannerModelId.value) {
     ElMessage.warning('请选择已配置 api_url 的规划模型')
     return
@@ -903,11 +1034,13 @@ async function startRuntime() {
   runLoading.value = true
   const sid = currentId.value
   const gen = sessionGen
+  const nextBudget = budget == null ? Number(clarifyForm.value.token_budget || tokenBudget.value || 0) : Number(budget)
   try {
     const data = await agentsApi.startRun(sid, {
       message: goalText.value || session.value.requirement,
       provider: 'live',
       planner_model_id: plannerModelId.value,
+      token_budget: nextBudget,
       sync: true,
       max_rounds: 8,
     })
@@ -918,9 +1051,10 @@ async function startRuntime() {
     eventCursor = 0
     await refreshRun()
     await loadSession()
-    ElMessage.success(`run ${run.value?.status}`)
+    if (!quiet) ElMessage.success(`已启动运行，状态 ${run.value?.status || data.status}，预算 ${nextBudget || '未限额'}`)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || e?.message || 'Runtime 失败')
+    if (!quiet) ElMessage.error(e?.response?.data?.detail || e?.message || 'Runtime 失败')
+    throw e
   } finally {
     runLoading.value = false
   }
@@ -1027,8 +1161,39 @@ onUnmounted(() => {
 .msg b { margin-right: 8px; }
 .plan-title { font-weight: 600; margin-bottom: 8px; }
 .plan-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
-.clarify-q { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.primary-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.clarify-lead { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.clarify-block { margin-bottom: 14px; }
+.clarify-label { font-size: 14px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; color: var(--text-primary, #0f172a); }
+.clarify-q { font-size: 13px; line-height: 1.5; color: var(--text-secondary); margin: 0 0 8px; }
+.clarify-block :deep(.el-input-number),
+.clarify-block :deep(.el-select),
+.clarify-block :deep(.resource-picker) { width: 100%; max-width: 520px; }
+.gap-alert { margin-bottom: 12px; }
+.budget-box {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+}
+.budget-box :deep(.el-input-number) { width: 220px; }
+.action-dock {
+  position: sticky;
+  bottom: 8px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+.dock-hint { flex: 1 1 220px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.empty-note { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .timeline { max-height: 280px; overflow: auto; margin-top: 8px; }
 .payload { font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
 .hint { font-size: 12px; color: var(--text-secondary); }

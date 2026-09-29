@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">评测服务</h2>
-        <p class="page-desc">报价版本快照 → 审批执行 → 有报告才可交付（幂等结算）→ 影子灰度四门禁后转正/回滚。</p>
+        <p class="page-desc">内部评测委托：提交需求并报价，确认后执行，有报告才能交付。不是给平台外第三方直接调用的接口。</p>
       </div>
       <el-button v-if="userStore.hasPermission('service:create')" type="primary" @click="openCreate">提交需求</el-button>
     </div>

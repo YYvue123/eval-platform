@@ -72,7 +72,7 @@ function mapDataset(d) {
   const unusable = status === 'deleted'
   return {
     id: d.id,
-    label: `#${d.id} ${d.name || '未命名'}`,
+    label: d.name || '未命名数据集',
     hint: [status, d.domain_type || d.scene].filter(Boolean).join(' · '),
     disabled: unusable,
     raw: d,
@@ -84,7 +84,7 @@ function mapModel(m) {
   const disabled = props.requireApiUrl ? !hasUrl : m.status === 'deleted'
   return {
     id: m.id,
-    label: `#${m.id} ${m.name || '未命名'}`,
+    label: m.name || '未命名模型',
     hint: [m.provider, hasUrl ? '已配置连接' : '未配置 api_url', m.health_status || m.status]
       .filter(Boolean)
       .join(' · '),
