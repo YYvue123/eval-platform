@@ -515,7 +515,7 @@ async def create_skill(db: AsyncSession, actor, body: dict) -> OrchestrationSkil
     code = (body.get("code") or "").strip()
     name = (body.get("name") or "").strip()
     trigger = "context"
-    execution = (body.get("execution_type") or "prompt_template").strip()
+    execution = _custom_execution(body.get("execution_type"))
     entry = (body.get("entry_point") or "").strip()
     if not SKILL_RE.match(code):
         raise HTTPException(400, "Skill 标识不合法")
@@ -523,8 +523,6 @@ async def create_skill(db: AsyncSession, actor, body: dict) -> OrchestrationSkil
         raise HTTPException(400, "不能覆盖内置编排 Skill")
     if trigger not in TRIGGER_TYPES:
         raise HTTPException(400, "触发类型不合法")
-    if execution not in EXECUTION_TYPES:
-        raise HTTPException(400, "执行方式不合法")
     if not name or not entry:
         raise HTTPException(400, "请填写名称和执行入口")
     exists = await db.scalar(select(OrchestrationSkill).where(OrchestrationSkill.code == code))
@@ -640,12 +638,19 @@ async def delete_definition(db: AsyncSession, actor, role: str) -> dict:
     return {"deleted": True, "role": role}
 
 
-def _fill_skill(row: OrchestrationSkill, body: dict) -> None:
+def _custom_execution(value, origin: dict | None = None) -> str:
+    execution = (value or "prompt_template").strip()
+    if execution == "prompt_template":
+        return execution
+    if origin and execution == (origin.get("execution_type") or "prompt_template"):
+        return execution
+    raise HTTPException(400, "编排 Skill 的执行方式只支持提示词模板")
+
+
+def _fill_skill(row: OrchestrationSkill, body: dict, origin: dict | None = None) -> None:
     name = (body.get("name") or "").strip()
-    execution = (body.get("execution_type") or "prompt_template").strip()
+    execution = _custom_execution(body.get("execution_type"), origin)
     entry = (body.get("entry_point") or "").strip()
-    if execution not in EXECUTION_TYPES:
-        raise HTTPException(400, "执行方式不合法")
     if not name or not entry:
         raise HTTPException(400, "请填写名称和执行入口")
     row.name = name[:80]
@@ -668,7 +673,7 @@ async def update_skill(db: AsyncSession, actor, code: str, body: dict) -> dict:
     if row is None:
         row = OrchestrationSkill(code=code, tenant_id=actor.tenant_id, creator_id=actor.user_id, builtin=False)
         db.add(row)
-    _fill_skill(row, body)
+    _fill_skill(row, body, origin)
     await db.flush()
     return _skill_out(row)
 

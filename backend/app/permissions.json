@@ -1,5 +1,10 @@
 {
   "permissions": [
+    {"resource": "service", "action": "workspace", "name": "企业工作空间管理"},
+    {"resource": "service", "action": "credential", "name": "接入密钥管理"},
+    {"resource": "service", "action": "publish", "name": "模型服务版本发布"},
+    {"resource": "service", "action": "run", "name": "客户评测执行"},
+    {"resource": "service", "action": "admit", "name": "客户开通与配额定价"},
     {"resource": "dashboard", "action": "view", "name": "工作台查看"},
     {"resource": "user", "action": "list", "name": "用户列表"},
     {"resource": "user", "action": "view", "name": "用户详情"},

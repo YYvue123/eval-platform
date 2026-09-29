@@ -37,6 +37,8 @@ def _admin_permissions():
 
 
 RESEARCHER_PERMISSIONS = [
+    # Service credentials, tenant membership and tariff administration are not
+    # granted to internal researchers; external customers use their own role.
     "dashboard:view",
     "notification:view_mine",
     "dataset:list", "dataset:view", "dataset:create", "dataset:edit", "dataset:export", "dataset:export_sensitive",
@@ -52,6 +54,7 @@ RESEARCHER_PERMISSIONS = [
 ]
 
 VIEWER_PERMISSIONS = [
+    # Read-only service access; no external-client management permissions.
     "dashboard:view",
     "notification:view_mine",
     "dataset:list", "dataset:view",
@@ -68,8 +71,16 @@ VIEWER_PERMISSIONS = [
 
 USER_SELF_PERMISSIONS = ["user:view"]
 
+# External customers never inherit platform research, operations or administration roles.
+CUSTOMER_PERMISSIONS = [
+    "service:list", "service:view", "service:create", "service:run",
+    "service:workspace", "service:credential", "service:publish", "user:view",
+]
+
 
 async def get_user_permissions(db: AsyncSession, user: User) -> set[str]:
+    if getattr(user, "role", None) == "customer":
+        return set(CUSTOMER_PERMISSIONS)
     if getattr(user, "role", None) == "admin":
         return set(_admin_permissions())
     role = None
@@ -101,6 +112,8 @@ def get_role_code(user: User) -> str:
 
 
 async def get_user_data_scope(db: AsyncSession, user: User) -> str:
+    if getattr(user, "role", None) == "customer":
+        return "shared"
     if getattr(user, "role", None) == "admin":
         return "all"
     role = None

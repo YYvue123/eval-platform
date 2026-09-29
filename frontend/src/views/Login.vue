@@ -102,6 +102,7 @@ async function handleSubmit() {
     loading.value = true
     const res = await authApi.login(form)
     userStore.setAuth(res.access_token, res.username, res.role || 'viewer', form.rememberMe)
+    await userStore.fetchUserInfo()
     ElMessage.success('登录成功')
     const redirect = route.query.redirect
     if (typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')) {

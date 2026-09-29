@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.service_portal import ServiceClient, ServiceRoute, ServiceRelease, ServiceCall, ServiceGatewayAudit
 from app.models.tenant import Tenant, TenantMembership
 from app.models.notification import Notification, NotificationRead
 from app.models.role import Role, Permission

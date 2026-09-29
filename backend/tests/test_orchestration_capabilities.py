@@ -302,6 +302,7 @@ class MainProfileTest(unittest.TestCase):
         with TestClient(app) as client:
             login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
             headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+            client.delete("/api/agents/definitions/coverage_checker", headers=headers)
             created = client.post(
                 "/api/agents/definitions",
                 headers=headers,
@@ -315,6 +316,18 @@ class MainProfileTest(unittest.TestCase):
                 },
             )
             self.assertEqual(created.status_code, 200, created.text)
+            restored = client.put(
+                "/api/agents/skills/similar_case",
+                headers=headers,
+                json={
+                    "code": "similar_case",
+                    "name": "相似案例",
+                    "execution_type": "workflow",
+                    "entry_point": "knowledge.search",
+                    "enabled": True,
+                },
+            )
+            self.assertEqual(restored.status_code, 200, restored.text)
             updated = client.put(
                 "/api/agents/definitions/coverage_checker",
                 headers=headers,
@@ -347,6 +360,17 @@ class MainProfileTest(unittest.TestCase):
             )
             self.assertEqual(skill.status_code, 200, skill.text)
             self.assertEqual(skill.json()["entry_point"], "只列缺口。")
+            rejected = client.post(
+                "/api/agents/skills",
+                headers=headers,
+                json={
+                    "code": "workflow_skill",
+                    "name": "工作流技能",
+                    "execution_type": "workflow",
+                    "entry_point": "knowledge.search",
+                },
+            )
+            self.assertEqual(rejected.status_code, 400, rejected.text)
             hidden = client.delete("/api/agents/skills/similar_case", headers=headers)
             self.assertEqual(hidden.status_code, 200, hidden.text)
             self.assertFalse(hidden.json()["enabled"])

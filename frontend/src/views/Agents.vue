@@ -652,13 +652,9 @@
         <el-form-item label="标识"><el-input v-model="customSkill.code" :disabled="editingSkill" placeholder="如 weekly_report" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="customSkill.name" /></el-form-item>
         <el-form-item label="执行方式">
-          <el-select v-model="customSkill.execution_type" style="width: 100%">
-            <el-option label="提示词模板" value="prompt_template" />
-            <el-option label="工作流" value="workflow" />
-            <el-option label="转交子 Agent" value="agent" />
-          </el-select>
+          <span>提示词模板</span>
         </el-form-item>
-        <el-form-item label="入口"><el-input v-model="customSkill.entry_point" type="textarea" :rows="3" placeholder="提示词，或 knowledge.search" /></el-form-item>
+        <el-form-item label="提示词"><el-input v-model="customSkill.entry_point" type="textarea" :rows="4" placeholder="写给主 Agent 的提示约束" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCustomSkill = false">取消</el-button>
@@ -1493,7 +1489,7 @@ function openSkillEditor(row) {
       code: row.code,
       name: row.name,
       description: row.description || '',
-      execution_type: row.execution_type || 'prompt_template',
+      execution_type: 'prompt_template',
       entry_point: row.entry_point || '',
       enabled: row.enabled !== false,
     }
@@ -1543,7 +1539,7 @@ async function restoreAgent(row) {
 async function submitCustomSkill() {
   savingCustom.value = true
   try {
-    const payload = { ...customSkill.value }
+    const payload = { ...customSkill.value, execution_type: 'prompt_template' }
     const created = editingSkill.value
       ? await agentsApi.updateSkill(payload.code, payload)
       : await agentsApi.createSkill(payload)

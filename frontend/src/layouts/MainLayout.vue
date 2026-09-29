@@ -1,9 +1,9 @@
 <template>
-  <el-container class="main-layout">
+  <el-container class="main-layout" :class="{ 'customer-layout': isCustomer }">
     <el-aside :width="asideWidth" class="aside">
       <div class="logo">
         <el-icon><Cpu /></el-icon>
-        <span v-show="!collapsed">评测平台</span>
+        <span v-show="!collapsed">{{ isCustomer ? '企业评测服务' : '评测平台' }}</span>
       </div>
       <div class="menu-scroll">
       <el-menu
@@ -40,7 +40,7 @@
       <el-header class="header">
         <div class="header-left">
           <el-tooltip :content="collapsed ? '展开菜单' : '收起菜单'" placement="bottom">
-            <el-button :icon="collapsed ? Expand : Fold" circle size="small" @click="toggleCollapsed" />
+            <el-button class="menu-toggle" :icon="collapsed ? Expand : Fold" circle size="small" @click="toggleCollapsed" />
           </el-tooltip>
           <el-breadcrumb v-if="breadcrumbs.length" class="breadcrumb" separator="/">
             <el-breadcrumb-item v-for="(item, i) in breadcrumbs" :key="`${item.path}-${i}`">
@@ -53,8 +53,9 @@
           <el-tooltip :content="themeStore.isDark ? '切换亮色' : '切换暗色'" placement="bottom">
             <el-button :icon="themeStore.isDark ? Sunny : Moon" circle size="small" @click="themeStore.toggle" />
           </el-tooltip>
-          <NotificationCenter />
+          <NotificationCenter v-if="userStore.hasPermission('notification:view_mine')" />
           <el-tag v-if="userStore.isAdmin()" type="danger" size="small">管理员</el-tag>
+          <el-tag v-else-if="isCustomer" type="success" size="small">企业客户</el-tag>
           <el-tag v-else-if="userStore.roleCode === 'researcher'" type="success" size="small">评测人员</el-tag>
           <el-tag v-else type="info" size="small">访客</el-tag>
           <el-dropdown trigger="click" class="user-dropdown" @command="handleUserCommand">
@@ -110,6 +111,7 @@ const userStore = useUserStore()
 const themeStore = useThemeStore()
 const router = useRouter()
 const route = useRoute()
+const isCustomer = computed(() => userStore.roleCode === 'customer')
 
 const COLLAPSE_KEY = 'llm_sidebar_collapsed'
 const menuRef = ref()
@@ -126,6 +128,7 @@ const visibleMenuGroups = computed(() =>
   MENU_GROUPS
     .map((group) => ({
       ...group,
+      flat: isCustomer.value ? true : group.flat,
       children: group.children.filter((item) =>
         canSeeMenuItem(userStore.hasPermission, userStore.hasAnyPermission, item)
       )
@@ -139,11 +142,13 @@ const activeMenu = computed(() => {
 })
 
 const openedMenus = computed(() => {
+  if (isCustomer.value) return []
   const ctx = findMenuContext(route.path)
   return ctx ? [ctx.group.index] : []
 })
 
 const breadcrumbs = computed(() => {
+  if (isCustomer.value) return [{ title: route.meta?.title || '企业评测服务', path: route.path }]
   const ctx = findMenuContext(route.path)
   if (ctx) {
     const crumbs = []
@@ -170,7 +175,7 @@ watch(
   () => [route.path, visibleMenuGroups.value.length],
   () => {
     const ctx = findMenuContext(route.path)
-    if (ctx && !ctx.group.flat && menuRef.value?.open) {
+    if (!isCustomer.value && ctx && !ctx.group.flat && menuRef.value?.open) {
       menuRef.value.open(ctx.group.index)
     }
   },
@@ -190,6 +195,14 @@ function handleUserCommand(cmd) {
 <style scoped>
 .main-layout {
   height: 100vh;
+}
+.customer-layout > .el-container { min-width: 0; }
+@media (max-width: 700px) {
+  .customer-layout .aside, .customer-layout .menu-toggle { display: none; }
+  .customer-layout .header { padding: 0 14px; }
+  .customer-layout .header-right { gap: 8px; }
+  .customer-layout .username { display: none; }
+  .customer-layout .main { padding: 14px; }
 }
 .aside {
   background: var(--bg-sidebar);

@@ -258,3 +258,29 @@ export const opsApi = {
   report: () => request.get('/ops/report'),
   policy: () => request.get('/ops/policy')
 }
+
+export const servicePortalApi = {
+  workspaces: () => request.get('/service-portal/workspaces'),
+  createWorkspace: (data) => request.post('/service-portal/workspaces', data),
+  members: () => request.get('/service-portal/members'),
+  createMember: (data) => request.post('/service-portal/members', data),
+  onboard: (data) => request.post('/service-portal/customers', data),
+  grant: (data) => request.post('/service-portal/assets/grants', data),
+  clients: (workspace_id) => request.get('/service-portal/clients', { params: { workspace_id } }),
+  createClient: (data) => request.post('/service-portal/clients', data),
+  revoke: (id) => request.post(`/service-portal/clients/${id}/revoke`),
+  quota: (id, data) => request.put(`/service-portal/clients/${id}/quota`, data),
+  assets: () => request.get('/service-portal/assets'),
+  gatewayAudit: (workspace_id, page) => request.get('/service-portal/gateway-audit', { params: { workspace_id, page } }),
+  endpoint: (id, data) => request.post(`/service-portal/routes/${id}/endpoints`, data),
+  routes: (workspace_id) => request.get('/service-portal/routes', { params: { workspace_id } }),
+  register: (data) => request.post('/service-portal/routes', data),
+  version: (id, data) => request.post(`/service-portal/routes/${id}/versions`, data),
+  traffic: (id, data) => request.put(`/service-portal/routes/${id}/traffic`, data),
+  rollback: (id) => request.post(`/service-portal/routes/${id}/rollback`),
+  evaluations: (workspace_id, page = 1) => request.get('/service-portal/evaluations', { params: { workspace_id, page } }),
+  evaluate: (data, key) => request.post('/service-portal/evaluations', data, { headers: { 'Idempotency-Key': key } }),
+  start: (id) => request.post(`/service-portal/evaluations/${id}/start`),
+  cancel: (id) => request.post(`/service-portal/evaluations/${id}/cancel`),
+  report: (id) => request.get(`/service-portal/evaluations/${id}/report`, { responseType: 'blob' })
+}

@@ -71,8 +71,11 @@ const router = createRouter({
   },
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const userStore = useUserStore()
+  if (userStore.isLoggedIn() && userStore.userId == null) {
+    await userStore.fetchUserInfo()
+  }
   if (!to.meta.public && !userStore.isLoggedIn()) {
     next({ path: '/login', query: { redirect: to.fullPath } })
     return

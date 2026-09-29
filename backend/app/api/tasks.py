@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_permission, require_actor
+from app.api.deps import require_permission, require_actor, get_current_user
 from app.database import get_db
 from app.models import (
     AlertPolicy,
@@ -49,7 +49,12 @@ from app.services.task_service import detect_dependency_cycle, request_cancel, r
 from app.utils.jsonutil import dumps, iso, loads
 
 router = APIRouter()
-service_router = APIRouter()
+async def internal_service_operator(current: User = Depends(get_current_user)):
+    if current.role == "customer":
+        raise HTTPException(403, "外部客户请使用企业评测服务入口")
+
+
+service_router = APIRouter(dependencies=[Depends(internal_service_operator)])
 leaderboard_router = APIRouter()
 
 
