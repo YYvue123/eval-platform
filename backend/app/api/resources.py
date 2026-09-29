@@ -163,6 +163,18 @@ async def resource_registry(
     return {"items": items, "total": len(items), "backend": "in-process"}
 
 
+@router.get("/judges")
+async def list_judges(
+    db: AsyncSession = Depends(get_db),
+    actor: ActorContext = Depends(require_actor("resource:list")),
+):
+    """打分候选：Tool、输出含 score 的 Skill，以及已同步目录的 MCP 工具。"""
+    from app.services.judge_options import list_judge_options
+
+    items = await list_judge_options(db, actor)
+    return {"items": items, "total": len(items)}
+
+
 @router.post("/{rid:path}/heartbeat")
 async def resource_heartbeat(
     rid: str,
@@ -220,7 +232,7 @@ async def register_resource(
     errors = validate_manifest(body.manifest) + executable_errors(body.manifest)
     if errors:
         raise HTTPException(400, "Manifest 校验失败: " + "；".join(errors))
-    if body.manifest.get("resource_type") == "skill":
+    if body.manifest.get("resource_type") == "skill" and (body.manifest.get("skill") or {}).get("execution_type", "workflow") in {"", "workflow"}:
         chain = (body.manifest.get("skill") or {}).get("chain") or []
         for index, step in enumerate(chain):
             resource_id = (
@@ -493,9 +505,52 @@ async def resource_health(
     if r.builtin or r.resource_id.startswith("builtin/"):
         r.health_status = "online"
         return {"ok": True, "status": "online", "detail": "builtin"}
-    result = await health_http_tool(loads(r.manifest_json, {}))
+    manifest = loads(r.manifest_json, {})
+    if r.resource_type == "skill":
+        result = await _health_skill(db, manifest)
+    else:
+        result = await health_http_tool(manifest)
     r.health_status = "online" if result.get("ok") else "abnormal"
     return result
+
+
+async def _health_skill(db: AsyncSession, manifest: dict) -> dict:
+    """提示词和转交子 Agent 在进程内执行，不探测网络。工作流只检查步骤里的工具是否仍可引用。"""
+    skill = manifest.get("skill") or {}
+    execution = skill.get("execution_type") or "workflow"
+    if execution in {"prompt_template", "agent"}:
+        if not str(skill.get("entry_point") or "").strip():
+            return {"ok": False, "status": "abnormal", "detail": "缺少执行入口"}
+        label = "提示词" if execution == "prompt_template" else "转交子 Agent"
+        return {"ok": True, "status": "online", "detail": f"{label}在进程内执行，不需要网络地址"}
+    if execution != "workflow":
+        return {"ok": False, "status": "abnormal", "detail": f"未支持的执行方式 {execution}"}
+    chain = skill.get("chain") or []
+    if not isinstance(chain, list) or not chain:
+        return {"ok": False, "status": "abnormal", "detail": "工作流没有步骤"}
+    missing = []
+    blocked = []
+    for step in chain:
+        if not isinstance(step, dict):
+            missing.append("无效步骤")
+            continue
+        target = str(step.get("resource_id") or step.get("$ref") or "").strip()
+        if not target:
+            missing.append("缺少工具")
+            continue
+        row = await db.scalar(select(BaseResource).where(BaseResource.resource_id == target))
+        if row is None:
+            missing.append(target)
+        elif row.status == "offline" or row.health_status in {"offline", "circuit_open"}:
+            blocked.append(target)
+    if missing or blocked:
+        parts = []
+        if missing:
+            parts.append("找不到工具：" + "、".join(missing))
+        if blocked:
+            parts.append("工具已下线：" + "、".join(blocked))
+        return {"ok": False, "status": "abnormal", "detail": "；".join(parts)}
+    return {"ok": True, "status": "online", "detail": "工作流步骤均已注册且未下线"}
 
 
 @router.post("/{rid:path}/offline")

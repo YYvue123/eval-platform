@@ -67,6 +67,13 @@
               size="small"
               @click.stop="openMcpWorkbench(row)"
             >连接</el-button>
+            <el-button
+              v-if="row.resource_type === 'skill' && !row.builtin && userStore.hasPermission('resource:create')"
+              link
+              type="primary"
+              size="small"
+              @click.stop="openEditSkill(row)"
+            >编辑</el-button>
             <el-button v-if="userStore.hasPermission('resource:view')" link size="small" @click.stop="openDetail(row)">详情</el-button>
           </template>
         </el-table-column>
@@ -207,7 +214,7 @@
     </el-dialog>
 
     <!-- 注册向导 -->
-    <el-dialog v-model="showWizard" title="添加资源" width="760px" destroy-on-close @closed="resetWizard">
+    <el-dialog v-model="showWizard" :title="wizard.editing ? '编辑 Skill' : '添加资源'" width="760px" destroy-on-close @closed="resetWizard">
       <el-steps :active="wizardStep" finish-status="success" align-center style="margin-bottom: 16px">
         <el-step title="类型" />
         <el-step title="基本信息" />
@@ -219,7 +226,7 @@
       <div v-if="wizardStep === 0">
         <el-radio-group v-model="wizard.kind">
           <el-radio value="tool">工具 Tool — 同步裁判/HTTP 工具</el-radio>
-          <el-radio value="skill">Skill — 仅支持已实现的 workflow 类型</el-radio>
+          <el-radio value="skill">Skill — 按当前上下文由主 Agent 决定是否调用，执行方式为提示词、工作流或转交子 Agent</el-radio>
           <el-radio value="mcp">MCP — Streamable HTTP 或 stdio 别名</el-radio>
         </el-radio-group>
         <el-alert type="info" :closable="false" style="margin-top: 12px" :title="kindIntro" />
@@ -227,10 +234,10 @@
 
       <el-form v-else-if="wizardStep === 1" label-width="110px">
         <el-form-item label="命名空间" required>
-          <el-input v-model="wizard.ns" placeholder="如 demo" />
+          <el-input v-model="wizard.ns" placeholder="如 demo" :disabled="wizard.editing" />
         </el-form-item>
         <el-form-item label="标识" required>
-          <el-input v-model="wizard.slug" placeholder="如 my_tool" />
+          <el-input v-model="wizard.slug" placeholder="如 my_tool" :disabled="wizard.editing" />
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="wizard.name" />
@@ -297,7 +304,21 @@
           </el-form>
         </template>
         <template v-else-if="wizard.kind === 'skill'">
-          <p class="hint">每一步从已上线工具中选择；第二步可用 $ref 读取上一步 output（例如 s1.output.values）。</p>
+          <el-form label-width="110px">
+            <el-form-item label="执行方式">
+              <el-select v-model="wizard.skillExecution" style="width: 220px" @change="invalidateChecks">
+                <el-option label="工作流" value="workflow" />
+                <el-option label="提示词模板" value="prompt_template" />
+                <el-option label="转交子 Agent" value="agent" />
+              </el-select>
+              <div class="hint">工作流用下面的步骤串联。提示词和转交子 Agent 只返回这一次的结果，不再往下接。</div>
+            </el-form-item>
+            <el-form-item v-if="wizard.skillExecution !== 'workflow'" label="执行入口" required>
+              <el-input v-model="wizard.skillEntry" type="textarea" :rows="3" placeholder="提示词，或子 Agent 角色标识" @input="invalidateChecks" />
+            </el-form-item>
+          </el-form>
+          <template v-if="wizard.skillExecution === 'workflow'">
+          <p class="hint">工作流每一步从已上线工具中选择；后一步可用 $ref 读取上一步 output。输出包含 score 的 Skill 可以当打分工具。编辑时版本会自动加一，避免覆盖已冻结版本。</p>
           <div v-for="(step, idx) in wizard.skillSteps" :key="idx" class="skill-step">
             <div class="field-row">
               <el-input v-model="step.step_id" placeholder="步骤 ID" style="width: 120px" @input="invalidateChecks" />
@@ -340,6 +361,7 @@
           </div>
           <el-button size="small" @click="addSkillStep">加步骤</el-button>
           <p v-if="skillToolsHasMore" class="hint">下拉列表滚动到底可继续加载下一页。</p>
+          </template>
         </template>
         <template v-else>
           <el-form label-width="120px">
@@ -497,6 +519,7 @@
           <el-button :loading="probeLoading && probeAction === 'tools/list'" @click="mcpStep('tools/list')">获取工具目录</el-button>
         </el-space>
 
+        <p class="hint">获取工具目录后，这些工具会出现在任务的打分工具列表里，可直接选来打分。</p>
         <p v-if="mcpState.listed && !mcpTools.length" class="hint">工具目录为空</p>
         <p v-else-if="mcpState.negotiated && !mcpTools.length" class="hint">已连接，点击「获取工具目录」加载可用工具</p>
         <el-input
@@ -689,7 +712,7 @@ const probeForm = ref({
 
 const kindIntro = computed(() => {
   if (wizard.value.kind === 'mcp') return 'Streamable HTTP 填写 endpoint；stdio 只能选择服务端允许的别名，不能填写任意命令。'
-  if (wizard.value.kind === 'skill') return '仅可注册 workflow Skill；每步从已上线工具中选择，并用 JSON 绑定 $ref。'
+  if (wizard.value.kind === 'skill') return '提示词和转交子 Agent 只检查执行入口。工作流检查每一步引用的工具是否仍在，不要求 Skill 自己有网络地址。'
   return '适合同步 HTTP 工具；副作用需在 Manifest 中声明，试用时会提示确认。'
 })
 
@@ -989,6 +1012,42 @@ function openWizard() {
   skillStepErrors.value = {}
   skillToolOptions.value = []
   stdioAliases.value = []
+  showWizard.value = true
+}
+
+function bumpPatch(version) {
+  const parts = String(version || '1.0.0').split('.')
+  const patch = Number(parts[2] || 0) + 1
+  return `${parts[0] || 1}.${parts[1] || 0}.${Number.isFinite(patch) ? patch : 1}`
+}
+
+function openEditSkill(row) {
+  const mf = row.manifest || {}
+  const skill = mf.skill || {}
+  const [ns, ...rest] = String(row.resource_id || '').split('/')
+  const chain = Array.isArray(skill.chain) ? skill.chain : []
+  const next = emptyWizard()
+  next.kind = 'skill'
+  next.editing = true
+  next.ns = ns || 'demo'
+  next.slug = rest.join('/') || row.resource_id
+  next.name = row.name || mf.name || ''
+  next.description = row.description || mf.description || ''
+  next.version = bumpPatch(row.version || mf.version)
+  next.skillExecution = skill.execution_type || 'workflow'
+  next.skillEntry = skill.entry_point || ''
+  next.skillSteps = chain.length
+    ? chain.map((step, idx) => ({
+        step_id: step.step_id || `s${idx + 1}`,
+        resource_id: step.resource_id || '',
+        inputJson: JSON.stringify(step.input || {}, null, 2),
+      }))
+    : [emptySkillStep(1)]
+  wizard.value = next
+  wizardStep.value = 1
+  checks.value = { schema: false, connect: null }
+  checkLog.value = ''
+  skillStepErrors.value = {}
   showWizard.value = true
 }
 

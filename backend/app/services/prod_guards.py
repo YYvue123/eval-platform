@@ -29,7 +29,7 @@ def bootstrap_admin_password() -> str | None:
     """
     返回允许用于首次引导 admin 的密码。
     生产：必须显式设置 ADMIN_BOOTSTRAP_PASSWORD，且不得为默认 admin123。
-    非生产：允许默认 admin123（开发/测试）。
+    非生产：固定为开发默认 admin123，避免本地 .env 里的预发引导密码挡住登录。
     """
     explicit = (os.environ.get("ADMIN_BOOTSTRAP_PASSWORD") or "").strip()
     if is_production():
@@ -40,4 +40,4 @@ def bootstrap_admin_password() -> str | None:
                 "production ADMIN_BOOTSTRAP_PASSWORD must not be the default admin123"
             )
         return explicit
-    return explicit or DEFAULT_ADMIN_PASSWORD
+    return DEFAULT_ADMIN_PASSWORD

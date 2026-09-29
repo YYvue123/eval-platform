@@ -172,7 +172,7 @@ async function ensureOptions() {
   if (scenes.value.length && judges.value.length) return
   const [cat, rs] = await Promise.all([
     tasksApi.catalog(),
-    resourcesApi.list({ resource_type: 'tool', page_size: 50 }),
+    resourcesApi.judges(),
   ])
   scenes.value = cat.scenes || []
   industries.value = cat.industries || []

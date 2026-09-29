@@ -95,12 +95,19 @@ async def validate_eval_config(db: AsyncSession, plan: dict, user) -> list[str]:
         if not prompt or prompt.status != "published":
             errors.append("正式评测要求提示词已发布")
     judge = plan.get("judge_resource_id") or "builtin/exact_match"
-    res = await db.scalar(select(BaseResource).where(BaseResource.resource_id == judge))
-    if not res or res.health_status in {"offline", "circuit_open"}:
-        if judge.startswith("builtin/"):
-            pass
-        else:
+    from app.services.judge_options import parse_mcp_judge
+
+    parsed_judge = parse_mcp_judge(judge)
+    if parsed_judge:
+        parent, _tool_name = parsed_judge
+        res = await db.scalar(select(BaseResource).where(BaseResource.resource_id == parent))
+        if not res or res.resource_type != "mcp" or res.health_status in {"offline", "circuit_open"}:
             errors.append("打分工具不可用")
+    else:
+        res = await db.scalar(select(BaseResource).where(BaseResource.resource_id == judge))
+        if not res or res.health_status in {"offline", "circuit_open"}:
+            if not judge.startswith("builtin/"):
+                errors.append("打分工具不可用")
     if plan.get("workspace_id"):
         ws = await db.get(EvalWorkspace, plan["workspace_id"])
         if ws and ws.quota_tokens and ws.used_tokens >= ws.quota_tokens:

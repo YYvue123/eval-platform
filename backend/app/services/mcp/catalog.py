@@ -15,10 +15,14 @@ def _safe_tools(tools) -> list[dict]:
     for item in tools or []:
         if not isinstance(item, dict):
             continue
-        safe.append({
+        entry = {
             "name": item.get("name", ""),
             "description": item.get("description", ""),
-        })
+        }
+        schema = item.get("inputSchema") if isinstance(item.get("inputSchema"), dict) else item.get("input_schema")
+        if isinstance(schema, dict):
+            entry["inputSchema"] = schema
+        safe.append(entry)
     return safe
 
 
@@ -56,6 +60,7 @@ async def persist_catalog(db: AsyncSession, resource_id, tools, *, changed, acto
                 "hash": digest,
                 "count": len(safe),
                 "tool_names": [item["name"] for item in safe],
+                "tools": safe,
                 "tenant_id": tenant_id,
             }),
         ))

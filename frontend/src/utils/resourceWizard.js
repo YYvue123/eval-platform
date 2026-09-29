@@ -51,6 +51,9 @@ export function emptyWizard() {
       { step_id: 's1', resource_id: '', inputJson: DEFAULT_SKILL_INPUTS.s1 },
       { step_id: 's2', resource_id: '', inputJson: DEFAULT_SKILL_INPUTS.s2 },
     ],
+    skillExecution: 'workflow',
+    skillEntry: '',
+    editing: false,
     allowlist: '',
     paramMode: 'form',
     fields: [
@@ -189,6 +192,11 @@ export function validateWizardConnect(wizard) {
     return { ok: true, message: '' }
   }
   if (wizard.kind === 'skill') {
+    const execution = wizard.skillExecution || 'workflow'
+    if (execution !== 'workflow') {
+      if (!String(wizard.skillEntry || '').trim()) return { ok: false, message: '请填写执行入口' }
+      return { ok: true, message: '', errors: [] }
+    }
     const result = validateSkillSteps(wizard.skillSteps, wizard.allowedToolIds)
     if (!result.ok) return { ok: false, message: result.errors[0] || 'Skill 配置不完整', errors: result.errors }
     return { ok: true, message: '', errors: [] }
@@ -362,10 +370,19 @@ export function buildManifest(wizard) {
     },
   }
   if (wizard.kind === 'skill') {
-    const steps = validateSkillSteps(wizard.skillSteps, wizard.allowedToolIds)
-    if (!steps.ok) throw new Error(steps.errors[0] || 'Skill 步骤无效')
-    base.skill = { execution_type: 'workflow', chain: steps.chain }
-    base.interfaces = { method: 'workflow', auth_type: 'none' }
+    const execution = wizard.skillExecution || 'workflow'
+    base.skill = {
+      execution_type: execution,
+      entry_point: wizard.skillEntry || '',
+      chainable: execution === 'workflow',
+      trigger: { type: 'context', value: '' },
+    }
+    if (execution === 'workflow') {
+      const steps = validateSkillSteps(wizard.skillSteps, wizard.allowedToolIds)
+      if (!steps.ok) throw new Error(steps.errors[0] || 'Skill 步骤无效')
+      base.skill.chain = steps.chain
+    }
+    base.interfaces = { method: execution, auth_type: 'none' }
   } else {
     const interfaces = {
       endpoint: wizard.endpoint,

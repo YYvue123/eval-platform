@@ -166,6 +166,18 @@ async def trusted_search(
     return [entry_out(r) for r in rows]
 
 
+async def delete_candidate(db: AsyncSession, candidate_id: int, *, actor_tenant_id: int | None) -> None:
+    row = await db.get(KnowledgeCandidate, candidate_id)
+    if row is None:
+        raise HTTPException(404, "知识候选不存在")
+    if actor_tenant_id is not None and row.tenant_id is not None and row.tenant_id != actor_tenant_id:
+        raise HTTPException(403, "跨租户禁止删除")
+    if row.status == "approved":
+        raise HTTPException(400, "已入库的候选不能删除；检索用的是审核后的知识条目")
+    await db.delete(row)
+    await db.flush()
+
+
 async def list_candidates(db: AsyncSession, tenant_id: int | None, status: str = "pending") -> list[KnowledgeCandidate]:
     q = select(KnowledgeCandidate).order_by(KnowledgeCandidate.id.desc()).limit(50)
     if tenant_id is not None:

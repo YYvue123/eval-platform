@@ -56,6 +56,10 @@ from app.models.agent import (
     AgentDelegation,
     AgentMonitorState,
     KnowledgeCandidate,
+    AgentDefinition,
+    OrchestrationProfile,
+    OrchestrationSkill,
+    OrchestrationRecipe,
 )
 from app.models.ops_governance import OpsTicket, OpsDrillRecord, DataAuthorization
 
@@ -123,6 +127,10 @@ __all__ = [
     "AgentDelegation",
     "AgentMonitorState",
     "KnowledgeCandidate",
+    "AgentDefinition",
+    "OrchestrationProfile",
+    "OrchestrationSkill",
+    "OrchestrationRecipe",
     "OpsTicket",
     "OpsDrillRecord",
     "DataAuthorization",

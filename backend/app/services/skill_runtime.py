@@ -150,16 +150,25 @@ async def run_skill(
     from app.services.tool_gateway import response_result
 
     skill = manifest.get("skill") or {}
+    execution_type = str(skill.get("execution_type") or "workflow")
+    if execution_type == "code":
+        raise ValueError("代码型 Skill 不在工具进程内执行")
+    if execution_type in {"prompt_template", "agent"}:
+        entry = str(skill.get("entry_point") or "").strip()
+        if not entry:
+            raise ValueError("Skill 缺少 entry_point")
+        return {
+            "execution_type": execution_type,
+            "instruction": entry,
+            "input": dict(body or {}),
+            "note": "这是技能说明，不是打分结果",
+        }
+    if execution_type != "workflow":
+        raise ValueError(f"不支持的 Skill execution_type: {execution_type}")
     chain = skill.get("chain") or []
     if not chain:
         raise ValueError("Skill 未声明 chain")
     _detect_resource_cycle(chain)
-    execution_type = str(skill.get("execution_type") or "workflow")
-    if execution_type not in {"workflow", "prompt_template", "code", "agent"}:
-        raise ValueError(f"不支持的 Skill execution_type: {execution_type}")
-    if execution_type != "workflow":
-        # 本会话仅完整实现 workflow；其它类型明确拒绝，避免假成功
-        raise ValueError(f"本版本仅支持 workflow Skill，收到: {execution_type}")
 
     inputs = dict(body or {})
     steps_out: list[dict] = []

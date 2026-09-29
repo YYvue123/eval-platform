@@ -117,6 +117,7 @@ export const resourcesApi = {
   events: (params) => request.get('/resources/events', { params }),
   health: (id) => request.post(`/resources/${encodeURIComponent(id)}/health`),
   registry: () => request.get('/resources/registry'),
+  judges: () => request.get('/resources/judges'),
   heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`),
   calls: (id, params) =>
     request.get(`/resources/calls/${encodeURIComponent(id)}`, { params }),
@@ -196,6 +197,19 @@ export const servicesApi = {
 }
 
 export const agentsApi = {
+  profile: () => request.get('/agents/profile'),
+  saveProfile: (data) => request.put('/agents/profile', data),
+  catalog: () => request.get('/agents/catalog'),
+  createDefinition: (data) => request.post('/agents/definitions', data),
+  updateDefinition: (role, data) => request.put(`/agents/definitions/${role}`, data),
+  deleteDefinition: (role) => request.delete(`/agents/definitions/${role}`),
+  createSkill: (data) => request.post('/agents/skills', data),
+  updateSkill: (code, data) => request.put(`/agents/skills/${code}`, data),
+  deleteSkill: (code) => request.delete(`/agents/skills/${code}`),
+  recipes: () => request.get('/agents/recipes'),
+  saveRecipe: (id) => request.post(`/agents/sessions/${id}/recipe`),
+  updateCapabilities: (id, data) => request.put(`/agents/sessions/${id}/capabilities`, data),
+  delegate: (id, data) => request.post(`/agents/sessions/${id}/delegate`, data),
   knowledge: (params) => request.get('/agents/knowledge', { params }),
   addKnowledge: (data) => request.post('/agents/knowledge', data),
   sessions: () => request.get('/agents/sessions'),
@@ -210,6 +224,7 @@ export const agentsApi = {
   delegations: (id) => request.get(`/agents/sessions/${id}/delegations`),
   knowledgeCandidates: (params) => request.get('/agents/knowledge/candidates', { params }),
   reviewKnowledge: (id, data) => request.post(`/agents/knowledge/candidates/${id}/review`, data),
+  deleteKnowledge: (id) => request.delete(`/agents/knowledge/candidates/${id}`),
   actSuggestion: (id, data) => request.post(`/agents/suggestions/${id}/act`, data),
   startRun: (sid, data) => request.post(`/agents/sessions/${sid}/runs`, data),
   getRun: (rid) => request.get(`/agents/runs/${rid}`),

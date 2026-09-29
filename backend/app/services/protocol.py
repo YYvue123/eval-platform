@@ -212,15 +212,23 @@ def executable_errors(manifest: dict) -> list[str]:
             errors.append("工具必须配置 http(s) endpoint，不能使用 local://")
     elif rtype == "skill":
         skill = manifest.get("skill") or {}
-        if skill.get("execution_type") not in {None, "", "workflow"}:
-            errors.append("Skill 仅支持 workflow")
+        execution = skill.get("execution_type") or "workflow"
+        if execution not in {"workflow", "prompt_template", "agent"}:
+            errors.append("Skill 执行方式仅支持 workflow、prompt_template、agent")
+        trigger = skill.get("trigger") if isinstance(skill.get("trigger"), dict) else {}
+        trigger_type = trigger.get("type") or "context"
+        if trigger_type not in {"keyword", "intent", "entity", "context", "manual"}:
+            errors.append("Skill trigger.type 不合法")
         chain = skill.get("chain") or []
-        if not isinstance(chain, list) or not chain:
-            errors.append("Skill 必须声明非空 skill.chain")
-        else:
-            for index, step in enumerate(chain):
-                if not isinstance(step, dict) or not (step.get("resource_id") or step.get("$ref")):
-                    errors.append(f"skill.chain[{index}] 缺少 resource_id")
+        if execution == "workflow":
+            if not isinstance(chain, list) or not chain:
+                errors.append("workflow Skill 必须声明非空 skill.chain")
+            else:
+                for index, step in enumerate(chain):
+                    if not isinstance(step, dict) or not (step.get("resource_id") or step.get("$ref")):
+                        errors.append(f"skill.chain[{index}] 缺少 resource_id")
+        elif not str(skill.get("entry_point") or "").strip():
+            errors.append("prompt_template 和 agent Skill 需要 entry_point")
     elif rtype == "mcp":
         from app.services.mcp.stdio_transport import list_stdio_aliases
 

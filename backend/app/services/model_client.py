@@ -178,6 +178,10 @@ async def invoke_chat_tools(
     model: EvalModel,
     messages: list[dict],
     tools: list[dict],
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    model_name: str | None = None,
 ) -> dict:
     """OpenAI 兼容 tools 调用；无 api_url 直接失败。"""
     blocked = circuit_blocked(model)
@@ -190,12 +194,14 @@ async def invoke_chat_tools(
     if model.api_key:
         headers["Authorization"] = f"Bearer {model.api_key}"
     body = {
-        "model": model.served_model_name or model.name,
+        "model": (model_name or "").strip() or model.served_model_name or model.name,
         "messages": messages,
         "tools": tools,
         "tool_choice": "auto",
-        "temperature": 0,
+        "temperature": 0 if temperature is None else float(temperature),
     }
+    if max_tokens and int(max_tokens) > 0:
+        body["max_tokens"] = int(max_tokens)
     started = time.perf_counter()
     async with _semaphore(model):
         async with httpx.AsyncClient(timeout=httpx.Timeout(model.timeout or 90), **httpx_tls_kwargs(model.channel_type)) as client:

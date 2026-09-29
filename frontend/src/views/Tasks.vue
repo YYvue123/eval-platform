@@ -130,7 +130,7 @@
           <el-select v-model="form.judge_resource_id" style="width: 100%">
             <el-option v-for="r in judges" :key="r.resource_id" :label="r.name" :value="r.resource_id" />
           </el-select>
-          <div class="field-note">这里只列出打分工具。Skill 和 MCP 在工具中心注册、试用；只有返回 score 和 passed 的资源能当裁判，一段说明文字不能直接当成分数。编排助手的工具循环也不会自动调用它们。</div>
+          <div class="field-note">可选已注册的打分工具、输出里带 score 的 Skill，以及 MCP 连接里已经同步出来的工具。MCP 工具会按预测和参考答案调用；没有返回 score 或 passed 时记为裁判失败。</div>
         </el-form-item>
         <el-form-item label="仅测试">
           <el-switch v-model="form.trial_run" />
@@ -343,7 +343,7 @@ function applyTemplate(code) {
 async function openCreate(presetCode) {
   const [ps, rs, cat, tpls] = await Promise.all([
     promptsApi.list({ page_size: 100 }),
-    resourcesApi.list({ resource_type: 'tool', page_size: 50 }),
+    resourcesApi.judges(),
     tasksApi.catalog(),
     tasksApi.templates()
   ])

@@ -183,3 +183,86 @@ class KnowledgeCandidate(Base):
     entry_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AgentDefinition(Base):
+    """自定义子 Agent。内置角色不入库，由目录服务合并。"""
+
+    __tablename__ = "agent_definitions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(80), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    system_prompt: Mapped[str] = mapped_column(Text, default="")
+    max_iterations: Mapped[int] = mapped_column(Integer, default=6)
+    supports_stream: Mapped[bool] = mapped_column(Boolean, default=False)
+    human_in_the_loop: Mapped[bool] = mapped_column(Boolean, default=True)
+    available_tools_json: Mapped[str] = mapped_column(Text, default="[]")
+    skill_codes_json: Mapped[str] = mapped_column(Text, default="[]")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    model_config_json: Mapped[str] = mapped_column(Text, default="{}")
+    evaluation_spec_json: Mapped[str] = mapped_column(Text, default="")
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=120)
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class OrchestrationProfile(Base):
+    """主 Agent 描述符。每个租户一行，页面顶部可查看和修改。"""
+
+    __tablename__ = "orchestration_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role: Mapped[str] = mapped_column(String(32), default="coordinator")
+    system_prompt: Mapped[str] = mapped_column(Text, default="")
+    model_config_json: Mapped[str] = mapped_column(Text, default="{}")
+    available_tools_json: Mapped[str] = mapped_column(Text, default="[]")
+    max_iterations: Mapped[int] = mapped_column(Integer, default=10)
+    supports_stream: Mapped[bool] = mapped_column(Boolean, default=False)
+    human_in_the_loop: Mapped[bool] = mapped_column(Boolean, default=True)
+    evaluation_spec_json: Mapped[str] = mapped_column(Text, default="")
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=120)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class OrchestrationSkill(Base):
+    """编排技能：提示词 / 工作流 / 显式调用。不是工具底座里的 Skill 资源。"""
+
+    __tablename__ = "orchestration_skills"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(80), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    trigger_type: Mapped[str] = mapped_column(String(20), default="context")
+    trigger_value: Mapped[str] = mapped_column(String(200), default="")
+    execution_type: Mapped[str] = mapped_column(String(32), default="prompt_template")
+    entry_point: Mapped[str] = mapped_column(Text, default="")
+    chainable: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    variables_json: Mapped[str] = mapped_column(Text, default="{}")
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class OrchestrationRecipe(Base):
+    """一次编排沉淀出的可复用配置。"""
+
+    __tablename__ = "orchestration_recipes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    requirement: Mapped[str] = mapped_column(Text, default="")
+    snapshot_json: Mapped[str] = mapped_column(Text, default="{}")
+    source_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    creator_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

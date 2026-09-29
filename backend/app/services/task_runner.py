@@ -35,7 +35,6 @@ from app.services.report_archive import result_row_for_report, write_task_report
 from app.services.builtin_tools import run_builtin_tool
 from app.services.task_events import emit_event
 from app.services.task_service import fencing_still_valid, heartbeat_lease
-from app.services.tool_gateway import invoke_tool, response_result
 from app.utils.jsonutil import dumps, loads
 
 log = logging.getLogger(__name__)
@@ -194,7 +193,11 @@ async def _run(
         ))
 
     judge_id = task.judge_resource_id or "builtin/exact_match"
-    res = await db.scalar(select(BaseResource).where(BaseResource.resource_id == judge_id))
+    from app.services.judge_options import parse_mcp_judge
+
+    parsed_judge = parse_mcp_judge(judge_id)
+    lookup_id = parsed_judge[0] if parsed_judge else judge_id
+    res = await db.scalar(select(BaseResource).where(BaseResource.resource_id == lookup_id))
     if res:
         task.tool_version = res.version or ""
     done_rows = (await db.execute(select(EvalResult).where(EvalResult.task_id == task.id))).scalars().all()
@@ -346,17 +349,16 @@ async def _run(
                     permissions=set(),
                     is_admin=True,
                 )
-            envelope = await invoke_tool(
+            from app.services.judge_options import invoke_judge
+
+            judged = await invoke_judge(
                 db,
                 actor=actor,
-                resource_id=judge_id,
-                body={"prediction": output, "reference": item.reference_answer, "pattern": item.expected_output or item.reference_answer},
+                judge_id=judge_id,
+                prediction=output,
+                reference=item.reference_answer or "",
                 task_id=task.id,
-                caller_id="task_runner",
             )
-            judged = response_result(envelope)
-            if (envelope.get("body") or {}).get("status") == "error":
-                raise RuntimeError((envelope.get("body") or {}).get("error", {}).get("message") or "judge failed")
             # ResourceCallLog 已由网关写入
         except Exception as exc:
             judged = {"score": 0, "passed": False, "metrics": {}}

@@ -3,9 +3,123 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">评测助手</h2>
-        <p class="page-desc">描述目标、核对计划、批准后执行；执行状态以服务端为准。</p>
+        <p class="page-desc">主 Agent 是唯一入口。监控分析与异常诊断跟随每个任务；方案分析、报告审校、参数推荐以及自定义子 Agent 由主 Agent 按需调用。诊断只给建议，恢复和补测仍要确认后才执行。</p>
       </div>
     </div>
+
+    <el-card class="profile-card" shadow="never">
+      <el-collapse v-model="profilePanel">
+        <el-collapse-item title="主 Agent · coordinator" name="profile">
+          <p class="hint">提示词在每次运行时作为系统提示。当前计划、已启用能力和工具规则会附在后面。创建任务和执行恢复仍须在下方确认。</p>
+          <el-input
+            v-model="profileForm.system_prompt"
+            type="textarea"
+            :rows="4"
+            :disabled="!canEditProfile"
+          />
+          <el-form label-width="120px" class="profile-form">
+            <el-form-item label="模型名">
+              <el-input v-model="profileForm.model_name" placeholder="留空则用规划模型自己的名称" :disabled="!canEditProfile" />
+            </el-form-item>
+            <el-form-item label="temperature">
+              <el-input-number v-model="profileForm.temperature" :min="0" :max="2" :step="0.1" :disabled="!canEditProfile" />
+            </el-form-item>
+            <el-form-item label="max_tokens">
+              <el-input-number v-model="profileForm.max_tokens" :min="0" :max="8192" :step="64" :disabled="!canEditProfile" />
+              <span class="hint">0 表示不额外截断。大于 0 时，模型请求和最终回复都受这个上限约束。</span>
+            </el-form-item>
+            <el-form-item label="最大迭代">
+              <el-input-number v-model="profileForm.max_iterations" :min="1" :max="20" :disabled="!canEditProfile" />
+            </el-form-item>
+            <el-form-item label="子 Agent 超时">
+              <el-input-number v-model="profileForm.timeout_seconds" :min="5" :max="600" :disabled="!canEditProfile" />
+              <span class="hint">秒。超时后终止该次调用，并把失败返回主 Agent。</span>
+            </el-form-item>
+            <el-form-item label="流式输出">
+              <el-switch v-model="profileForm.supports_stream" :disabled="!canEditProfile" />
+              <span class="hint">打开后，消息接口返回运行流地址。页面里的继续对话仍等本轮结束。</span>
+            </el-form-item>
+            <el-form-item label="人工介入">
+              <el-switch v-model="profileForm.human_in_the_loop" :disabled="!canEditProfile" />
+            </el-form-item>
+            <el-form-item label="可调用工具">
+              <el-checkbox-group v-model="profileForm.available_tools" :disabled="!canEditProfile">
+                <el-checkbox v-for="tool in mainToolOptions" :key="tool.name" :label="tool.name">{{ tool.label }}</el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+            <el-form-item label="评测标尺">
+              <el-input
+                v-model="profileForm.evaluation_spec_text"
+                type="textarea"
+                :rows="3"
+                placeholder="主 Agent 一般留空。评测 Agent 才需要 JSON，例如 metric_names"
+                :disabled="!canEditProfile"
+              />
+            </el-form-item>
+          </el-form>
+          <el-button
+            v-if="canEditProfile"
+            type="primary"
+            size="small"
+            :loading="profileSaving"
+            @click="saveProfile"
+          >保存</el-button>
+        </el-collapse-item>
+      </el-collapse>
+    </el-card>
+
+    <el-card class="profile-card" shadow="never">
+      <el-collapse v-model="catalogPanel">
+        <el-collapse-item title="子 Agent 与编排 Skill" name="catalog">
+      <div class="plan-head">
+        <div class="plan-title">子 Agent</div>
+        <el-button v-if="canEditProfile" link type="primary" @click="openAgentEditor()">添加</el-button>
+      </div>
+      <p class="hint">每个子 Agent 使用自己的工具和 Skill。监控分析、异常诊断不能删除。停用后不会出现在新建评测的可选项里。</p>
+      <el-table :data="catalog.subagents" size="small">
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column label="工具" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ toolLabels(row.available_tools) }}</template>
+        </el-table-column>
+        <el-table-column label="Skill" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ skillLabels(row.skill_codes) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">{{ agentStatus(row) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button v-if="canEditProfile" link @click="openAgentEditor(row)">编辑</el-button>
+            <el-button v-if="canEditProfile && row.enabled === false" link @click="restoreAgent(row)">恢复</el-button>
+            <el-button v-else-if="canEditProfile" link type="danger" :disabled="row.required" @click="removeAgent(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="plan-head skill-head">
+        <div class="plan-title">编排 Skill</div>
+        <el-button v-if="canEditProfile" link type="primary" @click="openSkillEditor()">添加</el-button>
+      </div>
+      <el-table :data="catalog.skills" size="small">
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="code" label="标识" min-width="140" />
+        <el-table-column label="执行方式" width="120">
+          <template #default="{ row }">{{ executionLabel(row.execution_type) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">{{ row.enabled === false ? '已停用' : (row.builtin ? '内置' : '自定义') }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button v-if="canEditProfile" link @click="openSkillEditor(row)">编辑</el-button>
+            <el-button v-if="canEditProfile && row.enabled === false" link @click="restoreSkill(row)">恢复</el-button>
+            <el-button v-else-if="canEditProfile" link type="danger" @click="removeSkill(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+        </el-collapse-item>
+      </el-collapse>
+    </el-card>
 
     <div class="wb-layout">
       <aside class="session-rail" :class="{ collapsed: railCollapsed }">
@@ -13,7 +127,7 @@
           <span>会话</span>
           <el-button link size="small" @click="railCollapsed = !railCollapsed">{{ railCollapsed ? '展开' : '收起' }}</el-button>
         </div>
-        <template v-if="!railCollapsed">
+        <div v-if="!railCollapsed" class="rail-scroll">
           <el-button
             v-if="userStore.hasPermission('agent:invoke')"
             type="primary"
@@ -34,7 +148,7 @@
             <div class="sess-title">#{{ s.id }} {{ s.title || '未命名' }}</div>
             <div class="sess-meta">{{ s.status }}</div>
           </button>
-        </template>
+        </div>
       </aside>
 
       <main class="main-pane">
@@ -56,7 +170,7 @@
             </div>
             <div class="prep-row hint">配置完成前不可启动 Runtime；正式评测还需数据集与被测模型。</div>
           </div>
-          <el-collapse>
+          <el-collapse v-model="budgetPanel">
             <el-collapse-item title="高级：预算与规划模型" name="adv">
               <el-form label-width="100px" size="small">
                 <el-form-item label="Token 预算">
@@ -69,9 +183,49 @@
                   </el-select>
                   <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
                 </el-form-item>
+                <el-form-item label="复用上次编排">
+                  <el-select v-model="recipeId" clearable filterable placeholder="选择已沉淀的经验" style="width: 100%" @change="applyRecipe">
+                    <el-option v-for="recipe in recipes" :key="recipe.id" :label="recipe.title || recipe.requirement" :value="recipe.id" />
+                  </el-select>
+                  <div class="hint">选中后会填入目标、预算、子 Agent、Skill 和 MCP。日常新建可以不展开这里。</div>
+                </el-form-item>
               </el-form>
             </el-collapse-item>
           </el-collapse>
+          <section class="cap-card">
+            <div class="plan-title">子 Agent</div>
+            <p class="hint">监控分析和异常诊断始终启用。其余角色在主 Agent 需要时调用。自定义角色只做分析，不直接改任务。</p>
+            <el-checkbox-group v-model="selectedRoles">
+              <el-checkbox
+                v-for="agent in activeSubagents"
+                :key="agent.role"
+                :label="agent.role"
+                :disabled="agent.required"
+              >{{ agent.name }}</el-checkbox>
+            </el-checkbox-group>
+            <p v-for="agent in activeSubagents" :key="'d-' + agent.role" class="agent-duty">
+              <b>{{ agent.name }}</b> {{ agent.description }}
+            </p>
+
+            <div class="plan-title">编排 Skill</div>
+            <p class="hint">这是编排技能，不是工具底座里的 Skill 资源。勾选后，主 Agent 会根据当前对话上下文决定要不要调用。</p>
+            <el-select v-model="selectedSkills" multiple filterable placeholder="选择本次要用的 Skill" style="width: 100%">
+              <el-option v-for="skill in activeSkills" :key="skill.code" :label="skill.name" :value="skill.code" />
+            </el-select>
+            <el-button v-if="userStore.hasPermission('agent:invoke')" link type="primary" @click="showCustomSkill = true">添加 Skill</el-button>
+
+            <div class="plan-title">MCP</div>
+            <p class="hint">只列出工具底座里已注册的 MCP 连接。主 Agent 只能调用勾选的连接。</p>
+            <el-select v-model="selectedMcps" multiple filterable placeholder="选择 MCP 连接" style="width: 100%">
+              <el-option
+                v-for="mcp in catalog.mcp_servers"
+                :key="mcp.resource_id"
+                :label="`${mcp.name} (${mcp.resource_id})`"
+                :value="mcp.resource_id"
+              />
+            </el-select>
+
+          </section>
           <el-button
             v-if="userStore.hasPermission('agent:invoke')"
             type="primary"
@@ -98,20 +252,112 @@
             </div>
           </div>
 
-          <div v-if="sessionLoading" class="hint">加载会话…</div>
+          <div v-if="sessionLoading && !session.id" class="hint">加载会话…</div>
 
-          <div class="msgs">
-            <div v-for="m in session.messages || []" :key="m.id" class="msg" :class="m.role">
-              <b>{{ roleLabel(m.role) }}</b>
-              <span>{{ m.content }}</span>
+          <section class="thread">
+            <div class="thread-head">
+              <div>
+                <div class="plan-title">对话</div>
+                <span class="hint">{{ (session.messages || []).length }} 条 · 只在这块区域里滚动</span>
+              </div>
+              <el-button link size="small" native-type="button" @click="scrollThread(true)">回到最新</el-button>
             </div>
-          </div>
+            <div ref="threadLog" class="thread-log" @scroll="onThreadScroll">
+              <div v-if="!(session.messages || []).length" class="thread-empty">还没有对话。生成计划后，补充说明会出现在这里。</div>
+              <article v-for="m in session.messages || []" :key="m.id" class="msg" :class="m.role">
+                <div class="msg-meta">
+                  <b>{{ roleLabel(m.role) }}</b>
+                  <span v-if="m.created_at">{{ msgTime(m.created_at) }}</span>
+                </div>
+                <div class="msg-body" v-html="renderMarkdown(m.content)"></div>
+              </article>
+            </div>
+            <div class="composer">
+              <el-input
+                v-model="followUp"
+                type="textarea"
+                :autosize="{ minRows: 2, maxRows: 5 }"
+                placeholder="补充数据集、被测模型或打分工具。Ctrl+Enter 发送"
+                @keydown.ctrl.enter="sendFollowUp"
+              />
+              <div class="composer-bar">
+                <span class="hint">发送后主 Agent 会检索真实资源并改计划。规划模型只负责编排。</span>
+                <el-button
+                  v-if="userStore.hasPermission('agent:invoke')"
+                  type="primary"
+                  native-type="button"
+                  :loading="runLoading"
+                  :disabled="!followUp.trim() || !plannerModelId"
+                  @click="sendFollowUp"
+                >发送</el-button>
+              </div>
+            </div>
+          </section>
 
           <!-- 计划摘要卡 -->
           <el-card v-if="session.plan" shadow="never" class="plan-card">
-            <div class="plan-title">计划摘要</div>
-            <ul class="plan-list">
+            <div class="plan-head">
+              <div class="plan-title">计划摘要</div>
+              <el-button size="small" native-type="button" @click="togglePlanEdit">{{ planEditing ? '收起' : '手动修改' }}</el-button>
+            </div>
+            <el-form v-if="planEditing" label-width="88px" size="small" class="plan-edit" @submit.prevent>
+              <el-form-item label="目标">
+                <el-input v-model="goalText" type="textarea" :rows="2" />
+              </el-form-item>
+              <el-form-item label="场景">
+                <el-select v-model="clarifyForm.scene" filterable style="width: 100%">
+                  <el-option v-for="item in sceneOptions" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="数据集">
+                <ResourcePicker v-model="clarifyForm.dataset_id" kind="dataset" placeholder="搜索数据集" />
+              </el-form-item>
+              <el-form-item label="被测模型">
+                <ResourcePicker v-model="clarifyForm.model_id" kind="model" placeholder="搜索被测模型" />
+              </el-form-item>
+              <el-form-item label="打分工具">
+                <el-select v-model="clarifyForm.judge_resource_id" filterable style="width: 100%" placeholder="选择打分工具">
+                  <el-option v-for="item in judgeOptions" :key="item.resource_id" :label="item.name" :value="item.resource_id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="预算">
+                <el-input-number v-model="clarifyForm.token_budget" :min="0" controls-position="right" />
+              </el-form-item>
+              <el-form-item label="试跑">
+                <el-switch v-model="clarifyForm.trial_run" />
+              </el-form-item>
+              <el-form-item label="子 Agent">
+                <el-checkbox-group v-model="editRoles">
+                  <el-checkbox
+                    v-for="agent in activeSubagents"
+                    :key="agent.role"
+                    :label="agent.role"
+                    :disabled="agent.required"
+                  >{{ agent.name }}</el-checkbox>
+                </el-checkbox-group>
+                <div class="hint">监控分析和异常诊断始终启用，其余角色由主 Agent 按对话调用。</div>
+              </el-form-item>
+              <el-form-item label="Skill">
+                <el-select v-model="editSkills" multiple filterable clearable placeholder="不选表示本次不启用" style="width: 100%">
+                  <el-option v-for="skill in activeSkills" :key="skill.code" :label="skill.name" :value="skill.code" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="MCP">
+                <el-select v-model="editMcps" multiple filterable clearable placeholder="不选表示本次不启用" style="width: 100%">
+                  <el-option
+                    v-for="mcp in catalog.mcp_servers"
+                    :key="mcp.resource_id"
+                    :label="`${mcp.name} (${mcp.resource_id})`"
+                    :value="mcp.resource_id"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-button type="primary" native-type="button" :loading="clarifying" @click="clarify">保存到计划</el-button>
+              <p class="hint">保存后计划摘要会改成这些值。若和已审批内容不一致，需要重新审批。</p>
+            </el-form>
+            <ul v-else class="plan-list">
               <li>目标：{{ session.plan.goal_spec?.objective || session.requirement }}</li>
+              <li v-if="session.plan.dialogue_updated">这份计划已按后续对话更新过数据集、被测模型或打分工具。</li>
               <li>模板 {{ session.plan.template_code || '—' }} · 场景 {{ session.plan.scene || '—' }}</li>
               <li>
                 数据
@@ -120,6 +366,10 @@
                 <strong>{{ modelLabel }}</strong>
               </li>
               <li>模式：{{ session.plan.trial_run ? '试跑' : '正式' }} · 计划预算 {{ session.plan.token_budget ?? 0 }}</li>
+              <li>打分工具 {{ judgeLabel }}</li>
+              <li>子 Agent：{{ capabilityLabels.roles }}</li>
+              <li>Skill：{{ capabilityLabels.skills }}</li>
+              <li>MCP：{{ capabilityLabels.mcps }}</li>
             </ul>
             <el-collapse>
               <el-collapse-item title="技术详情（hash）" name="hash">
@@ -136,6 +386,9 @@
               </template>
             </div>
             <div v-if="session.plan.validation_errors?.length" class="warn">校验：{{ session.plan.validation_errors.join('；') }}</div>
+            <div class="cap-actions">
+              <el-button v-if="userStore.hasPermission('agent:invoke')" size="small" native-type="button" @click="persistRecipe">沉淀经验</el-button>
+            </div>
           </el-card>
 
           <!-- 待补充：动态澄清 -->
@@ -256,13 +509,35 @@
                 >从 checkpoint 恢复</el-button>
               </el-tab-pane>
               <el-tab-pane label="知识候选">
-                <p class="empty-note">这里是待人工审核的经验条目。诊断或人工提交之后才会出现，不会在每次生成计划时自动填上。</p>
-                <el-button size="small" @click="loadCandidates">刷新</el-button>
+                <p class="empty-note">候选要通过审核后才进入知识库。生成计划和 Runtime 都不会把未审核条目塞进上下文，检索时也只按问题取最多 20 条已入库记录。</p>
+                <el-form v-if="userStore.hasPermission('agent:invoke')" label-width="72px" size="small" class="cand-form">
+                  <el-form-item label="标题"><el-input v-model="candidateForm.title" /></el-form-item>
+                  <el-form-item label="分类">
+                    <el-select v-model="candidateForm.category" style="width: 100%">
+                      <el-option label="案例" value="case" />
+                      <el-option label="模板" value="template" />
+                      <el-option label="异常策略" value="exception" />
+                      <el-option label="资源画像" value="profile" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="内容"><el-input v-model="candidateForm.content" type="textarea" :rows="2" /></el-form-item>
+                  <el-button size="small" type="primary" :loading="savingCandidate" @click="submitCandidate">新增候选</el-button>
+                </el-form>
+                <div class="cand-tools">
+                  <el-select v-model="candidateStatus" size="small" style="width: 120px" @change="loadCandidates">
+                    <el-option label="待审核" value="pending" />
+                    <el-option label="已通过" value="approved" />
+                    <el-option label="已拒绝" value="rejected" />
+                    <el-option label="全部" value="all" />
+                  </el-select>
+                  <el-button size="small" @click="loadCandidates">刷新</el-button>
+                </div>
                 <el-table :data="candidates" size="small" style="margin-top: 8px">
                   <el-table-column prop="id" label="#" width="50" />
                   <el-table-column prop="title" label="候选" show-overflow-tooltip />
+                  <el-table-column prop="category" label="分类" width="90" />
                   <el-table-column prop="status" label="状态" width="80" />
-                  <el-table-column width="90">
+                  <el-table-column width="130">
                     <template #default="{ row }">
                       <el-button
                         v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
@@ -270,12 +545,18 @@
                         type="primary"
                         @click="reviewCand(row, true)"
                       >通过</el-button>
+                      <el-button
+                        v-if="userStore.hasPermission('agent:invoke') && row.status !== 'approved'"
+                        link
+                        type="danger"
+                        @click="removeCandidate(row)"
+                      >删除</el-button>
                     </template>
                   </el-table-column>
                 </el-table>
               </el-tab-pane>
               <el-tab-pane label="子任务 / 建议">
-                <p class="empty-note">会话关联评测任务后，点操作条里的「按需协作」，这里才会出现监控、诊断或评审子任务。没有关联任务时保持为空。</p>
+                <p class="empty-note">任务跑起来之后，主 Agent 会在需要时调用监控或诊断。这里只显示已经返回的子任务和建议，没有调用时保持为空。</p>
                 <el-table v-if="delegations.length" :data="delegations" size="small">
                   <el-table-column prop="id" label="子任务" width="70" />
                   <el-table-column prop="role" label="角色" width="100" />
@@ -302,22 +583,24 @@
 
           <!-- 执行时间线 / 结果 -->
           <el-card v-if="run" shadow="never" class="run-card">
-            <div class="plan-title">
-              执行 · run #{{ run.id }}
-              <StatusBadge :phase="runPhase" :text="run.status" />
+            <div class="plan-head">
+              <div class="plan-title">工具循环记录</div>
+              <StatusBadge :phase="runPhase" :text="runStatusText" />
             </div>
             <p class="hint">
-              轮次 {{ run.rounds_used }}/{{ run.max_rounds }}
-              · tokens {{ run.tokens_used }}/{{ run.token_budget || '未限额' }}
-              <span v-if="run.tokens_usage_unknown"> · usage 未知</span>
-              <span v-if="run.error_code"> · {{ run.error_code }}: {{ run.error_message }}</span>
-              <span v-if="eventsUpdatedAt"> · 更新 {{ eventsUpdatedAt }}</span>
+              第 {{ run.rounds_used || 0 }} / {{ run.max_rounds }} 轮
+              · 已用 {{ run.tokens_used || 0 }} token
+              · 限额 {{ run.token_budget || '未限额' }}
+              <span v-if="run.tokens_usage_unknown"> · 用量未回报</span>
+              <span v-if="eventsUpdatedAt"> · {{ eventsUpdatedAt }} 更新</span>
             </p>
+            <p v-if="run.error_message" class="warn">{{ run.error_message }}</p>
             <el-timeline class="timeline">
-              <el-timeline-item v-for="e in events" :key="`${run.id}-${e.seq}`" :timestamp="`#${e.seq}`" placement="top">
-                <b>{{ eventLabel(e.type) }}</b>
+              <el-timeline-item v-for="e in events" :key="`${run.id}-${e.seq}`" :timestamp="eventClock(e)" placement="top">
+                <div class="event-title">{{ eventLabel(e.type) }}</div>
+                <p class="event-detail">{{ eventDetail(e) }}</p>
                 <el-collapse v-if="e.payload && Object.keys(e.payload).length">
-                  <el-collapse-item title="详情" :name="String(e.seq)">
+                  <el-collapse-item title="原始数据" :name="String(e.seq)">
                     <pre class="payload">{{ formatPayload(e.payload) }}</pre>
                   </el-collapse-item>
                 </el-collapse>
@@ -329,11 +612,59 @@
             <div class="plan-title">结果</div>
             <p>已关联任务 #{{ session.task_id }}（{{ session.plan?.trial_run ? '试跑' : '正式' }}）</p>
             <el-button type="primary" link @click="$router.push(`/tasks/${session.task_id}`)">查看任务 / 报告</el-button>
+            <el-button v-if="userStore.hasPermission('agent:invoke')" link @click="persistRecipe">沉淀为可复用经验</el-button>
             <el-button link @click="startNew">基于此目标新建</el-button>
           </el-card>
         </template>
       </main>
     </div>
+
+    <el-dialog v-model="showCustomAgent" :title="editingAgent ? '编辑子 Agent' : '添加子 Agent'" width="640px">
+      <el-form label-width="120px">
+        <el-form-item label="标识"><el-input v-model="customAgent.role" :disabled="editingAgent" placeholder="如 coverage_checker" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="customAgent.name" /></el-form-item>
+        <el-form-item label="系统提示词"><el-input v-model="customAgent.system_prompt" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="最大迭代"><el-input-number v-model="customAgent.max_iterations" :min="1" :max="20" /></el-form-item>
+        <el-form-item label="超时秒数"><el-input-number v-model="customAgent.timeout_seconds" :min="5" :max="600" /></el-form-item>
+        <el-form-item label="流式输出"><el-switch v-model="customAgent.supports_stream" /></el-form-item>
+        <el-form-item label="人工介入"><el-switch v-model="customAgent.human_in_the_loop" /></el-form-item>
+        <el-form-item label="可调用工具">
+          <el-checkbox-group v-model="customAgent.available_tools">
+            <el-checkbox v-for="tool in mainToolOptions" :key="tool.name" :label="tool.name">{{ tool.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="可用 Skill">
+          <el-select v-model="customAgent.skill_codes" multiple filterable clearable placeholder="这个子 Agent 可以调用的 Skill" style="width: 100%">
+            <el-option v-for="skill in catalog.skills" :key="skill.code" :label="skill.name" :value="skill.code" :disabled="skill.enabled === false" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="评测标尺">
+          <el-input v-model="customAgent.evaluation_spec_text" type="textarea" :rows="2" placeholder="评测类子 Agent 填写 JSON" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCustomAgent = false">取消</el-button>
+        <el-button type="primary" :loading="savingCustom" @click="submitCustomAgent">保存</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="showCustomSkill" :title="editingSkill ? '编辑编排 Skill' : '添加编排 Skill'" width="520px">
+      <el-form label-width="100px">
+        <el-form-item label="标识"><el-input v-model="customSkill.code" :disabled="editingSkill" placeholder="如 weekly_report" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="customSkill.name" /></el-form-item>
+        <el-form-item label="执行方式">
+          <el-select v-model="customSkill.execution_type" style="width: 100%">
+            <el-option label="提示词模板" value="prompt_template" />
+            <el-option label="工作流" value="workflow" />
+            <el-option label="转交子 Agent" value="agent" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="入口"><el-input v-model="customSkill.entry_point" type="textarea" :rows="3" placeholder="提示词，或 knowledge.search" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCustomSkill = false">取消</el-button>
+        <el-button type="primary" :loading="savingCustom" @click="submitCustomSkill">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="drawerOpen" title="计划与证据" size="420px">
       <pre v-if="session.plan" class="payload">{{ JSON.stringify(session.plan, null, 2) }}</pre>
@@ -354,8 +685,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { agentsApi, modelsApi } from '@/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { agentsApi, modelsApi, resourcesApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ResourcePicker from '@/components/ResourcePicker.vue'
@@ -364,10 +695,86 @@ const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
 
+const budgetPanel = ref(['adv'])
+const catalog = ref({ subagents: [], skills: [], mcp_servers: [] })
+const recipes = ref([])
+const selectedRoles = ref(['monitor', 'diagnose'])
+const selectedSkills = ref([])
+const selectedMcps = ref([])
+const recipeId = ref(null)
+const showCustomAgent = ref(false)
+const showCustomSkill = ref(false)
+const savingCustom = ref(false)
+const mainToolOptions = [
+  { name: 'search_knowledge', label: '检索经验知识' },
+  { name: 'infer_dims', label: '推断场景' },
+  { name: 'search_eval_resources', label: '检索评测资源' },
+  { name: 'propose_resources', label: '写入计划' },
+  { name: 'delegate_agent', label: '调用子 Agent' },
+  { name: 'invoke_skill', label: '调用 Skill' },
+  { name: 'call_mcp', label: '调用 MCP' },
+]
+const emptyCustomAgent = () => ({
+  role: '',
+  name: '',
+  system_prompt: '',
+  max_iterations: 10,
+  timeout_seconds: 120,
+  supports_stream: false,
+  human_in_the_loop: false,
+  available_tools: ['search_knowledge'],
+  skill_codes: [],
+  evaluation_spec_text: '',
+  enabled: true,
+})
+const customAgent = ref(emptyCustomAgent())
+const profilePanel = ref([])
+const catalogPanel = ref([])
+const editingAgent = ref(false)
+const editingSkill = ref(false)
+const profileSaving = ref(false)
+const profileForm = ref({
+  system_prompt: '',
+  model_name: '',
+  temperature: 0,
+  max_tokens: 0,
+  available_tools: mainToolOptions.map((item) => item.name),
+  max_iterations: 10,
+  supports_stream: false,
+  human_in_the_loop: true,
+  evaluation_spec_text: '',
+  timeout_seconds: 120,
+})
+const canEditProfile = computed(() => userStore.hasPermission('agent:invoke'))
+const emptyCustomSkill = () => ({ code: '', name: '', execution_type: 'prompt_template', entry_point: '', enabled: true })
+const customSkill = ref(emptyCustomSkill())
+const activeSubagents = computed(() => (catalog.value.subagents || []).filter((item) => item.enabled !== false))
+const activeSkills = computed(() => (catalog.value.skills || []).filter((item) => item.enabled !== false))
 const railCollapsed = ref(false)
 const drawerOpen = ref(false)
 const showAdvanced = ref(false)
 const goalText = ref('')
+const followUp = ref('')
+const planEditing = ref(false)
+const editRoles = ref(['monitor', 'diagnose'])
+const editSkills = ref([])
+const editMcps = ref([])
+const judgeOptions = ref([])
+const threadLog = ref(null)
+const threadStick = ref(true)
+const sceneOptions = [
+  { value: 'chat', label: '智能对话' },
+  { value: 'table', label: '表格分析' },
+  { value: 'writing', label: '文本写作' },
+  { value: 'video', label: '视频生成' },
+  { value: 'rag', label: 'RAG 检索增强生成' },
+  { value: 'agent', label: '单智能体作业' },
+  { value: 'multi_agent', label: '多智能体协同' },
+  { value: 'code', label: '代码应用' },
+  { value: 'embodied', label: '具身智能' },
+  { value: 'industrial_sw', label: '工业软件辅助' },
+  { value: 'science', label: '科学智算' },
+]
 const tokenBudget = ref(0)
 const plannerModelId = ref(null)
 const plannerModels = ref([])
@@ -377,9 +784,6 @@ const creating = ref(false)
 const clarifying = ref(false)
 const approving = ref(false)
 const confirming = ref(false)
-const monitorLoading = ref(false)
-const diagnoseLoading = ref(false)
-const collabLoading = ref(false)
 const runLoading = ref(false)
 const cancelLoading = ref(false)
 const resumeLoading = ref(false)
@@ -392,10 +796,13 @@ const run = ref(null)
 const events = ref([])
 const eventsUpdatedAt = ref('')
 const pollError = ref('')
-const clarifyForm = ref({ dataset_id: null, model_id: null, token_budget: 0, trial_run: true })
+const clarifyForm = ref({ dataset_id: null, model_id: null, token_budget: 0, trial_run: true, scene: '', judge_resource_id: '' })
 const delegations = ref([])
 const evidence = ref([])
 const candidates = ref([])
+const candidateStatus = ref('pending')
+const savingCandidate = ref(false)
+const candidateForm = ref({ title: '', content: '', category: 'case' })
 const datasetLabel = ref('—')
 const modelLabel = ref('—')
 
@@ -433,7 +840,89 @@ function fieldLabel(field) {
 }
 
 function roleLabel(role) {
-  return ({ user: '你', main: '助手', system: '系统', monitor: '监控', diagnose: '诊断' }[role] || role)
+  return ({
+    user: '你',
+    main: '助手',
+    system: '系统',
+    monitor: '监控分析',
+    diagnose: '异常诊断',
+    plan_analyst: '方案分析',
+    report_reviewer: '报告审校',
+    param_advisor: '参数推荐',
+  }[role] || role)
+}
+
+const judgeLabel = computed(() => {
+  const id = session.value?.plan?.judge_resource_id
+  if (!id) return '—'
+  return judgeOptions.value.find((item) => item.resource_id === id)?.name || id
+})
+
+const runStatusText = computed(() => ({
+  queued: '排队',
+  running: '进行中',
+  waiting: '等待',
+  success: '完成',
+  failed: '失败',
+  cancelled: '已取消',
+  paused_budget: '预算不足',
+}[run.value?.status] || run.value?.status || ''))
+
+function msgTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function scrollThread(force = false) {
+  const el = threadLog.value
+  if (!el || (!force && !threadStick.value)) return
+  el.scrollTop = el.scrollHeight
+}
+
+function onThreadScroll() {
+  const el = threadLog.value
+  if (!el) return
+  threadStick.value = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+}
+
+const capabilityLabels = computed(() => {
+  const caps = session.value?.plan?.capabilities || {}
+  const roles = (caps.subagent_roles || ['monitor', 'diagnose']).map((role) => (
+    catalog.value.subagents.find((item) => item.role === role)?.name || role
+  ))
+  const skills = (caps.skill_codes || []).map((code) => (
+    catalog.value.skills.find((item) => item.code === code)?.name || code
+  ))
+  const mcps = (caps.mcp_resource_ids || []).map((id) => (
+    catalog.value.mcp_servers.find((item) => item.resource_id === id)?.name || id
+  ))
+  return {
+    roles: roles.join('、') || '监控分析、异常诊断',
+    skills: skills.join('、') || '未启用',
+    mcps: mcps.join('、') || '未启用',
+  }
+})
+
+function syncCapabilityEdits() {
+  const caps = session.value?.plan?.capabilities || {}
+  editRoles.value = [...(caps.subagent_roles?.length ? caps.subagent_roles : ['monitor', 'diagnose'])]
+  editSkills.value = [...(caps.skill_codes || [])]
+  editMcps.value = [...(caps.mcp_resource_ids || [])]
+}
+
+function togglePlanEdit() {
+  planEditing.value = !planEditing.value
+  if (planEditing.value) {
+    syncCapabilityEdits()
+    loadJudges().catch(() => {})
+    if (!catalog.value.subagents?.length) loadCatalog().catch(() => {})
+  }
+}
+
+async function loadJudges() {
+  const res = await resourcesApi.judges()
+  judgeOptions.value = res.items || res || []
 }
 
 function eventLabel(type) {
@@ -454,6 +943,70 @@ function eventLabel(type) {
     'run.resume': '从检查点恢复',
   }
   return map[type] || type
+}
+
+function clipText(value, limit = 180) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  return text.length > limit ? `${text.slice(0, limit)}…` : text
+}
+
+function toolLine(tool) {
+  if (!tool || typeof tool !== 'object') return ''
+  const name = tool.name || '工具'
+  const args = tool.arguments && typeof tool.arguments === 'object' ? tool.arguments : {}
+  const bits = Object.entries(args)
+    .slice(0, 4)
+    .map(([key, value]) => `${key}=${clipText(typeof value === 'string' ? value : JSON.stringify(value), 60)}`)
+  return bits.length ? `${name}（${bits.join('，')}）` : name
+}
+
+function eventClock(event) {
+  if (!event?.created_at) return `第 ${event?.seq || ''} 步`
+  const date = new Date(event.created_at)
+  if (Number.isNaN(date.getTime())) return `第 ${event.seq} 步`
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function eventDetail(event) {
+  const payload = event?.payload || {}
+  if (event.type === 'run.created') {
+    return `开始向规划模型提问：${clipText(payload.message) || '（无问题文本）'}`
+  }
+  if (event.type === 'run.claimed') return '执行器已接过这次工具循环，开始按轮次调用规划模型。'
+  if (event.type === 'llm.select') {
+    const names = (payload.tools || []).filter(Boolean).join('、')
+    const cost = payload.tokens == null ? '用量未回报' : `本步 ${payload.tokens} token`
+    const latency = payload.latency_ms != null ? `，耗时 ${payload.latency_ms} ms` : ''
+    if (payload.has_tool) return `规划模型决定调用 ${names || '工具'}。${cost}${latency}。`
+    const preview = clipText(payload.preview)
+    return `规划模型不再调用工具，准备直接回复。${cost}${latency}。${preview ? `草稿：${preview}` : ''}`
+  }
+  if (event.type === 'llm.select_none') return '这一轮没有工具调用，下一步会生成给用户看的回复。'
+  if (event.type === 'tool.selected') {
+    const lines = (payload.tools || []).map(toolLine).filter(Boolean)
+    return lines.length ? `即将执行：${lines.join('；')}` : '已选定工具，参数见原始数据。'
+  }
+  if (event.type === 'tool.observed') {
+    const result = payload.result || {}
+    if (Array.isArray(result.updated)) return `${payload.tool || '工具'} 已写入计划：${result.updated.join('、')}。`
+    if (result.datasets || result.models || result.judges) {
+      return `${payload.tool || '检索'} 找到数据集 ${result.datasets?.length || 0} 个、被测模型 ${result.models?.length || 0} 个、打分工具 ${result.judges?.length || 0} 个。`
+    }
+    if (result.items) return `${payload.tool || '检索'} 命中 ${result.count ?? result.items.length} 条知识。`
+    if (result.role) return `子 Agent ${result.role} 已返回分析，诊断不会直接执行恢复。`
+    return `${payload.tool || '工具'} 已返回结果，展开原始数据可看完整内容。`
+  }
+  if (event.type === 'tool.rejected' || event.type === 'tool.failed') {
+    return payload.error || '工具没有执行成功。'
+  }
+  if (event.type === 'llm.reply') return clipText(payload.reply, 280) || '已生成回复，内容在上方对话里。'
+  if (event.type === 'run.success') return '工具循环结束。计划是否变化，以计划摘要为准。'
+  if (event.type === 'run.failed') return payload.error || payload.detail || payload.error_code || '运行失败。'
+  if (event.type === 'run.paused_budget') return `已用 ${payload.tokens_used ?? '未知'} token，达到本次限额，循环暂停。`
+  if (event.type === 'run.cancelled') return '这次工具循环已取消，不会继续改计划。'
+  if (event.type === 'run.resume') return `从「${payload.checkpoint_phase || '检查点'}」继续。`
+  return '这一步没有额外说明。'
 }
 
 function formatPayload(p) {
@@ -593,19 +1146,6 @@ const secondaryActions = computed(() => {
       run: clarify,
     })
   }
-  if (session.value?.task_id && userStore.hasPermission('agent:view')) {
-    list.push({
-      key: 'monitor',
-      label: '监控',
-      disabled: monitorLoading.value,
-      loading: monitorLoading,
-      run: monitor,
-    })
-  }
-  if (session.value?.task_id && userStore.hasPermission('agent:invoke')) {
-    list.push({ key: 'diagnose', label: '诊断', disabled: diagnoseLoading.value, loading: diagnoseLoading, run: diagnose })
-    list.push({ key: 'collab', label: '按需协作', disabled: collabLoading.value, loading: collabLoading, run: collaborate })
-  }
   return list
 })
 
@@ -614,9 +1154,6 @@ function toggleAdvanced() {
   if (showAdvanced.value) {
     loadCandidates().catch(() => {})
     if (currentId.value && session.value?.task_id) loadDelegations().catch(() => {})
-    nextTick(() => {
-      document.querySelector('.adv-card')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-    })
   }
 }
 
@@ -691,8 +1228,38 @@ async function loadList() {
 }
 
 async function loadCandidates() {
-  const res = await agentsApi.knowledgeCandidates({ status: 'pending' })
+  const res = await agentsApi.knowledgeCandidates({ status: candidateStatus.value || undefined })
   candidates.value = res.items || []
+}
+
+async function submitCandidate() {
+  if (!candidateForm.value.title.trim() || !candidateForm.value.content.trim()) {
+    ElMessage.warning('请填写标题和内容')
+    return
+  }
+  savingCandidate.value = true
+  try {
+    await agentsApi.addKnowledge({ ...candidateForm.value })
+    candidateForm.value = { title: '', content: '', category: 'case' }
+    candidateStatus.value = 'pending'
+    await loadCandidates()
+    ElMessage.success('已加入待审核候选')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '新增失败')
+  } finally {
+    savingCandidate.value = false
+  }
+}
+
+async function removeCandidate(row) {
+  try {
+    await ElMessageBox.confirm(`删除候选「${row.title}」？已入库的知识不会一起删。`, '删除候选')
+  } catch {
+    return
+  }
+  await agentsApi.deleteKnowledge(row.id)
+  ElMessage.success('已删除')
+  await loadCandidates()
 }
 
 async function reviewCand(row, approveFlag) {
@@ -735,6 +1302,26 @@ async function resolveLabels(plan, sid, gen) {
   } catch { /* */ }
 }
 
+function pageScroller() {
+  return document.querySelector('.main')
+}
+
+function holdPageScroll() {
+  const scroller = pageScroller()
+  const top = scroller ? scroller.scrollTop : 0
+  const restore = () => {
+    if (scroller) scroller.scrollTop = top
+  }
+  nextTick(restore)
+  requestAnimationFrame(restore)
+  setTimeout(restore, 80)
+}
+
+function rememberPageClick(event) {
+  if (!event.target.closest('button, .el-button')) return
+  holdPageScroll()
+}
+
 async function loadSession() {
   const sid = currentId.value
   if (!sid) {
@@ -742,12 +1329,16 @@ async function loadSession() {
     return
   }
   const gen = ++sessionGen
-  resetSessionSideState()
+  const sameSession = session.value?.id === sid
+  const scroller = pageScroller()
+  const savedScroll = scroller ? scroller.scrollTop : 0
+  if (!sameSession) resetSessionSideState()
   sessionLoading.value = true
   try {
     const data = await agentsApi.getSession(sid)
     if (gen !== sessionGen || currentId.value !== sid) return
     session.value = data
+    if (data.planner_model_id) plannerModelId.value = data.planner_model_id
     goalText.value = data.requirement || goalText.value
     if (data.plan?.goal_spec?.objective) goalText.value = data.plan.goal_spec.objective
     clarifyForm.value = {
@@ -755,6 +1346,8 @@ async function loadSession() {
       model_id: data.plan?.model_id || null,
       token_budget: data.plan?.token_budget || 0,
       trial_run: typeof data.plan?.trial_run === 'boolean' ? data.plan.trial_run : true,
+      scene: data.plan?.scene || '',
+      judge_resource_id: data.plan?.judge_resource_id || '',
     }
     tokenBudget.value = data.plan?.token_budget || tokenBudget.value
     const valid = (data.approvals || []).find((a) => isApprovalValid(a, data.plan))
@@ -764,7 +1357,17 @@ async function loadSession() {
     if (data.task_id) await loadDelegations(sid, gen)
     const runId = data.active_run_id || data.last_run_id
     if (runId) await loadRun(runId, sid, gen)
+    if (!plannerModelId.value && run.value?.planner_model_id) plannerModelId.value = run.value.planner_model_id
     if (gen === sessionGen && currentId.value === sid) applyPausedBudgetDefault()
+    if (sameSession) {
+      nextTick(() => {
+        if (scroller) scroller.scrollTop = savedScroll
+        scrollThread(threadStick.value)
+      })
+    } else {
+      threadStick.value = true
+      nextTick(() => scrollThread(true))
+    }
   } catch (e) {
     if (gen === sessionGen) ElMessage.error(e?.response?.data?.detail || e?.message || '加载会话失败')
   } finally {
@@ -780,6 +1383,201 @@ async function loadDelegations(sid = currentId.value, gen = sessionGen) {
   evidence.value = res.evidence || []
 }
 
+async function loadCatalog() {
+  try {
+    const [cat, recipeRes] = await Promise.all([agentsApi.catalog(), agentsApi.recipes()])
+    catalog.value = cat
+    recipes.value = recipeRes.items || []
+    const required = (cat.subagents || []).filter((item) => item.required).map((item) => item.role)
+    selectedRoles.value = Array.from(new Set([...required, ...selectedRoles.value]))
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '能力目录加载失败')
+  }
+}
+
+function applyRecipe(id) {
+  const recipe = recipes.value.find((item) => item.id === id)
+  if (!recipe) return
+  const snap = recipe.snapshot || {}
+  if (recipe.requirement) goalText.value = recipe.requirement
+  if (snap.token_budget != null) tokenBudget.value = snap.token_budget
+  const bound = snap.capabilities || {}
+  if (bound.subagent_roles?.length) selectedRoles.value = bound.subagent_roles
+  selectedSkills.value = bound.skill_codes || []
+  selectedMcps.value = bound.mcp_resource_ids || []
+}
+
+async function persistRecipe() {
+  if (!currentId.value) return
+  const row = await agentsApi.saveRecipe(currentId.value)
+  ElMessage.success('已沉淀，下次可直接复用')
+  await loadCatalog()
+  recipeId.value = row.id
+}
+
+function toolLabels(names) {
+  const map = Object.fromEntries(mainToolOptions.map((item) => [item.name, item.label]))
+  const list = (names || []).map((name) => map[name] || name)
+  return list.length ? list.join('、') : '未配置'
+}
+
+function skillLabels(codes) {
+  const map = Object.fromEntries((catalog.value.skills || []).map((item) => [item.code, item.name]))
+  const list = (codes || []).map((code) => map[code] || code)
+  return list.length ? list.join('、') : '未配置'
+}
+
+function executionLabel(kind) {
+  return { prompt_template: '提示词模板', workflow: '工作流', agent: '转交子 Agent', code: '代码' }[kind] || kind || ''
+}
+
+function agentStatus(row) {
+  if (row.enabled === false) return '已停用'
+  return row.builtin ? '内置' : '自定义'
+}
+
+function agentPayload(source, enabled) {
+  let evaluationSpec = null
+  const specText = (source.evaluation_spec_text || '').trim()
+  if (specText) {
+    evaluationSpec = JSON.parse(specText)
+    if (!evaluationSpec || typeof evaluationSpec !== 'object' || Array.isArray(evaluationSpec)) {
+      throw new Error('评测标尺须是 JSON 对象')
+    }
+  } else if (source.evaluation_spec && typeof source.evaluation_spec === 'object') {
+    evaluationSpec = source.evaluation_spec
+  }
+  return {
+    role: source.role,
+    name: source.name,
+    description: source.description || '',
+    system_prompt: source.system_prompt || '',
+    max_iterations: source.max_iterations || 10,
+    timeout_seconds: source.timeout_seconds || 120,
+    supports_stream: !!source.supports_stream,
+    human_in_the_loop: !!source.human_in_the_loop,
+    available_tools: source.available_tools || [],
+    skill_codes: source.skill_codes || [],
+    evaluation_spec: evaluationSpec,
+    enabled: enabled != null ? enabled : source.enabled !== false,
+  }
+}
+
+function openAgentEditor(row) {
+  editingAgent.value = !!row
+  if (!row) {
+    customAgent.value = emptyCustomAgent()
+  } else {
+    customAgent.value = {
+      role: row.role,
+      name: row.name,
+      description: row.description || '',
+      system_prompt: row.system_prompt || '',
+      max_iterations: row.max_iterations || 10,
+      timeout_seconds: row.timeout_seconds || 120,
+      supports_stream: !!row.supports_stream,
+      human_in_the_loop: !!row.human_in_the_loop,
+      available_tools: [...(row.available_tools || [])],
+      skill_codes: [...(row.skill_codes || [])],
+      evaluation_spec_text: row.evaluation_spec ? JSON.stringify(row.evaluation_spec, null, 2) : '',
+      enabled: row.enabled !== false,
+    }
+  }
+  showCustomAgent.value = true
+}
+
+function openSkillEditor(row) {
+  editingSkill.value = !!row
+  customSkill.value = row
+    ? {
+      code: row.code,
+      name: row.name,
+      description: row.description || '',
+      execution_type: row.execution_type || 'prompt_template',
+      entry_point: row.entry_point || '',
+      enabled: row.enabled !== false,
+    }
+    : emptyCustomSkill()
+  showCustomSkill.value = true
+}
+
+async function submitCustomAgent() {
+  savingCustom.value = true
+  try {
+    const payload = agentPayload(customAgent.value)
+    const wasEdit = editingAgent.value
+    if (wasEdit) await agentsApi.updateDefinition(payload.role, payload)
+    else await agentsApi.createDefinition(payload)
+    showCustomAgent.value = false
+    customAgent.value = emptyCustomAgent()
+    editingAgent.value = false
+    await loadCatalog()
+    ElMessage.success(wasEdit ? '子 Agent 已更新' : '子 Agent 已保存')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '保存失败')
+  } finally {
+    savingCustom.value = false
+  }
+}
+
+async function removeAgent(row) {
+  try {
+    await ElMessageBox.confirm(row.builtin ? `停用「${row.name}」后，新建评测不能再选它。` : `删除子 Agent「${row.name}」？`, '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  await agentsApi.deleteDefinition(row.role)
+  await loadCatalog()
+  ElMessage.success(row.builtin ? '已停用' : '已删除')
+}
+
+async function restoreAgent(row) {
+  await agentsApi.updateDefinition(row.role, agentPayload({
+    ...row,
+    evaluation_spec_text: row.evaluation_spec ? JSON.stringify(row.evaluation_spec) : '',
+  }, true))
+  await loadCatalog()
+  ElMessage.success('已恢复')
+}
+
+async function submitCustomSkill() {
+  savingCustom.value = true
+  try {
+    const payload = { ...customSkill.value }
+    const created = editingSkill.value
+      ? await agentsApi.updateSkill(payload.code, payload)
+      : await agentsApi.createSkill(payload)
+    showCustomSkill.value = false
+    customSkill.value = emptyCustomSkill()
+    const wasEdit = editingSkill.value
+    editingSkill.value = false
+    await loadCatalog()
+    if (!wasEdit && created.code) selectedSkills.value = Array.from(new Set([...selectedSkills.value, created.code]))
+    ElMessage.success(wasEdit ? 'Skill 已更新' : 'Skill 已加入本次可选列表')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '保存失败')
+  } finally {
+    savingCustom.value = false
+  }
+}
+
+async function removeSkill(row) {
+  try {
+    await ElMessageBox.confirm(row.builtin ? `停用编排 Skill「${row.name}」？` : `删除编排 Skill「${row.name}」？`, '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  await agentsApi.deleteSkill(row.code)
+  await loadCatalog()
+  ElMessage.success(row.builtin ? '已停用' : '已删除')
+}
+
+async function restoreSkill(row) {
+  await agentsApi.updateSkill(row.code, { ...row, enabled: true })
+  await loadCatalog()
+  ElMessage.success('已恢复')
+}
+
 async function createSession() {
   if (!plannerModelId.value) {
     ElMessage.warning('请选择规划模型')
@@ -791,6 +1589,11 @@ async function createSession() {
       requirement: goalText.value.trim(),
       objective: goalText.value.trim(),
       token_budget: tokenBudget.value || 0,
+      skill_codes: selectedSkills.value,
+      mcp_resource_ids: selectedMcps.value,
+      subagent_roles: selectedRoles.value,
+      recipe_id: recipeId.value || undefined,
+      planner_model_id: plannerModelId.value,
     })
     ElMessage.success(created.plan?.ready ? '计划已就绪，可审批' : '需要补充信息')
     await loadList()
@@ -810,10 +1613,21 @@ async function clarify() {
       objective: goalText.value || session.value.requirement,
       trial_run: clarifyForm.value.trial_run,
       token_budget: clarifyForm.value.token_budget,
+      scene: clarifyForm.value.scene || undefined,
+      judge_resource_id: clarifyForm.value.judge_resource_id || undefined,
     }
     if (clarifyForm.value.dataset_id) payload.dataset_id = clarifyForm.value.dataset_id
     if (clarifyForm.value.model_id) payload.model_id = clarifyForm.value.model_id
+    const savingCapabilities = planEditing.value
     await agentsApi.clarify(currentId.value, payload)
+    if (savingCapabilities) {
+      await agentsApi.updateCapabilities(currentId.value, {
+        subagent_roles: editRoles.value,
+        skill_codes: editSkills.value,
+        mcp_resource_ids: editMcps.value,
+      })
+    }
+    planEditing.value = false
     pendingConfirmInvocationId = ''
     const prev = Number(session.value?.plan?.token_budget || 0)
     const next = Number(clarifyForm.value.token_budget || 0)
@@ -865,37 +1679,6 @@ async function confirm(execute) {
     ElMessage.error(e?.response?.data?.detail || e?.message || '确认失败')
   } finally {
     confirming.value = false
-  }
-}
-
-async function monitor() {
-  monitorLoading.value = true
-  try {
-    await agentsApi.monitor(currentId.value)
-    await loadSession()
-  } finally {
-    monitorLoading.value = false
-  }
-}
-
-async function diagnose() {
-  diagnoseLoading.value = true
-  try {
-    await agentsApi.diagnose(currentId.value)
-    await loadSession()
-  } finally {
-    diagnoseLoading.value = false
-  }
-}
-
-async function collaborate() {
-  collabLoading.value = true
-  try {
-    const res = await agentsApi.collaborate(currentId.value, {})
-    ElMessage.success(`委派: ${(res.roles || []).join(',') || '无'}`)
-    await loadSession()
-  } finally {
-    collabLoading.value = false
   }
 }
 
@@ -1026,7 +1809,63 @@ function startRuntime() {
   return launchRuntime({}).catch(() => {})
 }
 
-async function launchRuntime({ quiet = false, budget = null } = {}) {
+async function sendFollowUp() {
+  const text = followUp.value.trim()
+  if (!text || runLoading.value) return
+  try {
+    await launchRuntime({ message: text })
+    followUp.value = ''
+  } catch {
+    /* launchRuntime 已提示 */
+  }
+}
+
+function inlineMarkdown(text) {
+  return text
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+}
+
+function renderMarkdown(raw) {
+  const escaped = String(raw || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const blocks = []
+  const withCode = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
+    const token = `@@CODE${blocks.length}@@`
+    blocks.push(`<pre><code>${code.replace(/^\n|\n$/g, '')}</code></pre>`)
+    return token
+  })
+  const html = withCode
+    .split(/\n{2,}/)
+    .map((para) => {
+      const lines = para.split('\n')
+      const tableLines = lines.map((line) => line.trim()).filter(Boolean)
+      const isTable = tableLines.length >= 2 && tableLines.every((line) => line.startsWith('|') && line.endsWith('|'))
+      if (isTable) {
+        const rows = tableLines
+          .map((line) => line.slice(1, -1).split('|').map((cell) => inlineMarkdown(cell.trim())))
+          .filter((row) => !row.every((cell) => /^:?-{3,}:?$/.test(cell)))
+        if (rows.length) {
+          const head = rows[0].map((cell) => `<th>${cell}</th>`).join('')
+          const body = rows.slice(1).map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
+          return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
+        }
+      }
+      let line = inlineMarkdown(para)
+      line = line.replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>')
+      line = line.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+      line = line.replace(/^(?:[-*] |\d+\. )(.+)$/gm, '<li>$1</li>')
+      if (line.includes('<li>')) line = `<ul>${line}</ul>`
+      return `<p>${line.replace(/\n/g, '<br>')}</p>`
+    })
+    .join('')
+  return html.replace(/@@CODE(\d+)@@/g, (_, index) => blocks[Number(index)] || '')
+}
+
+async function launchRuntime({ quiet = false, budget = null, message = '' } = {}) {
   if (!currentId.value || !plannerModelId.value) {
     ElMessage.warning('请选择已配置 api_url 的规划模型')
     return
@@ -1035,14 +1874,15 @@ async function launchRuntime({ quiet = false, budget = null } = {}) {
   const sid = currentId.value
   const gen = sessionGen
   const nextBudget = budget == null ? Number(clarifyForm.value.token_budget || tokenBudget.value || 0) : Number(budget)
+  const text = String(message || goalText.value || session.value.requirement || '').trim()
   try {
     const data = await agentsApi.startRun(sid, {
-      message: goalText.value || session.value.requirement,
+      message: text,
       provider: 'live',
       planner_model_id: plannerModelId.value,
       token_budget: nextBudget,
       sync: true,
-      max_rounds: 8,
+      max_rounds: Number(profileForm.value.max_iterations) || 10,
     })
     if (gen !== sessionGen || currentId.value !== sid) return
     run.value = data
@@ -1102,7 +1942,76 @@ watch(
   },
 )
 
+watch(
+  () => (session.value.messages || []).map((item) => item.id).join(','),
+  () => nextTick(() => scrollThread(false)),
+)
+
+function applyProfile(data) {
+  const cfg = data?.model_config || {}
+  profileForm.value = {
+    system_prompt: data?.system_prompt || '',
+    model_name: cfg.model_name || '',
+    temperature: cfg.temperature ?? 0,
+    max_tokens: cfg.max_tokens || 0,
+    available_tools: data?.available_tools?.length ? data.available_tools : mainToolOptions.map((item) => item.name),
+    max_iterations: data?.max_iterations || 10,
+    supports_stream: !!data?.supports_stream,
+    human_in_the_loop: data?.human_in_the_loop !== false,
+    evaluation_spec_text: data?.evaluation_spec ? JSON.stringify(data.evaluation_spec, null, 2) : '',
+    timeout_seconds: data?.timeout_seconds || 120,
+  }
+}
+
+async function loadProfile() {
+  applyProfile(await agentsApi.profile())
+}
+
+async function saveProfile() {
+  let spec = null
+  const raw = (profileForm.value.evaluation_spec_text || '').trim()
+  if (raw) {
+    try {
+      spec = JSON.parse(raw)
+    } catch {
+      ElMessage.error('评测标尺须是 JSON 对象')
+      return
+    }
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+      ElMessage.error('评测标尺须是 JSON 对象')
+      return
+    }
+  }
+  profileSaving.value = true
+  try {
+    const saved = await agentsApi.saveProfile({
+      system_prompt: profileForm.value.system_prompt,
+      model_config: {
+        model_name: profileForm.value.model_name,
+        temperature: Number(profileForm.value.temperature) || 0,
+        max_tokens: Number(profileForm.value.max_tokens) || 0,
+      },
+      available_tools: profileForm.value.available_tools,
+      max_iterations: Number(profileForm.value.max_iterations) || 10,
+      supports_stream: profileForm.value.supports_stream,
+      human_in_the_loop: profileForm.value.human_in_the_loop,
+      evaluation_spec: spec,
+      timeout_seconds: Number(profileForm.value.timeout_seconds) || 120,
+    })
+    applyProfile(saved)
+    ElMessage.success('主 Agent 配置已保存')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    profileSaving.value = false
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener('click', rememberPageClick, true)
+  loadJudges().catch(() => {})
+  loadProfile().catch(() => {})
+  await loadCatalog()
   await loadList()
   const q = route.query.session
   if (q) {
@@ -1113,6 +2022,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', rememberPageClick, true)
   sessionGen += 1
   stopPoll()
 })
@@ -1120,15 +2030,26 @@ onUnmounted(() => {
 
 <style scoped>
 .agents-wb { --rail-w: 260px; }
+.profile-card { margin-bottom: 16px; }
+.skill-head { margin-top: 18px; }
+.profile-more { margin-top: 12px; }
+.profile-form .hint { margin-left: 8px; }
 .wb-layout { display: flex; gap: 16px; align-items: flex-start; min-height: 60vh; }
 .session-rail {
+  position: sticky;
+  top: 12px;
   width: var(--rail-w);
+  max-height: calc(100vh - 120px);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-card, #fff);
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: var(--radius-md, 10px);
   padding: 12px;
 }
+.rail-scroll { overflow-y: auto; min-height: 0; flex: 1; }
 .session-rail.collapsed { width: 72px; }
 .rail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
 .new-btn { width: 100%; margin-bottom: 8px; }
@@ -1155,11 +2076,60 @@ onUnmounted(() => {
 .main-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .sess-heading { margin: 0 0 6px; font-size: 18px; }
 .head-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.msgs { margin-bottom: 12px; }
-.msg { padding: 8px 10px; border-radius: 8px; margin-bottom: 6px; font-size: 13px; background: #f8fafc; }
-.msg.user { background: #eef2ff; }
-.msg b { margin-right: 8px; }
+.thread {
+  display: flex;
+  flex-direction: column;
+  height: min(560px, 68vh);
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 12px;
+}
+.thread-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.thread-head .plan-title { margin: 0; }
+.thread-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
+.thread-empty { padding: 28px 8px; text-align: center; font-size: 13px; color: var(--text-secondary); }
+.msg {
+  max-width: min(760px, 92%);
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 13px;
+}
+.msg.user { margin-left: auto; background: #eef2ff; border-color: #c7d2fe; }
+.msg.system { max-width: 100%; background: transparent; border-style: dashed; }
+.msg-meta { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary); }
+.msg-meta b { color: var(--text-primary, #0f172a); }
+.msg-body { line-height: 1.6; word-break: break-word; }
+.msg-body :deep(p) { margin: 0 0 6px; }
+.msg-body :deep(p:last-child) { margin-bottom: 0; }
+.msg-body :deep(ul) { margin: 4px 0; padding-left: 18px; }
+.msg-body :deep(code) { padding: 0 4px; border-radius: 4px; background: rgba(15, 23, 42, 0.06); }
+.msg-body :deep(table) { width: 100%; border-collapse: collapse; margin: 6px 0; }
+.msg-body :deep(th), .msg-body :deep(td) { border: 1px solid #e2e8f0; padding: 4px 6px; text-align: left; vertical-align: top; }
+.msg-body :deep(blockquote) { margin: 6px 0; padding-left: 8px; border-left: 3px solid #cbd5e1; color: var(--text-secondary); }
+.msg-body :deep(pre) { margin: 6px 0; padding: 8px; overflow: auto; border-radius: 6px; background: #0f172a; color: #e2e8f0; }
+.msg-body :deep(pre code) { padding: 0; background: transparent; color: inherit; }
+.composer { margin: 0; padding: 10px 12px 12px; background: #fff; border-top: 1px solid var(--border-color, #e2e8f0); }
+.composer-bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 8px; }
 .plan-title { font-weight: 600; margin-bottom: 8px; }
+.plan-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.plan-head .plan-title { margin: 0; }
+.plan-edit { max-width: 680px; }
+.event-title { font-weight: 600; font-size: 13px; }
+.event-detail { margin: 4px 0 0; font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+:global(.main) { overflow-anchor: none; }
 .plan-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
 .clarify-lead { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .clarify-block { margin-bottom: 14px; }
@@ -1194,13 +2164,22 @@ onUnmounted(() => {
 }
 .dock-hint { flex: 1 1 220px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 .empty-note { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
-.timeline { max-height: 280px; overflow: auto; margin-top: 8px; }
+.timeline { max-height: 420px; overflow: auto; margin-top: 8px; padding-right: 8px; }
 .payload { font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
+.cap-card { margin: 12px 0; padding: 12px; background: #f8fafc; border-radius: 8px; }
+.cap-card .plan-title { margin-top: 12px; }
+.cap-card .plan-title:first-child { margin-top: 0; }
+.agent-duty { margin: 4px 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.cap-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.cand-form { margin-bottom: 8px; }
+.cand-tools { display: flex; gap: 8px; align-items: center; }
 .hint { font-size: 12px; color: var(--text-secondary); }
 .warn, .warn-inline { color: var(--el-color-warning); font-size: 12px; }
 .link { margin-left: 6px; font-size: 12px; }
 @media (max-width: 1024px) {
   .wb-layout { flex-direction: column; }
-  .session-rail { width: 100%; }
+  .session-rail { position: static; width: 100%; max-height: 280px; }
+  .thread { height: min(480px, 70vh); }
+  .composer-bar { flex-direction: column; align-items: stretch; }
 }
 </style>

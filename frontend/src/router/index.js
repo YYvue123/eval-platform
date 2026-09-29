@@ -63,7 +63,12 @@ function hasRoutePermission(userStore, permission) {
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (from.path && to.path === from.path) return false
+    return { top: 0 }
+  },
 })
 
 router.beforeEach((to, _from, next) => {
