@@ -6,6 +6,7 @@
         <p class="page-desc">{{ task.report_summary || '提交后将按数据分片逐条调用模型与打分工具；进度实时提交可见。' }}</p>
       </div>
       <div class="ops">
+        <el-button @click="goBack">返回</el-button>
         <el-button v-if="userStore.hasPermission('task:run')" type="primary" :disabled="task.status === 'running'" @click="run">执行</el-button>
         <el-button
           v-if="userStore.hasPermission('task:run') && ['queued', 'running'].includes(task.status)"
@@ -130,7 +131,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { tasksApi } from '@/api'
 import { useUserStore } from '@/stores/user'
@@ -138,6 +139,7 @@ import PageAsyncState from '@/components/PageAsyncState.vue'
 import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
 const loadError = ref('')
@@ -160,6 +162,11 @@ const pageState = computed(() => deriveAsyncState({
   items: task.value?.id ? [task.value] : [],
   createdOnce: createdOnce.value,
 }))
+
+function goBack() {
+  if (window.history.length > 1) router.back()
+  else router.push('/tasks')
+}
 
 function loadErr(e, fallback) {
   const d = e?.response?.data

@@ -31,7 +31,7 @@ from app.services.metrics import observe_eval_done
 from app.services.model_access import get_access_for_version, model_call_view
 from app.services.model_client import invoke_model
 from app.services.prompt_render import MissingRequiredVariable, render_prompt
-from app.services.report_archive import write_task_report
+from app.services.report_archive import result_row_for_report, write_task_report
 from app.services.builtin_tools import run_builtin_tool
 from app.services.task_events import emit_event
 from app.services.task_service import fencing_still_valid, heartbeat_lease
@@ -449,7 +449,18 @@ async def _run(
         f"通过率 {task.pass_rate:.2%}，平均分 {task.avg_score:.4f}"
         f"{'（simulation）' if getattr(task, 'simulation', False) else ''}。"
     )
-    task.report_path = write_task_report(task)
+    result_rows = (
+        await db.execute(select(EvalResult).where(EvalResult.task_id == task.id).order_by(EvalResult.item_no))
+    ).scalars().all()
+    ds = await db.get(Dataset, task.dataset_id)
+    prompt_row = await db.get(PromptTemplate, task.prompt_id) if task.prompt_id else None
+    task.report_path = write_task_report(task, {
+        "dataset_name": ds.name if ds else "",
+        "model_name": model.name if model else "",
+        "channel_type": getattr(model, "channel_type", "") or "",
+        "prompt_name": prompt_row.name if prompt_row else "",
+        "results": [result_row_for_report(r) for r in result_rows],
+    })
     db.add(DatasetLog(
         dataset_id=task.dataset_id,
         version_id=version_id,

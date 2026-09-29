@@ -3,12 +3,9 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">模型榜单</h2>
-        <p class="page-desc">仅正式结果入榜；同 cohort 比较；缺指标不填零；发布可回滚至上一合格快照。</p>
+        <p class="page-desc">只收录正式评测成功的结果。同一比较组内的分数才能互相排名；缺指标留空，不补 0。</p>
       </div>
       <div class="ops">
-        <el-button v-if="userStore.hasPermission('leaderboard:edit')" @click="refresh">刷新快照</el-button>
-        <el-button v-if="userStore.hasPermission('leaderboard:edit')" type="primary" @click="publish">发布正式榜</el-button>
-        <el-button v-if="userStore.hasPermission('leaderboard:edit')" @click="rollback">回滚</el-button>
         <el-button @click="exportCsv">导出 CSV</el-button>
       </div>
     </div>
@@ -20,13 +17,21 @@
         <el-radio-group v-model="board" @change="switchBoard">
           <el-radio-button v-for="b in boards" :key="b.value" :value="b.value">{{ b.label }}</el-radio-button>
         </el-radio-group>
-        <el-input v-model="industry" placeholder="行业" clearable style="width: 140px" @change="loadData" />
-        <el-input v-model="scene" placeholder="场景" clearable style="width: 140px" @change="loadData" />
+        <el-select v-model="cohortFilter" clearable filterable placeholder="比较组（自动）" style="width: 280px" @change="loadData">
+          <el-option v-for="c in cohorts" :key="c.id" :label="cohortLabel(c)" :value="c.id" />
+        </el-select>
+        <el-select v-model="industry" clearable filterable placeholder="全部行业" style="width: 160px" @change="onDimChange">
+          <el-option v-for="s in industries" :key="s.value" :label="s.label" :value="s.value" />
+        </el-select>
+        <el-select v-model="scene" clearable filterable placeholder="全部场景" style="width: 180px" @change="onDimChange">
+          <el-option v-for="s in scenes" :key="s.value" :label="s.label" :value="s.value" />
+        </el-select>
       </div>
       <p class="meta">
-        榜单 {{ boardLabel }} · cohort {{ cohortId || '—' }} · 排除 {{ excludedTotal }} ·
-        发布 {{ releaseId ? `#${releaseId}` : '未发布' }}
-        <span v-if="frozenScale"> · 冻结尺度 {{ frozenScale.lo?.toFixed?.(3) }} → {{ frozenScale.hi?.toFixed?.(3) }}</span>
+        比较组是同一套评测条件下的结果：同一数据版本、同一裁判、同一工具版本、同一指标权重、同一场景。条件不同的分数不能直接比高低。不选比较组时，展示结果最多的一组。
+      </p>
+      <p class="meta">
+        榜单 {{ boardLabel }} · 当前比较组 {{ activeCohortLabel }} · 未入榜 {{ excludedTotal }}
       </p>
       <PageAsyncState
         v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
@@ -45,7 +50,7 @@
         </el-row>
         <el-table :data="items" stripe @row-click="toggleSelect">
           <template #empty>
-            <EmptyState type="default" title="当前 cohort 暂无可比正式结果" description="等待正式任务完成后刷新快照。" :show-action="false" />
+            <EmptyState type="default" title="当前比较组暂无可比正式结果" description="完成正式评测后会自动出现在这一组里。" :show-action="false" />
           </template>
           <el-table-column width="40">
             <template #default="{ row }">
@@ -110,7 +115,6 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { leaderboardApi } from '@/api'
 import { useUserStore } from '@/stores/user'
@@ -123,12 +127,14 @@ const items = ref([])
 const costs = ref([])
 const industry = ref('')
 const scene = ref('')
+const industries = ref([])
+const scenes = ref([])
 const board = ref('overall')
 const stale = ref(false)
-const cohortId = ref('')
+const cohortFilter = ref('')
+const activeCohortId = ref('')
+const cohorts = ref([])
 const excludedTotal = ref(0)
-const releaseId = ref(null)
-const frozenScale = ref(null)
 const selected = ref([])
 const radarEl = ref(null)
 const loading = ref(false)
@@ -144,6 +150,16 @@ const boards = [
 ]
 
 const boardLabel = computed(() => boards.find((b) => b.value === board.value)?.label || board.value)
+const activeCohortLabel = computed(() => {
+  const hit = cohorts.value.find((c) => c.id === activeCohortId.value)
+  return hit ? cohortLabel(hit) : (activeCohortId.value || '—')
+})
+
+function cohortLabel(c) {
+  const sceneName = scenes.value.find((s) => s.value === c.scene)?.label
+  if (!sceneName || !c.scene) return c.label || c.id
+  return String(c.label || c.id).replace(c.scene, sceneName)
+}
 const podium = computed(() => items.value.filter((r) => r.rank != null).slice(0, 3))
 const listState = computed(() => deriveAsyncState({
   loading: loading.value && !createdOnce.value,
@@ -179,17 +195,28 @@ async function switchBoard(v) {
   await loadData()
 }
 
+function onDimChange() {
+  cohortFilter.value = ''
+  loadData()
+}
+
 async function loadData() {
   loading.value = true
   loadError.value = ''
   try {
-    const res = await leaderboardApi.list({ board: board.value, industry: industry.value, scene: scene.value })
+    const res = await leaderboardApi.list({
+      board: board.value,
+      industry: industry.value,
+      scene: scene.value,
+      cohort_id: cohortFilter.value,
+    })
     items.value = res.items || []
     stale.value = !!res.stale
-    cohortId.value = res.cohort_id || ''
+    scenes.value = res.scenes || scenes.value
+    industries.value = res.industries || industries.value
+    cohorts.value = res.cohorts || []
+    activeCohortId.value = res.cohort_id || cohortFilter.value || ''
     excludedTotal.value = res.excluded_total || 0
-    releaseId.value = res.release_id || null
-    frozenScale.value = res.frozen_scale || null
     selected.value = []
     createdOnce.value = true
     await nextTick()
@@ -198,28 +225,6 @@ async function loadData() {
     loadError.value = loadErr(e, '榜单加载失败')
   } finally {
     loading.value = false
-  }
-}
-
-async function refresh() {
-  await leaderboardApi.refresh({ board: board.value })
-  ElMessage.success('已写入快照')
-  loadData()
-}
-
-async function publish() {
-  const rel = await leaderboardApi.publish({ board: board.value }, { note: 'ui-publish' })
-  ElMessage.success(`已发布 #${rel.id}`)
-  loadData()
-}
-
-async function rollback() {
-  try {
-    const rel = await leaderboardApi.rollback({ board: board.value })
-    ElMessage.success(`已回滚至 #${rel.id}`)
-    loadData()
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '回滚失败')
   }
 }
 

@@ -89,7 +89,6 @@
         <el-form-item label="类型">
           <el-select v-model="form.task_type">
             <el-option label="能力测试" value="capability" />
-            <el-option label="安全可信" value="security" />
             <el-option label="场景应用" value="scene" />
             <el-option label="行业专项" value="industry" />
           </el-select>
@@ -106,9 +105,10 @@
         </el-form-item>
         <el-form-item label="优先级"><el-input-number v-model="form.priority" :min="1" :max="10" /></el-form-item>
         <el-form-item label="依赖任务">
-          <el-select v-model="form.depends_on_id" clearable filterable remote :remote-method="searchDeps" style="width: 100%">
-            <el-option v-for="t in depOptions" :key="t.id" :label="`${t.id} ${t.name}`" :value="t.id" />
+          <el-select v-model="form.depends_on_id" clearable filterable remote :remote-method="searchDeps" style="width: 100%" placeholder="可选，不选则独立执行">
+            <el-option v-for="t in depOptions" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
+          <div class="field-note">选中后，本任务会等该任务成功才开始；上游失败或取消时，本任务直接失败。用来串起“先质检再评测”这类顺序，没有先后关系就留空。</div>
         </el-form-item>
         <el-form-item label="数据集">
           <ResourcePicker v-model="form.dataset_id" kind="dataset" placeholder="搜索数据集" @select="onDatasetSelect" />
@@ -130,6 +130,7 @@
           <el-select v-model="form.judge_resource_id" style="width: 100%">
             <el-option v-for="r in judges" :key="r.resource_id" :label="r.name" :value="r.resource_id" />
           </el-select>
+          <div class="field-note">这里只列出打分工具。Skill 和 MCP 在工具中心注册、试用；只有返回 score 和 passed 的资源能当裁判，一段说明文字不能直接当成分数。编排助手的工具循环也不会自动调用它们。</div>
         </el-form-item>
         <el-form-item label="仅测试">
           <el-switch v-model="form.trial_run" />
@@ -441,6 +442,7 @@ onUnmounted(() => clearInterval(pollTimer))
 .pagination { margin-top: 16px; justify-content: flex-end; }
 .pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.field-note { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .warn { display: block; margin-top: 4px; color: var(--el-color-warning); }
 .muted { color: var(--el-text-color-secondary); font-size: 12px; }
 </style>

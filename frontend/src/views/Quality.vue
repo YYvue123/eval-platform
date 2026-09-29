@@ -20,7 +20,9 @@
                 <EmptyState type="default" title="暂无检测报告" description="完成一次质检后可在此查看归档" />
               </template>
               <el-table-column prop="id" label="ID" width="70" />
-              <el-table-column prop="dataset_id" label="数据集" width="90" />
+              <el-table-column label="数据集" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.dataset_name || '未命名数据集' }}</template>
+              </el-table-column>
               <el-table-column prop="score" label="得分" width="90" />
               <el-table-column prop="status" label="结论" width="110" />
               <el-table-column prop="issue_count" label="问题数" width="80" />
@@ -70,7 +72,9 @@
                 <EmptyState type="default" title="暂无问题工单" description="调整筛选或从检测报告进入对应问题" />
               </template>
               <el-table-column prop="id" label="ID" width="70" />
-              <el-table-column prop="dataset_id" label="数据集" width="90" />
+              <el-table-column label="数据集" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.dataset_name || '未命名数据集' }}</template>
+              </el-table-column>
               <el-table-column prop="item_no" label="条目" width="70" />
               <el-table-column prop="rule_code" label="规则" width="160" />
               <el-table-column prop="description" label="说明" min-width="200" />

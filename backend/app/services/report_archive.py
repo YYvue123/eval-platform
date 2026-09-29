@@ -22,6 +22,43 @@ def _dest() -> Path:
     return p
 
 
+def _clip(value, limit: int = 400) -> str:
+    text = str(value or "").strip()
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _iso(value) -> str:
+    if not value:
+        return ""
+    return value.isoformat() + "Z" if hasattr(value, "isoformat") else str(value)
+
+
+def result_row_for_report(row) -> dict:
+    """把样本结果收成报告行。已标记未评分的样本不把 0 分写成成绩。"""
+    def get(key, default=None):
+        if isinstance(row, dict):
+            return row.get(key, default)
+        return getattr(row, key, default)
+
+    score_status = get("score_status") or ""
+    scored = score_status == "scored" if score_status else get("score") is not None
+    return {
+        "id": get("id"),
+        "item_no": get("item_no"),
+        "input": _clip(get("input_content"), 500),
+        "output": _clip(get("model_output"), 800),
+        "reference": _clip(get("reference_answer"), 500),
+        "score": get("score") if scored else None,
+        "passed": bool(get("passed")) if scored else False,
+        "score_status": score_status or ("scored" if scored else ""),
+        "execution_status": get("execution_status") or "",
+        "error_message": _clip(get("error_message"), 300),
+        "latency_ms": get("latency_ms") or 0,
+        "finish_reason": get("finish_reason") or "",
+        "simulation": bool(get("simulation")),
+    }
+
+
 def _evidence_conclusions(task: EvalTask, extra: dict | None = None) -> list[dict]:
     """每条结论绑定 evidence_id，禁止无证据断言。"""
     extra = extra or {}
@@ -48,18 +85,30 @@ def _evidence_conclusions(task: EvalTask, extra: dict | None = None) -> list[dic
 def _payload(task: EvalTask, extra: dict | None = None) -> dict:
     extra = extra or {}
     evidence = _evidence_conclusions(task, extra)
-    return {
+    results = []
+    for row in extra.get("results") or []:
+        results.append(row if isinstance(row, dict) and "input" in row else result_row_for_report(row))
+    body = {
         "task_id": task.id,
         "name": task.name,
         "status": task.status,
+        "task_type": getattr(task, "task_type", "") or "",
         "scene": task.scene,
         "industry": task.industry,
         "template_code": getattr(task, "template_code", "") or "",
+        "trial_run": bool(getattr(task, "trial_run", False)),
+        "simulation": bool(getattr(task, "simulation", False)),
+        "priority": getattr(task, "priority", None),
+        "depends_on_id": getattr(task, "depends_on_id", None),
         "dataset_id": task.dataset_id,
+        "dataset_name": extra.get("dataset_name") or "",
         "dataset_version_id": task.dataset_version_id,
         "model_id": task.model_id,
+        "model_name": extra.get("model_name") or "",
         "model_version_id": getattr(task, "model_version_id", None),
+        "channel_type": extra.get("channel_type") or "",
         "prompt_id": task.prompt_id,
+        "prompt_name": extra.get("prompt_name") or "",
         "prompt_version_id": task.prompt_version_id,
         "judge_resource_id": task.judge_resource_id,
         "tool_version": getattr(task, "tool_version", "") or "",
@@ -68,14 +117,22 @@ def _payload(task: EvalTask, extra: dict | None = None) -> dict:
         "total": task.total,
         "success_count": task.success_count,
         "fail_count": task.fail_count,
+        "skip_count": getattr(task, "skip_count", 0) or 0,
         "avg_score": task.avg_score,
         "pass_rate": task.pass_rate,
-        "report_summary": task.report_summary,
+        "token_quota": getattr(task, "token_quota", 0) or 0,
         "tokens_used": getattr(task, "tokens_used", 0) or 0,
+        "error_message": getattr(task, "error_message", "") or "",
+        "started_at": _iso(getattr(task, "started_at", None)),
+        "finished_at": _iso(getattr(task, "finished_at", None)),
+        "report_summary": task.report_summary,
         "conclusions": evidence,
         "evidence_ids": [c["evidence_id"] for c in evidence],
-        **extra,
+        "results": results,
     }
+    passthrough = {k: v for k, v in extra.items() if k not in body and k != "results"}
+    body.update(passthrough)
+    return body
 
 
 def write_task_report(task: EvalTask, extra: dict | None = None) -> str:
@@ -92,16 +149,7 @@ def write_task_report(task: EvalTask, extra: dict | None = None) -> str:
 
     md_path = dest / f"task-{task.id}.md"
     try:
-        evidence_lines = "\n".join(f"- `{c['evidence_id']}`: {c['claim']}" for c in payload.get("conclusions") or [])
-        md_path.write_text(
-            f"# 评测报告 {task.name}\n\n"
-            f"- 状态：{task.status}\n"
-            f"- 场景：{task.scene} / 行业：{task.industry}\n"
-            f"- 样本：{task.total} 通过：{task.success_count} 失败：{task.fail_count}\n"
-            f"- 通过率：{task.pass_rate:.2%} 平均分：{task.avg_score:.4f}\n\n"
-            f"{task.report_summary}\n\n## 证据\n{evidence_lines}\n",
-            encoding="utf-8",
-        )
+        md_path.write_text(_markdown(payload), encoding="utf-8")
         formats["md"] = {"status": "ready", "path": str(md_path), "error": ""}
     except Exception as exc:  # noqa: BLE001
         formats["md"] = {"status": "failed", "path": "", "error": str(exc)}
@@ -173,38 +221,138 @@ def report_formats_status(task_id: int) -> dict:
     return loads(meta.read_text(encoding="utf-8"), {"task_id": task_id, "formats": {}})
 
 
+def _markdown(payload: dict) -> str:
+    lines = [
+        f"# 评测报告 {payload.get('name')}",
+        "",
+        "## 任务",
+        f"- 任务 ID：{payload.get('task_id')}",
+        f"- 状态：{payload.get('status')}",
+        f"- 类型：{payload.get('task_type') or '-'} · 模板：{payload.get('template_code') or '-'}",
+        f"- 场景：{payload.get('scene') or '-'} · 行业：{payload.get('industry') or '-'}",
+        f"- 模式：{'试跑' if payload.get('trial_run') else '正式'} · 模拟：{'是' if payload.get('simulation') else '否'}",
+        f"- 优先级：{payload.get('priority') if payload.get('priority') is not None else '-'} · 依赖任务：{payload.get('depends_on_id') or '-'}",
+        f"- 开始：{payload.get('started_at') or '-'} · 结束：{payload.get('finished_at') or '-'}",
+        "",
+        "## 配置",
+        f"- 数据集：{payload.get('dataset_name') or '-'}（版本 {payload.get('dataset_version_id') or '-'}）",
+        f"- 模型：{payload.get('model_name') or '-'}（版本 {payload.get('model_version_id') or '-'}，通道 {payload.get('channel_type') or '-'}）",
+        f"- 提示词：{payload.get('prompt_name') or '-'}（版本 {payload.get('prompt_version_id') or '-'}）",
+        f"- 裁判：{payload.get('judge_resource_id') or '-'} · 工具版本：{payload.get('tool_version') or '-'}",
+        f"- 批次：{payload.get('batch_id') or '-'} · 快照：{payload.get('snapshot_id') or '-'}",
+        "",
+        "## 结果",
+        f"- 样本 {payload.get('total')} · 通过 {payload.get('success_count')} · 失败 {payload.get('fail_count')} · 跳过 {payload.get('skip_count')}",
+        f"- 通过率 {payload.get('pass_rate')} · 平均分 {payload.get('avg_score')}",
+        f"- Token 配额 {payload.get('token_quota')} · 已用 {payload.get('tokens_used')}",
+        f"- 摘要：{payload.get('report_summary') or '-'}",
+    ]
+    if payload.get("error_message"):
+        lines.append(f"- 错误：{payload.get('error_message')}")
+    lines.extend(["", "## 证据"])
+    for c in payload.get("conclusions") or []:
+        lines.append(f"- `{c.get('evidence_id')}` {c.get('claim')}（{c.get('result_ref')}）")
+    rows = payload.get("results") or []
+    lines.extend(["", "## 样本明细", ""])
+    if not rows:
+        lines.append("无逐条结果。")
+    else:
+        lines.append("| # | 通过 | 分数 | 状态 | 输入 | 输出 | 参考 | 错误 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+        for r in rows[:200]:
+            cells = [
+                str(r.get("item_no") or ""),
+                "是" if r.get("passed") else "否",
+                "" if r.get("score") is None else str(r.get("score")),
+                str(r.get("score_status") or r.get("execution_status") or ""),
+                _md_cell(r.get("input")),
+                _md_cell(r.get("output")),
+                _md_cell(r.get("reference")),
+                _md_cell(r.get("error_message")),
+            ]
+            lines.append("| " + " | ".join(cells) + " |")
+        if len(rows) > 200:
+            lines.append(f"\n其余 {len(rows) - 200} 条见 JSON / Excel。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _md_cell(value) -> str:
+    return _clip(value, 120).replace("|", "/").replace("\n", " ")
+
+
 def write_html(path: Path, payload: dict) -> None:
     rows = payload.get("results") or []
     body = "".join(
-        f"<tr><td>{escape(str(r.get('item_no','')))}</td><td>{escape(str(r.get('score','')))}</td>"
-        f"<td>{escape(str(r.get('passed','')))}</td></tr>"
-        for r in rows[:500]
+        "<tr>"
+        f"<td>{escape(str(r.get('item_no','')))}</td>"
+        f"<td>{escape('是' if r.get('passed') else '否')}</td>"
+        f"<td>{escape('' if r.get('score') is None else str(r.get('score')))}</td>"
+        f"<td>{escape(str(r.get('score_status') or r.get('execution_status') or ''))}</td>"
+        f"<td>{escape(_clip(r.get('input'), 200))}</td>"
+        f"<td>{escape(_clip(r.get('output'), 240))}</td>"
+        f"<td>{escape(_clip(r.get('reference'), 200))}</td>"
+        f"<td>{escape(_clip(r.get('error_message'), 160))}</td>"
+        "</tr>"
+        for r in rows[:300]
     )
-    ev = "".join(f"<li><code>{escape(c.get('evidence_id',''))}</code> {escape(str(c.get('claim','')))}</li>" for c in (payload.get("conclusions") or [])[:50])
+    ev = "".join(
+        f"<li><code>{escape(c.get('evidence_id',''))}</code> {escape(str(c.get('claim','')))}</li>"
+        for c in (payload.get("conclusions") or [])[:50]
+    )
+    meta = "".join(
+        f"<li>{escape(label)}：{escape(str(payload.get(key) or '-'))}</li>"
+        for label, key in (
+            ("状态", "status"),
+            ("场景", "scene"),
+            ("行业", "industry"),
+            ("数据集", "dataset_name"),
+            ("模型", "model_name"),
+            ("通道", "channel_type"),
+            ("提示词", "prompt_name"),
+            ("裁判", "judge_resource_id"),
+            ("通过率", "pass_rate"),
+            ("平均分", "avg_score"),
+            ("已用 Token", "tokens_used"),
+        )
+    )
     path.write_text(
         f"<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><title>报告 {escape(str(payload.get('name')))}</title></head>"
         f"<body><h1>{escape(str(payload.get('name')))}</h1>"
-        f"<p>状态 {escape(str(payload.get('status')))} 通过率 {payload.get('pass_rate')} 平均分 {payload.get('avg_score')}</p>"
         f"<p>{escape(str(payload.get('report_summary') or ''))}</p>"
+        f"<h2>关键信息</h2><ul>{meta}</ul>"
         f"<h2>证据</h2><ul>{ev}</ul>"
-        f"<table border='1'><tr><th>#</th><th>score</th><th>passed</th></tr>{body}</table></body></html>",
+        f"<h2>样本明细</h2><table border='1'><tr><th>#</th><th>通过</th><th>分数</th><th>状态</th><th>输入</th><th>输出</th><th>参考</th><th>错误</th></tr>{body}</table></body></html>",
         encoding="utf-8",
     )
 
 
 def write_csv(path: Path, payload: dict) -> None:
+    summary_keys = (
+        "task_id", "name", "status", "task_type", "scene", "industry", "template_code",
+        "trial_run", "simulation", "dataset_name", "dataset_version_id", "model_name",
+        "model_version_id", "channel_type", "prompt_name", "judge_resource_id", "tool_version",
+        "total", "success_count", "fail_count", "skip_count", "pass_rate", "avg_score",
+        "token_quota", "tokens_used", "batch_id", "snapshot_id", "started_at", "finished_at",
+        "error_message", "report_summary",
+    )
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["task_id", "name", "status", "pass_rate", "avg_score", "total"])
-        w.writerow([payload.get("task_id"), payload.get("name"), payload.get("status"), payload.get("pass_rate"), payload.get("avg_score"), payload.get("total")])
+        w.writerow(["field", "value"])
+        for key in summary_keys:
+            w.writerow([key, payload.get(key)])
         w.writerow([])
-        w.writerow(["evidence_id", "claim", "result_ref"])
+        w.writerow(["evidence_id", "claim", "result_ref", "score", "passed"])
         for c in payload.get("conclusions") or []:
-            w.writerow([c.get("evidence_id"), c.get("claim"), c.get("result_ref")])
+            w.writerow([c.get("evidence_id"), c.get("claim"), c.get("result_ref"), c.get("score"), c.get("passed")])
         w.writerow([])
-        w.writerow(["item_no", "score", "passed"])
+        w.writerow(["item_no", "passed", "score", "score_status", "execution_status", "latency_ms", "input", "output", "reference", "error_message"])
         for r in payload.get("results") or []:
-            w.writerow([r.get("item_no"), r.get("score"), r.get("passed")])
+            w.writerow([
+                r.get("item_no"), r.get("passed"), r.get("score"), r.get("score_status"),
+                r.get("execution_status"), r.get("latency_ms"), r.get("input"), r.get("output"),
+                r.get("reference"), r.get("error_message"),
+            ])
 
 
 def write_xlsx(path: Path, payload: dict) -> None:
@@ -212,31 +360,52 @@ def write_xlsx(path: Path, payload: dict) -> None:
     ws = wb.active
     ws.title = "summary"
     ws.append(["字段", "值"])
-    for k in ("task_id", "name", "status", "scene", "industry", "pass_rate", "avg_score", "total", "report_summary"):
+    for k in (
+        "task_id", "name", "status", "task_type", "scene", "industry", "template_code",
+        "trial_run", "dataset_name", "model_name", "channel_type", "prompt_name",
+        "judge_resource_id", "pass_rate", "avg_score", "total", "success_count", "fail_count",
+        "skip_count", "tokens_used", "token_quota", "error_message", "report_summary",
+        "started_at", "finished_at",
+    ):
         ws.append([k, payload.get(k)])
     ws2 = wb.create_sheet("evidence")
     ws2.append(["evidence_id", "claim", "result_ref"])
     for c in payload.get("conclusions") or []:
         ws2.append([c.get("evidence_id"), c.get("claim"), c.get("result_ref")])
     ws3 = wb.create_sheet("results")
-    ws3.append(["item_no", "score", "passed"])
+    ws3.append(["item_no", "passed", "score", "score_status", "execution_status", "latency_ms", "input", "output", "reference", "error_message"])
     for r in payload.get("results") or []:
-        ws3.append([r.get("item_no"), r.get("score"), r.get("passed")])
+        ws3.append([
+            r.get("item_no"), r.get("passed"), r.get("score"), r.get("score_status"),
+            r.get("execution_status"), r.get("latency_ms"), r.get("input"), r.get("output"),
+            r.get("reference"), r.get("error_message"),
+        ])
     wb.save(path)
 
 
 def write_docx(path: Path, payload: dict) -> None:
-    evidence = "; ".join(f"{c.get('evidence_id')}:{c.get('claim')}" for c in (payload.get("conclusions") or [])[:20])
-    text = (
-        f"评测报告 {payload.get('name')}\n"
-        f"状态 {payload.get('status')} 通过率 {payload.get('pass_rate')} 平均分 {payload.get('avg_score')}\n"
-        f"{payload.get('report_summary') or ''}\n"
-        f"证据 {evidence}"
-    )
+    lines = [
+        f"评测报告 {payload.get('name')}",
+        f"状态 {payload.get('status')} 类型 {payload.get('task_type') or '-'} 场景 {payload.get('scene')} 行业 {payload.get('industry')}",
+        f"数据集 {payload.get('dataset_name') or '-'} 模型 {payload.get('model_name') or '-'} 通道 {payload.get('channel_type') or '-'}",
+        f"提示词 {payload.get('prompt_name') or '-'} 裁判 {payload.get('judge_resource_id') or '-'}",
+        f"样本 {payload.get('total')} 通过 {payload.get('success_count')} 失败 {payload.get('fail_count')} 跳过 {payload.get('skip_count')}",
+        f"通过率 {payload.get('pass_rate')} 平均分 {payload.get('avg_score')} Token {payload.get('tokens_used')}/{payload.get('token_quota')}",
+        str(payload.get("report_summary") or ""),
+    ]
+    if payload.get("error_message"):
+        lines.append(f"错误 {payload.get('error_message')}")
+    for c in (payload.get("conclusions") or [])[:12]:
+        lines.append(f"证据 {c.get('evidence_id')}: {c.get('claim')}")
+    for r in (payload.get("results") or [])[:30]:
+        lines.append(
+            f"样本 {r.get('item_no')} 分数 {r.get('score')} 通过 {r.get('passed')} 输入 {_clip(r.get('input'), 80)} 输出 {_clip(r.get('output'), 80)}"
+        )
+    paragraphs = "".join("<w:p><w:r><w:t>" + escape(line) + "</w:t></w:r></w:p>" for line in lines if line)
     document_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        "<w:body><w:p><w:r><w:t>" + escape(text) + "</w:t></w:r></w:p></w:body></w:document>"
+        f"<w:body>{paragraphs}</w:body></w:document>"
     )
     ctypes = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -261,13 +430,18 @@ def write_docx(path: Path, payload: dict) -> None:
 
 
 def write_pdf_summary(path: Path, payload: dict) -> None:
-    title = _pdf_esc(f"Eval report task {payload.get('task_id')}")
-    line = _pdf_esc(
-        f"status={payload.get('status')} pass_rate={payload.get('pass_rate')} avg={payload.get('avg_score')} total={payload.get('total')}"
-    )
-    ev0 = (payload.get("evidence_ids") or ["none"])[:1]
-    evid = _pdf_esc(f"evidence={ev0[0]}")
-    stream = f"BT /F1 12 Tf 72 720 Td ({title}) Tj 0 -18 Td ({line}) Tj 0 -18 Td ({evid}) Tj ET\n".encode("latin-1", "replace")
+    lines = [
+        _pdf_esc(f"Eval report task {payload.get('task_id')} {payload.get('status')}"),
+        _pdf_esc(f"scene={payload.get('scene')} industry={payload.get('industry')} trial={payload.get('trial_run')}"),
+        _pdf_esc(f"dataset={payload.get('dataset_name') or payload.get('dataset_id')} model={payload.get('model_name') or payload.get('model_id')}"),
+        _pdf_esc(f"judge={payload.get('judge_resource_id')} channel={payload.get('channel_type') or '-'}"),
+        _pdf_esc(f"pass_rate={payload.get('pass_rate')} avg={payload.get('avg_score')} total={payload.get('total')} tokens={payload.get('tokens_used')}"),
+        _pdf_esc(f"evidence={(payload.get('evidence_ids') or ['none'])[0]}"),
+    ]
+    body = "BT /F1 11 Tf 72 740 Td "
+    body += " Tj 0 -16 Td ".join(f"({line})" for line in lines)
+    body += " Tj ET\n"
+    stream = body.encode("latin-1", "replace")
     parts = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",

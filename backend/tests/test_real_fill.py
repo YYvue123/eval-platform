@@ -110,6 +110,16 @@ class RealFillTests(unittest.TestCase):
                 item for cid, item in by_cid.items() if cid in cids and item["status"] == "success"
             ]
             self.assertEqual(len(successes), 2)
+            skill_rid = result["skill_resource_id"]
+            self.assertTrue(skill_rid)
+            skill_detail = client.request("GET", f"/api/resources/{skill_rid}")
+            self.assertEqual(skill_detail.status_code, 200, skill_detail.text)
+            self.assertEqual(skill_detail.json()["resource_type"], "skill")
+            skill_history = client.request("GET", f"/api/resources/calls/{skill_rid}")
+            self.assertEqual(skill_history.status_code, 200, skill_history.text)
+            skill_items = skill_history.json()["items"]
+            self.assertTrue(skill_items)
+            self.assertEqual(skill_items[0]["status"], "success")
 
     def test_real05_mcp_tools_call_success_and_empty_args_failed(self):
         with TestClient(app) as raw:

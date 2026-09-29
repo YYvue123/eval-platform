@@ -94,6 +94,10 @@ class ReportUnitTest(unittest.TestCase):
         text = Path(path).read_text(encoding="utf-8")
         self.assertIn("evidence_id", text)
         self.assertIn("ev-90001-summary", text)
+        md = Path(str(path).replace(".json", ".md")).read_text(encoding="utf-8")
+        self.assertIn("场景", md)
+        self.assertIn("裁判", md)
+        self.assertIn("样本明细", md)
         st = report_formats_status(90001)
         self.assertEqual(st["formats"]["json"]["status"], "ready")
         self.assertEqual(st["formats"]["pdf"]["status"], "ready")
@@ -109,7 +113,24 @@ class LeaderboardApiTest(unittest.TestCase):
     def tearDown(self):
         self._cm.__exit__(None, None, None)
 
-    def test_board_and_publish_rollback(self):
+    def test_empty_board_publish_rejected(self):
+        pub = self.client.post(
+            "/api/leaderboard/releases/publish",
+            headers=self.h,
+            params={"board": "overall"},
+            json={"note": "empty board must not publish"},
+        )
+        self.assertGreaterEqual(pub.status_code, 400, pub.text)
+        self.assertLess(pub.status_code, 500, pub.text)
+        self.assertNotEqual(pub.status_code, 404, pub.text)
+        body = pub.json()
+        msg = str(body.get("message") or body.get("detail") or pub.text)
+        self.assertTrue(
+            "qualifying" in msg.lower() or "合格" in msg or "空" in msg,
+            msg,
+        )
+
+    def test_board_empty_publish_rejected(self):
         res = self.client.get("/api/leaderboard", headers=self.h, params={"board": "overall"})
         self.assertEqual(res.status_code, 200, res.text)
         body = res.json()
@@ -117,17 +138,8 @@ class LeaderboardApiTest(unittest.TestCase):
         self.assertIn("cohort_id", body)
 
         pub = self.client.post("/api/leaderboard/releases/publish", headers=self.h, params={"board": "overall"}, json={"note": "wp13"})
-        self.assertEqual(pub.status_code, 200, pub.text)
-        rid = pub.json()["id"]
-        self.assertTrue(pub.json()["is_current"])
-
-        # 再发一版再回滚
-        pub2 = self.client.post("/api/leaderboard/releases/publish", headers=self.h, params={"board": "overall"}, json={"note": "v2"})
-        self.assertEqual(pub2.status_code, 200, pub2.text)
-        rb = self.client.post("/api/leaderboard/releases/rollback", headers=self.h, params={"board": "overall"})
-        self.assertEqual(rb.status_code, 200, rb.text)
-        self.assertEqual(rb.json()["id"], rid)
-        self.assertTrue(rb.json()["is_current"])
+        self.assertGreaterEqual(pub.status_code, 400, pub.text)
+        self.assertLess(pub.status_code, 500, pub.text)
 
     def test_report_status_endpoint(self):
         # 任意存在任务

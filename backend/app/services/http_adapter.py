@@ -102,7 +102,11 @@ async def invoke_http_tool(manifest: dict, envelope: dict) -> dict:
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, 8)
                     continue
-                raise
+                status = exc.response.status_code if exc.response is not None else 0
+                raise HttpToolError(
+                    f"HTTP 工具上游返回 {status}",
+                    code="TOOL_UPSTREAM_HTTP_ERROR",
+                ) from exc
             except Exception as exc:
                 last_exc = exc
                 raise

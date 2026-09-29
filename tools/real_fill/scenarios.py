@@ -142,11 +142,73 @@ def real04_tools(client: FillClient, stats_base_url: str) -> dict:
             raise AssertionError(invoked.text)
     if failed_correlation_id is None:
         raise AssertionError("expected one invalid parse invoke to fail")
+
+    skill_rid = f"demo/skill_parse_stats_{suffix}"
+    skill_manifest = {
+        "spec_version": "0.6.1",
+        "resource_id": skill_rid,
+        "resource_type": "skill",
+        "name": "parse then stats",
+        "description": "source_kind=ai_generated_input；两步确定性 parse→stats",
+        "version": "1.0.0",
+        "owner": {"name": "tenant", "contact": "n/a", "email": "n/a@local"},
+        "capabilities": {
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "target_unit": {"type": "string"},
+                },
+                "required": ["text"],
+            },
+            "output_schema": {"type": "object"},
+            "call_mode": "sync",
+            "idempotent": True,
+            "timeout": 30,
+            "side_effects": "none",
+        },
+        "interfaces": {"method": "workflow", "auth_type": "none"},
+        "skill": {
+            "execution_type": "workflow",
+            "chain": [
+                {
+                    "step_id": "s1",
+                    "resource_id": parse_rid,
+                    "input": {"text": {"$ref": "$input.text"}},
+                },
+                {
+                    "step_id": "s2",
+                    "resource_id": stats_rid,
+                    "input": {
+                        "values": {"$ref": "s1.output.values"},
+                        "target_unit": {"$ref": "$input.target_unit"},
+                    },
+                },
+            ],
+        },
+    }
+    _require_200(client.request("POST", "/api/resources/register", json={"manifest": skill_manifest}))
+    skill_cid = f"real04-skill-{uuid.uuid4().hex[:12]}"
+    skill_invoked = client.request(
+        "POST",
+        "/api/resources/invoke",
+        json={
+            "resource_id": skill_rid,
+            "correlation_id": skill_cid,
+            "body": {"text": "100 cm, 2 m, 500 mm", "target_unit": "m"},
+        },
+    )
+    skill_payload = _require_200(skill_invoked)
+    skill_status = str((skill_payload.get("body") or {}).get("status") or "").lower()
+    if skill_status != "success":
+        raise AssertionError(skill_invoked.text)
     return {
         "result": "pass",
         "scenario": "REAL04",
         "parse_resource_id": parse_rid,
         "stats_resource_id": stats_rid,
+        "skill_resource_id": skill_rid,
+        "skill_correlation_id": skill_cid,
         "parse_correlation_ids": parse_correlation_ids,
         "failed_correlation_id": failed_correlation_id,
     }

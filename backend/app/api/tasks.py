@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -162,6 +162,69 @@ async def list_templates(
         ds_rows = (await db.execute(select(Dataset).where(Dataset.name.in_(names)))).scalars().all()
         packs = {d.name: d.id for d in ds_rows}
     return {"items": [_tpl_out(t, packs.get(f"pack:{t.code}")) for t in rows], "total": len(rows)}
+
+
+class TemplateBody(BaseModel):
+    code: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=200)
+    category: str = "scene"
+    scene: str = "chat"
+    industry: str = "general"
+    task_type: str = "capability"
+    judge_resource_id: str = "builtin/exact_match"
+    metric_weights: dict = Field(default_factory=dict)
+    default_prompt: str = ""
+    rubric: str = ""
+    description: str = ""
+
+
+def _apply_template(row: TaskTemplate, body: TemplateBody, *, keep_code: bool) -> None:
+    if not keep_code:
+        row.code = body.code.strip()
+    row.name = body.name.strip()
+    row.category = (body.category or "scene").strip() or "scene"
+    row.scene = (body.scene or "chat").strip() or "chat"
+    row.industry = (body.industry or "general").strip() or "general"
+    row.task_type = (body.task_type or "capability").strip() or "capability"
+    row.judge_resource_id = (body.judge_resource_id or "builtin/exact_match").strip() or "builtin/exact_match"
+    row.metric_weights_json = dumps(body.metric_weights or {})
+    row.default_prompt = body.default_prompt or ""
+    row.rubric = body.rubric or ""
+    row.description = body.description or ""
+
+
+@router.post("/templates")
+async def create_template(
+    body: TemplateBody,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("task:create")),
+):
+    code = body.code.strip()
+    if not code.replace(".", "").replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(400, "模板编码只允许字母、数字、点、下划线和中划线")
+    exists = await db.scalar(select(TaskTemplate.id).where(TaskTemplate.code == code))
+    if exists:
+        raise HTTPException(400, "模板编码已存在")
+    row = TaskTemplate(code=code, name=body.name.strip(), status="active")
+    _apply_template(row, body, keep_code=True)
+    db.add(row)
+    await db.flush()
+    return _tpl_out(row)
+
+
+@router.put("/templates/{code}")
+async def update_template(
+    code: str,
+    body: TemplateBody,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_permission("task:edit")),
+):
+    row = await db.scalar(select(TaskTemplate).where(TaskTemplate.code == code))
+    if not row:
+        raise HTTPException(404, "模板不存在")
+    _apply_template(row, body, keep_code=True)
+    await db.flush()
+    return _tpl_out(row)
 
 
 @router.get("/alerts")
@@ -443,19 +506,17 @@ async def render_task_report(
     t = await db.get(EvalTask, task_id)
     if not t:
         raise HTTPException(404, "任务不存在")
+    from app.services.report_archive import result_row_for_report
     results = (await db.execute(select(EvalResult).where(EvalResult.task_id == task_id).order_by(EvalResult.item_no))).scalars().all()
+    ds = await db.get(Dataset, t.dataset_id) if t.dataset_id else None
+    model = await db.get(EvalModel, t.model_id) if t.model_id else None
+    prompt_row = await db.get(PromptTemplate, t.prompt_id) if t.prompt_id else None
     extra = {
-        "results": [
-            {
-                "id": r.id,
-                "item_no": r.item_no,
-                "score": r.score if (getattr(r, "score_status", "") or "") == "scored" else None,
-                "passed": r.passed,
-                "score_status": getattr(r, "score_status", "legacy_unverified") or "legacy_unverified",
-                "execution_status": getattr(r, "execution_status", "unknown") or "unknown",
-            }
-            for r in results
-        ]
+        "dataset_name": ds.name if ds else "",
+        "model_name": model.name if model else "",
+        "channel_type": getattr(model, "channel_type", "") or "" if model else "",
+        "prompt_name": prompt_row.name if prompt_row else "",
+        "results": [result_row_for_report(r) for r in results],
     }
     job = await render_report_job(db, t, extra)
     await db.commit()
@@ -715,7 +776,10 @@ async def publish_board_release(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("leaderboard:edit")),
 ):
-    rel = await publish_release(db, board, note=(body.note if body else "") or "publish")
+    try:
+        rel = await publish_release(db, board, note=(body.note if body else "") or "publish")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await db.commit()
     return release_out(rel)
 
@@ -769,6 +833,8 @@ async def leaderboard(
         payload = await compute_board(db, board, industry, scene, cohort_id=cohort_id or None)
         payload["stale"] = False
         payload["message"] = ""
+        payload["scenes"] = scene_options()
+        payload["industries"] = industry_options()
         return payload
     except Exception:
         snap = await last_snapshot(db, board)
@@ -776,6 +842,8 @@ async def leaderboard(
             data = loads(snap.payload_json, {})
             data["stale"] = True
             data["message"] = "数据更新异常，展示上次快照"
+            data["scenes"] = scene_options()
+            data["industries"] = industry_options()
             return data
         raise HTTPException(500, "榜单计算失败且无可用快照")
 

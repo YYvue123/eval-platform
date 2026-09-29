@@ -285,13 +285,19 @@ async def copy_prompt(
     prompt_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("prompt:create")),
+    actor: ActorContext = Depends(require_actor("prompt:create")),
 ):
-    p = await _require_prompt(db, prompt_id)
+    p = await get_visible_or_404(db, PromptTemplate, prompt_id, actor, not_found="提示词不存在或无权访问")
+    if p.status == "deleted":
+        raise HTTPException(404, "提示词不存在或无权访问")
     ver = await db.get(PromptVersion, p.current_version_id) if p.current_version_id else None
     name = f"{p.name}-副本"
     n = 1
-    while await db.scalar(select(PromptTemplate.id).where(PromptTemplate.name == name, PromptTemplate.status != "deleted")):
+    while await db.scalar(select(PromptTemplate.id).where(
+        PromptTemplate.name == name,
+        PromptTemplate.status != "deleted",
+        PromptTemplate.tenant_id == actor.tenant_id,
+    )):
         n += 1
         name = f"{p.name}-副本{n}"
     np = PromptTemplate(
@@ -303,7 +309,10 @@ async def copy_prompt(
         description=p.description,
         tags=p.tags,
         constraints=p.constraints,
-        creator_id=current.id,
+        creator_id=actor.user_id,
+        tenant_id=effective_tenant_id(actor, None),
+        visibility="private",
+        current_version="V1.0",
     )
     db.add(np)
     await db.flush()
@@ -314,12 +323,12 @@ async def copy_prompt(
         variable_config=ver.variable_config if ver else "[]",
         output_format=ver.output_format if ver else "text",
         change_desc="复制",
-        creator_id=current.id,
+        creator_id=actor.user_id,
     )
     db.add(nv)
     await db.flush()
     np.current_version_id = nv.id
-    await log_audit(db, "prompt", "copy", user_id=current.id, username=current.username, target_id=np.id, ip=get_client_ip(request))
+    await log_audit(db, "prompt", "copy", user_id=actor.user_id, username=actor.username, target_id=np.id, ip=get_client_ip(request))
     return prompt_out(np)
 
 
