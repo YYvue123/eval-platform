@@ -284,26 +284,39 @@ async def _live_select_tool(db: AsyncSession, run: AgentRun, checkpoint: dict) -
             ),
         }
     ]
+    seen_tool_ids = set()
     for m in checkpoint.get("messages") or []:
-        messages.append({"role": m.get("role") or "user", "content": m.get("content") or ""})
+        role = m.get("role") or "user"
+        item = {"role": role, "content": m.get("content") or ""}
+        if role == "assistant" and m.get("tool_calls"):
+            item["tool_calls"] = m["tool_calls"]
+        if role == "tool":
+            item["tool_call_id"] = m.get("tool_call_id") or ""
+            seen_tool_ids.add(item["tool_call_id"])
+        messages.append(item)
     for obs in checkpoint.get("observations") or []:
+        tid = obs.get("tool_call_id") or ""
+        if tid in seen_tool_ids:
+            continue
         messages.append(
             {
                 "role": "tool",
-                "tool_call_id": obs.get("tool_call_id") or "obs",
+                "tool_call_id": tid or "obs",
                 "content": dumps(obs.get("result") or {}),
             }
         )
-        # 部分兼容端需要 assistant 占位
     llm = await invoke_chat_tools(model, messages, _openai_tools())
     tool_calls = llm.get("tool_calls") or []
-    if tool_calls:
-        tool = _parse_tool_call(tool_calls[0])
-        return tool, llm
-    # 无 tool_calls：进入 reply，把 content 记入 checkpoint
+    parsed = []
+    for raw in tool_calls:
+        tool = _parse_tool_call(raw)
+        if tool:
+            parsed.append(tool)
+    if parsed:
+        return parsed, llm
     if llm.get("content"):
         checkpoint["pending_reply"] = llm["content"]
-    return None, llm
+    return [], llm
 
 
 async def _execute_tool(db: AsyncSession, name: str, args: dict) -> dict:
@@ -371,7 +384,7 @@ async def step_once(db: AsyncSession, run: AgentRun, *, fencing_token: int | Non
                 return run
 
             try:
-                tool, llm_meta = await _live_select_tool(db, run, cp)
+                tools, llm_meta = await _live_select_tool(db, run, cp)
             except Exception as exc:  # noqa: BLE001
                 run.status = "failed"
                 run.error_code = "planner_unavailable"
@@ -403,62 +416,92 @@ async def step_once(db: AsyncSession, run: AgentRun, *, fencing_token: int | Non
                     "finish_reason": llm_meta.get("finish_reason"),
                     "tokens": tokens,
                     "latency_ms": llm_meta.get("latency_ms"),
-                    "has_tool": bool(tool),
+                    "has_tool": bool(tools),
                 },
                 step_id=f"r{run.rounds_used}",
             )
 
-            if not tool:
+            if not tools:
+                if not (llm_meta.get("content") or "").strip():
+                    run.status = "failed"
+                    run.error_code = "empty_model_response"
+                    run.error_message = "模型未返回工具调用或最终回答"
+                    run.finished_at = datetime.utcnow()
+                    await append_event(db, run, "run.failed", {"error_code": "empty_model_response"})
+                    await _clear_active(db, run)
+                    await db.flush()
+                    return run
                 cp["phase"] = "reply"
                 run.checkpoint_json = dumps(cp)
                 await append_event(db, run, "llm.select_none", {})
             else:
-                try:
-                    _validate_tool_args(tool["name"], tool.get("arguments") or {})
-                except ValueError as exc:
-                    run.status = "failed"
-                    run.error_code = "invalid_tool_schema"
-                    run.error_message = str(exc)
-                    run.finished_at = datetime.utcnow()
-                    await append_event(db, run, "tool.rejected", {"error": str(exc), "tool": tool})
-                    await _clear_active(db, run)
-                    await db.flush()
-                    return run
-                cp["pending_tool"] = tool
+                for tool in tools:
+                    try:
+                        _validate_tool_args(tool["name"], tool.get("arguments") or {})
+                    except ValueError as exc:
+                        run.status = "failed"
+                        run.error_code = "invalid_tool_schema"
+                        run.error_message = str(exc)
+                        run.finished_at = datetime.utcnow()
+                        await append_event(db, run, "tool.rejected", {"error": str(exc), "tool": tool})
+                        await _clear_active(db, run)
+                        await db.flush()
+                        return run
+                msgs = list(cp.get("messages") or [])
+                msgs.append({
+                    "role": "assistant",
+                    "content": llm_meta.get("content") or "",
+                    "tool_calls": llm_meta.get("tool_calls") or [],
+                })
+                cp["messages"] = msgs
+                cp["pending_tools"] = tools
+                cp["pending_tool"] = tools[0]
                 cp["phase"] = "observe"
                 run.checkpoint_json = dumps(cp)
-                await append_event(db, run, "tool.selected", {"tool": tool}, step_id=f"r{run.rounds_used}")
+                await append_event(db, run, "tool.selected", {"tools": tools}, step_id=f"r{run.rounds_used}")
 
         elif phase == "observe":
-            tool = cp.get("pending_tool") or {}
-            name = tool.get("name") or ""
-            args = tool.get("arguments") or {}
+            pending = list(cp.get("pending_tools") or [])
+            if not pending and cp.get("pending_tool"):
+                pending = [cp.get("pending_tool")]
+            obs = list(cp.get("observations") or [])
+            msgs = list(cp.get("messages") or [])
             try:
-                result = await _execute_tool(db, name, args)
+                for tool in pending:
+                    name = tool.get("name") or ""
+                    args = tool.get("arguments") or {}
+                    result = await _execute_tool(db, name, args)
+                    tid = tool.get("id") or ""
+                    obs.append({"tool": name, "result": result, "tool_call_id": tid})
+                    msgs.append({"role": "tool", "tool_call_id": tid, "content": dumps(result)})
+                    await append_event(db, run, "tool.observed", {"tool": name, "result": result}, step_id=f"r{run.rounds_used}")
             except ValueError as exc:
                 run.status = "failed"
                 run.error_code = "tool_failed"
                 run.error_message = str(exc)
                 run.finished_at = datetime.utcnow()
-                await append_event(db, run, "tool.failed", {"error": str(exc), "tool": name})
+                await append_event(db, run, "tool.failed", {"error": str(exc)})
                 await _clear_active(db, run)
                 await db.flush()
                 return run
-            obs = list(cp.get("observations") or [])
-            obs.append({"tool": name, "result": result, "tool_call_id": tool.get("id") or ""})
             cp["observations"] = obs
+            cp["messages"] = msgs
             cp["pending_tool"] = None
+            cp["pending_tools"] = []
             cp["phase"] = "select_tool"
             run.checkpoint_json = dumps(cp)
-            await append_event(db, run, "tool.observed", {"tool": name, "result": result}, step_id=f"r{run.rounds_used}")
 
         elif phase == "reply":
-            obs = cp.get("observations") or []
-            reply = cp.get("pending_reply") or f"已完成工具循环，观察 {len(obs)} 次。"
-            if not cp.get("pending_reply") and obs:
-                first = obs[0].get("result") or {}
-                if "count" in first:
-                    reply = f"检索到 {first.get('count')} 条知识，可继续澄清评测需求。"
+            reply = (cp.get("pending_reply") or "").strip()
+            if not reply:
+                run.status = "failed"
+                run.error_code = "empty_model_response"
+                run.error_message = "模型未返回最终回答"
+                run.finished_at = datetime.utcnow()
+                await append_event(db, run, "run.failed", {"error_code": "empty_model_response"})
+                await _clear_active(db, run)
+                await db.flush()
+                return run
             cp["final_reply"] = reply
             cp["phase"] = "done"
             run.checkpoint_json = dumps(cp)

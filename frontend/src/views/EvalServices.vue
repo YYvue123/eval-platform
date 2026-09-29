@@ -16,7 +16,16 @@
       </el-col>
     </el-row>
     <el-card>
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <template v-else>
       <el-table v-loading="loading" :data="items" stripe>
+        <template #empty>
+          <EmptyState type="default" title="暂无评测服务需求" description="提交需求后在此办理报价、执行与交付" action-text="提交需求" :show-action="userStore.hasPermission('service:create')" @action="openCreate" />
+        </template>
         <el-table-column prop="title" label="标题" min-width="140" />
         <el-table-column prop="industry" label="行业" width="90" />
         <el-table-column prop="status" label="状态" width="110">
@@ -70,6 +79,16 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pager-line">第 {{ page }} 页 · 共 {{ total }} 条</div>
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        layout="total, sizes, prev, pager, next"
+        class="pagination"
+        @change="loadData"
+      />
+      </template>
     </el-card>
 
     <el-dialog v-model="showForm" title="提交评测需求" width="560px">
@@ -108,20 +127,48 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { servicesApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
+import { readListQuery, writeListQuery } from '@/utils/listQuery.js'
 
 const userStore = useUserStore()
+const router = useRouter()
+const route = useRoute()
+const initialQuery = readListQuery(route.query)
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
+const forbidden = ref(false)
 const items = ref([])
+const total = ref(0)
+const page = ref(initialQuery.page)
+const pageSize = ref(initialQuery.page_size)
 const workspaces = ref([])
 const buckets = ref({})
 const showForm = ref(false)
 const gateDrawer = ref(false)
 const gateRow = ref(null)
 const form = ref({ title: '', industry: 'general', requirement: '', workspace_id: null })
+
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: forbidden.value,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function listErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 function statusType(s) {
   if (s === 'delivered') return 'success'
@@ -171,18 +218,35 @@ function moreActions(row) {
   return all.filter((a) => !primaryKeys.has(a.key))
 }
 
+async function persistQuery() {
+  await writeListQuery(router, {
+    page: page.value,
+    page_size: pageSize.value,
+    q: '',
+    status: '',
+  })
+}
+
 async function loadData() {
+  await persistQuery()
   loading.value = true
+  loadError.value = ''
+  forbidden.value = false
   try {
     const [res, kb, ws] = await Promise.all([
-      servicesApi.list({ page_size: 50 }),
+      servicesApi.list({ page: page.value, page_size: pageSize.value }),
       servicesApi.kanban(),
       servicesApi.workspaces()
     ])
     items.value = res.items || []
+    total.value = res.total || 0
     buckets.value = kb.buckets || {}
     workspaces.value = ws.items || []
     if (!form.value.workspace_id) form.value.workspace_id = workspaces.value[0]?.id
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = listErr(e, '评测服务列表加载失败')
+    if (e?.response?.status === 403) forbidden.value = true
   } finally {
     loading.value = false
   }
@@ -266,6 +330,13 @@ function showShadow(row) {
 }
 
 onMounted(loadData)
+watch(() => route.query, () => {
+  const next = readListQuery(route.query)
+  if (next.page === page.value && next.page_size === pageSize.value) return
+  page.value = next.page
+  pageSize.value = next.page_size
+  loadData()
+})
 </script>
 
 <style scoped>
@@ -274,4 +345,6 @@ onMounted(loadData)
 .k-label { color: var(--text-secondary); font-size: 12px; text-transform: lowercase; }
 .k-val { font-size: 22px; font-weight: 600; margin-top: 4px; color: var(--text-primary); }
 .sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.pagination { margin-top: 16px; justify-content: flex-end; }
+.pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 </style>

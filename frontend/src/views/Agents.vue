@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">评测助手</h2>
-        <p class="page-desc">描述目标 → 补充资源 → 审批 → 执行；全程使用真实模型与对象权限，无 Mock。</p>
+        <p class="page-desc">描述目标、核对计划、批准后执行；执行状态以服务端为准。</p>
       </div>
     </div>
 
@@ -21,7 +21,8 @@
             class="new-btn"
             @click="startNew"
           >新建评测</el-button>
-          <div v-if="!sessions.length" class="rail-empty">暂无会话</div>
+          <div v-if="sessionsLoadError" class="rail-empty">{{ sessionsLoadError }}</div>
+          <div v-else-if="!sessions.length" class="rail-empty">暂无会话</div>
           <button
             v-for="s in sessions"
             :key="s.id"
@@ -63,9 +64,10 @@
                   <div class="hint">0 表示后端按未设限额处理；正式评测建议 &gt;0</div>
                 </el-form-item>
                 <el-form-item label="规划模型">
-                  <el-select v-model="plannerModelId" clearable filterable placeholder="需已配置 api_url" style="width: 100%">
+                  <el-select v-model="plannerModelId" clearable filterable placeholder="必选" style="width: 100%">
                     <el-option v-for="m in plannerModels" :key="m.id" :label="`#${m.id} ${m.name}`" :value="m.id" />
                   </el-select>
+                  <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
                 </el-form-item>
               </el-form>
             </el-collapse-item>
@@ -74,7 +76,7 @@
             v-if="userStore.hasPermission('agent:invoke')"
             type="primary"
             :loading="creating"
-            :disabled="!goalText.trim()"
+            :disabled="!goalText.trim() || !plannerModelId"
             @click="createSession"
           >生成计划</el-button>
         </section>
@@ -178,7 +180,7 @@
               </el-form-item>
               <el-form-item label="试用模式">
                 <el-switch v-model="clarifyForm.trial_run" />
-                <span class="hint">开启后可作为小规模真实试跑（非 Mock）</span>
+                <span class="hint">开启后按小规模真实样本执行，用量计入同一预算。</span>
               </el-form-item>
               <el-form-item v-if="!hasClarifyField('dataset_id')" label="数据集">
                 <ResourcePicker v-model="clarifyForm.dataset_id" kind="dataset" />
@@ -246,9 +248,10 @@
               <el-tab-pane label="Runtime">
                 <el-form label-width="100px" size="small">
                   <el-form-item label="规划模型">
-                    <el-select v-model="plannerModelId" clearable filterable style="width: 100%">
+                    <el-select v-model="plannerModelId" clearable filterable placeholder="必选" style="width: 100%">
                       <el-option v-for="m in plannerModels" :key="m.id" :label="`#${m.id} ${m.name}`" :value="m.id" />
                     </el-select>
+                    <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
                   </el-form-item>
                 </el-form>
                 <el-button
@@ -350,6 +353,8 @@ const goalText = ref('')
 const tokenBudget = ref(0)
 const plannerModelId = ref(null)
 const plannerModels = ref([])
+const modelsLoadError = ref('')
+const sessionsLoadError = ref('')
 const creating = ref(false)
 const clarifying = ref(false)
 const approving = ref(false)
@@ -442,21 +447,27 @@ const activeApproval = computed(() => {
   return list.find((a) => isApprovalValid(a, session.value?.plan)) || null
 })
 
+const TASK_RUNNING = ['draft', 'pending', 'queued', 'running', 'leasing']
+const TASK_DONE = ['completed', 'success', 'done']
+
 const productPhase = computed(() => {
   const s = session.value
   const r = run.value
   if (!currentId.value || !s?.id) return 'idle'
   if (r?.status === 'paused_budget') return 'budget_paused'
+  if (r?.status === 'cancelled') return 'cancelled'
   if (r?.status === 'failed') return 'failed'
   if (r && ['queued', 'running', 'waiting'].includes(r.status)) return 'running'
-  if (s.status === 'done' || (s.task_id && ['success', 'cancelled'].includes(r?.status || 'success') && s.status === 'running')) {
-    // confirm 后 status=running；任务完成后可能仍是 running — 有 task 且无 active run 视为完成可查看
+  if (s.task_id) {
+    const ts = s.task_status || ''
+    if (TASK_RUNNING.includes(ts)) return 'running'
+    if (ts === 'failed' || ts === 'error') return 'failed'
+    if (ts === 'cancelled' || ts === 'canceled') return 'cancelled'
+    if (TASK_DONE.includes(ts) && s.report_status === 'available') return 'completed'
+    if (TASK_DONE.includes(ts)) return 'report_pending'
+    if (!ts) return 'running'
   }
-  if (s.task_id && (!r || ['success', 'cancelled', 'failed'].includes(r.status))) {
-    if (r?.status === 'failed') return 'failed'
-    if (s.status === 'done' || r?.status === 'success' || (s.task_id && !s.active_run_id)) return 'completed'
-  }
-  if (s.status === 'running' && s.task_id) return 'running'
+  if (r?.status === 'success' && !s.task_id) return 'completed'
   if (activeApproval.value) return 'approved'
   if (s.plan?.ready && s.status === 'waiting_confirm') return 'awaiting_approval'
   if (s.status === 'approved') return 'approved'
@@ -481,8 +492,11 @@ const primaryAction = computed(() => {
   if (p === 'approved') return { key: 'confirm', label: '确认并执行' }
   if (p === 'running') return { key: 'view_task', label: '查看任务' }
   if (p === 'failed' && run.value) return { key: 'resume', label: '安全恢复' }
+  if (p === 'cancelled') return null
   if (p === 'budget_paused') return null
-  if (p === 'completed') return { key: 'report', label: '查看报告' }
+  if (p === 'report_pending') return { key: 'view_task', label: '查看任务' }
+  if (p === 'completed' && session.value?.report_status === 'available') return { key: 'report', label: '查看报告' }
+  if (p === 'completed' && session.value?.task_id) return { key: 'view_task', label: '查看任务' }
   return null
 })
 
@@ -581,15 +595,30 @@ function resetSessionSideState() {
   modelLabel.value = '—'
 }
 
+function loadFailureMessage(err, fallback) {
+  const data = err?.response?.data
+  const msg = data?.message ?? data?.detail ?? err?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
+
 async function loadList() {
-  const [s, models] = await Promise.all([
+  sessionsLoadError.value = ''
+  modelsLoadError.value = ''
+  const [sSettled, modelsSettled] = await Promise.allSettled([
     agentsApi.sessions(),
-    modelsApi.list({ page: 1, page_size: 100 }).catch(() => ({ items: [] })),
+    modelsApi.list({ page: 1, page_size: 100 }),
   ])
-  sessions.value = s.items || []
-  plannerModels.value = (models.items || []).filter((m) => m.api_url)
-  if (!plannerModelId.value && plannerModels.value.length) {
-    plannerModelId.value = plannerModels.value[0].id
+  if (sSettled.status === 'fulfilled') {
+    sessions.value = sSettled.value.items || []
+  } else {
+    sessions.value = []
+    sessionsLoadError.value = loadFailureMessage(sSettled.reason, '会话列表加载失败')
+  }
+  if (modelsSettled.status === 'fulfilled') {
+    plannerModels.value = (modelsSettled.value.items || []).filter((m) => m.api_url)
+  } else {
+    plannerModels.value = []
+    modelsLoadError.value = loadFailureMessage(modelsSettled.reason, '模型列表加载失败')
   }
 }
 
@@ -617,19 +646,22 @@ function selectSession(id) {
   loadSession()
 }
 
-async function resolveLabels(plan) {
+async function resolveLabels(plan, sid, gen) {
+  if (gen !== sessionGen || currentId.value !== sid) return
   datasetLabel.value = plan?.dataset_id ? `#${plan.dataset_id}` : '—'
   modelLabel.value = plan?.model_id ? `#${plan.model_id}` : '—'
   try {
     if (plan?.dataset_id) {
       const { datasetsApi } = await import('@/api')
       const d = await datasetsApi.get(plan.dataset_id)
+      if (gen !== sessionGen || currentId.value !== sid) return
       datasetLabel.value = d.name || datasetLabel.value
     }
   } catch { /* */ }
   try {
     if (plan?.model_id) {
       const m = await modelsApi.get(plan.model_id)
+      if (gen !== sessionGen || currentId.value !== sid) return
       modelLabel.value = m.name || modelLabel.value
     }
   } catch { /* */ }
@@ -659,9 +691,11 @@ async function loadSession() {
     tokenBudget.value = data.plan?.token_budget || tokenBudget.value
     const valid = (data.approvals || []).find((a) => isApprovalValid(a, data.plan))
     approvalId.value = valid?.id || null
-    await resolveLabels(data.plan)
+    await resolveLabels(data.plan, sid, gen)
+    if (gen !== sessionGen || currentId.value !== sid) return
     if (data.task_id) await loadDelegations(sid, gen)
-    if (data.active_run_id) await loadRun(data.active_run_id, sid, gen)
+    const runId = data.active_run_id || data.last_run_id
+    if (runId) await loadRun(runId, sid, gen)
   } catch (e) {
     if (gen === sessionGen) ElMessage.error(e?.response?.data?.detail || e?.message || '加载会话失败')
   } finally {
@@ -678,6 +712,10 @@ async function loadDelegations(sid = currentId.value, gen = sessionGen) {
 }
 
 async function createSession() {
+  if (!plannerModelId.value) {
+    ElMessage.warning('请选择规划模型')
+    return
+  }
   creating.value = true
   try {
     const created = await agentsApi.createSession({

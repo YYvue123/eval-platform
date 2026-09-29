@@ -142,6 +142,56 @@ class AgentRuntimeApiTest(unittest.TestCase):
         self.assertIn("llm.reply", types)
         self.assertNotIn("provider.fallback_mock_select", types)
 
+    def test_second_round_keeps_assistant_tool_calls(self):
+        seen = {}
+
+        async def fake_invoke(model, messages, tools):
+            if not seen:
+                seen["first"] = True
+                return {
+                    "message": {},
+                    "tool_calls": [
+                        {
+                            "id": "call_a",
+                            "type": "function",
+                            "function": {"name": "search_knowledge", "arguments": dumps({"query": "金融"})},
+                        },
+                        {
+                            "id": "call_b",
+                            "type": "function",
+                            "function": {"name": "infer_dims", "arguments": dumps({"text": "金融评测"})},
+                        },
+                    ],
+                    "content": "",
+                    "finish_reason": "tool_calls",
+                    "usage": {"total_tokens": 10},
+                    "tokens": 10,
+                    "latency_ms": 5,
+                    "mock": False,
+                }
+            seen["messages"] = messages
+            return self._llm_reply("两步都完成")
+
+        with patch("app.services.model_client.invoke_chat_tools", new=AsyncMock(side_effect=fake_invoke)):
+            run = self.client.post(
+                f"/api/agents/sessions/{self.sid}/runs",
+                json={
+                    "message": "金融评测",
+                    "provider": "live",
+                    "planner_model_id": self.planner_id,
+                    "sync": True,
+                },
+                headers=self.h,
+            )
+        self.assertEqual(run.status_code, 200, run.text)
+        self.assertEqual(run.json()["status"], "success")
+        messages = seen["messages"]
+        assistant = next(m for m in messages if m.get("role") == "assistant" and m.get("tool_calls"))
+        ids = [tc.get("id") for tc in assistant["tool_calls"]]
+        self.assertEqual(ids, ["call_a", "call_b"])
+        tool_ids = [m.get("tool_call_id") for m in messages if m.get("role") == "tool"]
+        self.assertEqual(tool_ids, ["call_a", "call_b"])
+
     def test_single_active_run_conflict(self):
         r1 = self.client.post(
             f"/api/agents/sessions/{self.sid}/runs",

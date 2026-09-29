@@ -1,5 +1,5 @@
 <template>
-  <div v-loading="loading">
+  <div>
     <div class="page-header">
       <div>
         <h2 class="page-title">{{ task.name || '任务详情' }}</h2>
@@ -23,6 +23,12 @@
         <el-button v-if="userStore.hasPermission('task:edit')" @click="renderReport">重渲染报告</el-button>
       </div>
     </div>
+    <PageAsyncState
+      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
+      :state="pageState"
+      :errorMessage="loadError"
+    />
+    <template v-else>
     <el-card v-if="reportStatus" class="block report-panel">
       <template #header>
         <div class="report-head">
@@ -107,7 +113,18 @@
         <el-table-column prop="execution_status" label="执行" width="100" />
         <el-table-column prop="score_status" label="打分" width="100" />
       </el-table>
+      <div class="pager-line">第 {{ resultsPage }} 页 · 共 {{ resultsTotal }} 条</div>
+      <el-pagination
+        v-model:current-page="resultsPage"
+        v-model:page-size="resultsPageSize"
+        :total="resultsTotal"
+        :page-sizes="[20, 50, 100]"
+        layout="total, sizes, prev, pager, next"
+        class="pagination"
+        @change="load"
+      />
     </el-card>
+    </template>
   </div>
 </template>
 
@@ -117,17 +134,38 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { tasksApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const route = useRoute()
 const userStore = useUserStore()
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 const task = ref({})
 const results = ref([])
+const resultsPage = ref(1)
+const resultsPageSize = ref(20)
+const resultsTotal = ref(0)
 const events = ref([])
 const subtasks = ref([])
 const lineage = ref({})
 const reportStatus = ref(null)
 let timer
+
+const pageState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: task.value?.id ? [task.value] : [],
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 const statusLabel = computed(() => {
   const t = task.value || {}
@@ -155,24 +193,31 @@ const reportJobStatusType = computed(() => {
 })
 
 async function load() {
-  task.value = await tasksApi.get(route.params.id)
-  const [res, ev, st] = await Promise.all([
-    tasksApi.results(route.params.id, { page_size: 100 }),
-    tasksApi.events(route.params.id),
-    tasksApi.subtasks(route.params.id)
-  ])
-  results.value = res.items || []
-  events.value = ev.items || []
-  subtasks.value = st.items || []
+  loadError.value = ''
   try {
-    lineage.value = await tasksApi.lineage(route.params.id)
-  } catch {
-    lineage.value = {}
-  }
-  try {
-    reportStatus.value = await tasksApi.reportStatus(route.params.id)
-  } catch {
-    reportStatus.value = null
+    task.value = await tasksApi.get(route.params.id)
+    const [res, ev, st] = await Promise.all([
+      tasksApi.results(route.params.id, { page: resultsPage.value, page_size: resultsPageSize.value }),
+      tasksApi.events(route.params.id),
+      tasksApi.subtasks(route.params.id)
+    ])
+    results.value = res.items || []
+    resultsTotal.value = res.total || 0
+    events.value = ev.items || []
+    subtasks.value = st.items || []
+    createdOnce.value = true
+    try {
+      lineage.value = await tasksApi.lineage(route.params.id)
+    } catch {
+      lineage.value = {}
+    }
+    try {
+      reportStatus.value = await tasksApi.reportStatus(route.params.id)
+    } catch {
+      reportStatus.value = null
+    }
+  } catch (e) {
+    loadError.value = loadErr(e, '任务详情加载失败')
   }
 }
 
@@ -229,6 +274,8 @@ onUnmounted(() => clearInterval(timer))
 
 <style scoped>
 .block { margin-bottom: 16px; }
+.pagination { margin-top: 12px; justify-content: flex-end; }
+.pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .stat-label { color: var(--text-secondary); font-size: 13px; }
 .stat-value { margin-top: 8px; font-size: 22px; font-weight: 600; }
 .ops { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -8,7 +8,13 @@
         </div>
       </template>
       <p class="hint">由 FastAPI 根据路由自动生成。平台管理接口使用登录 JWT（Authorize 中的 HTTPBearer）。</p>
-      <div ref="swaggerEl" class="swagger-host" />
+      <PageAsyncState
+        v-if="loadError"
+        state="error"
+        :errorMessage="loadError"
+      />
+      <p v-if="loadError" class="hint">下一步：确认后端已启动后刷新本页，或使用上方链接直接打开 /docs。</p>
+      <div v-else ref="swaggerEl" class="swagger-host" />
     </el-card>
   </div>
 </template>
@@ -17,35 +23,46 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import SwaggerUI from 'swagger-ui-dist/swagger-ui-es-bundle.js'
 import 'swagger-ui-dist/swagger-ui.css'
+import PageAsyncState from '@/components/PageAsyncState.vue'
 
 const origin = window.location.origin
 const docsUrl = `${origin}/docs`
 const swaggerEl = ref()
+const loadError = ref('')
 let swaggerRoot = null
 
 function currentToken() {
   return localStorage.getItem('eval_token') || sessionStorage.getItem('eval_token') || ''
 }
 
-onMounted(() => {
-  swaggerRoot = SwaggerUI({
-    domNode: swaggerEl.value,
-    url: '/openapi.json',
-    persistAuthorization: true,
-    docExpansion: 'list',
-    defaultModelsExpandDepth: 0,
-    tryItOutEnabled: true,
-    requestInterceptor: (req) => {
-      const token = currentToken()
-      const url = String(req.url || '')
-      const hasAuth = req.headers && (req.headers.Authorization || req.headers.authorization)
-      if (token && url.includes('/api/') && !url.endsWith('/openapi.json') && !hasAuth) {
-        req.headers = req.headers || {}
-        req.headers.Authorization = `Bearer ${token}`
-      }
-      return req
+onMounted(async () => {
+  loadError.value = ''
+  try {
+    const probe = await fetch(`${origin}/openapi.json`)
+    if (!probe.ok) {
+      throw new Error(`无法加载 OpenAPI（HTTP ${probe.status}）`)
     }
-  })
+    swaggerRoot = SwaggerUI({
+      domNode: swaggerEl.value,
+      url: '/openapi.json',
+      persistAuthorization: true,
+      docExpansion: 'list',
+      defaultModelsExpandDepth: 0,
+      tryItOutEnabled: true,
+      requestInterceptor: (req) => {
+        const token = currentToken()
+        const url = String(req.url || '')
+        const hasAuth = req.headers && (req.headers.Authorization || req.headers.authorization)
+        if (token && url.includes('/api/') && !url.endsWith('/openapi.json') && !hasAuth) {
+          req.headers = req.headers || {}
+          req.headers.Authorization = `Bearer ${token}`
+        }
+        return req
+      }
+    })
+  } catch (e) {
+    loadError.value = e?.message || 'Swagger 文档加载失败'
+  }
 })
 
 onBeforeUnmount(() => {

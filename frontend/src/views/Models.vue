@@ -93,7 +93,7 @@
           <el-form :model="form" label-width="120px">
             <el-form-item label="接口地址">
               <el-input v-model="form.api_url" placeholder="必填：真实推理服务 URL；留空将无法正式调用" />
-              <div class="field-hint">未配置 api_url 时探测/试调用会失败，不会回退到本地 Mock。</div>
+              <div class="field-hint">未配置 api_url 时无法探测或试调用。</div>
             </el-form-item>
             <el-form-item label="模型名"><el-input v-model="form.served_model_name" /></el-form-item>
             <el-form-item label="API Key"><el-input v-model="form.api_key" type="password" show-password placeholder="不修改请留空" /></el-form-item>

@@ -12,6 +12,15 @@ const props = defineProps({
 
 const MAP = {
   idle: { label: '尚未开始', tone: 'neutral' },
+  unconfigured: { label: '未配置', tone: 'neutral' },
+  configured: { label: '已配置', tone: 'info' },
+  schema_valid: { label: '结构有效', tone: 'success' },
+  schema_invalid: { label: '结构未通过', tone: 'warning' },
+  negotiated: { label: '已协商', tone: 'success' },
+  listed: { label: '已发现工具', tone: 'success' },
+  stale: { label: '目录已变化', tone: 'warning' },
+  not_run: { label: '未执行', tone: 'neutral' },
+  success: { label: '成功', tone: 'success' },
   planning: { label: '正在规划', tone: 'info' },
   needs_input: { label: '待补充', tone: 'warning' },
   awaiting_approval: { label: '待审批', tone: 'warning' },
@@ -19,6 +28,9 @@ const MAP = {
   running: { label: '执行中', tone: 'info' },
   budget_paused: { label: '预算暂停', tone: 'warning' },
   failed: { label: '执行失败', tone: 'danger' },
+  blocked: { label: '已阻断', tone: 'warning' },
+  cancelled: { label: '已取消', tone: 'neutral' },
+  report_pending: { label: '报告未生成', tone: 'warning' },
   completed: { label: '已完成', tone: 'success' },
 }
 

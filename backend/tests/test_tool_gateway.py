@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import unittest
 import uuid
-from unittest.mock import AsyncMock, patch
 
 from tests import isolated_env  # noqa: F401
 
@@ -16,7 +15,8 @@ from app.services.protocol import (
     validate_request_envelope,
     request_hash,
 )
-from app.services.side_effect_policy import assert_egress_allowed, stub_side_effect_result
+from app.services.builtin_tools import run_builtin_tool
+from app.services.side_effect_policy import SideEffectBlocked, assert_egress_allowed, stub_side_effect_result
 from app.services.skill_runtime import run_skill
 
 
@@ -107,8 +107,23 @@ class ToolGatewayApiTest(unittest.TestCase):
         self.assertEqual(r2.status_code, 409, r2.text)
 
 
-class SkillRefTest(unittest.TestCase):
-    def test_workflow_input_binding(self):
+class SkillRefTest(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    async def builtin_invoker(step_id: str, resource_id: str, payload: dict) -> dict:
+        request = make_envelope(
+            "skill-unit",
+            resource_id,
+            {"action": "execute", "parameters": payload},
+            correlation_id=f"unit:{step_id}",
+            caller_id="skill_step",
+        )
+        return make_response(
+            request,
+            "success",
+            run_builtin_tool(resource_id, payload),
+        )
+
+    async def test_workflow_input_binding(self):
         mf = {
             "skill": {
                 "execution_type": "workflow",
@@ -124,11 +139,15 @@ class SkillRefTest(unittest.TestCase):
                 ],
             }
         }
-        out = run_skill(mf, {"prediction": "北京", "reference": "北京"})
+        out = await run_skill(
+            mf,
+            {"prediction": "北京", "reference": "北京"},
+            step_invoker=self.builtin_invoker,
+        )
         self.assertTrue(out["passed"])
         self.assertEqual(out["steps"][0]["step_id"], "a")
 
-    def test_forward_ref_rejected(self):
+    async def test_forward_ref_rejected(self):
         mf = {
             "skill": {
                 "execution_type": "workflow",
@@ -143,20 +162,24 @@ class SkillRefTest(unittest.TestCase):
             }
         }
         with self.assertRaises(ValueError):
-            run_skill(mf, {})
+            await run_skill(mf, {}, step_invoker=self.builtin_invoker)
 
-    def test_non_workflow_rejected(self):
+    async def test_non_workflow_rejected(self):
         mf = {"skill": {"execution_type": "code", "chain": [{"$ref": "builtin/exact_match"}]}}
         with self.assertRaises(ValueError):
-            run_skill(mf, {"prediction": "a", "reference": "a"})
+            await run_skill(
+                mf,
+                {"prediction": "a", "reference": "a"},
+                step_invoker=self.builtin_invoker,
+            )
 
 
 class SideEffectPolicyTest(unittest.TestCase):
     def test_stub_result(self):
         mf = {"side_effects": [{"type": "network", "mock_strategy": "stub"}]}
-        r = stub_side_effect_result(mf)
-        self.assertTrue(r["stubbed"])
-        self.assertEqual(r["mock_strategy"], "stub")
+        with self.assertRaises(SideEffectBlocked) as ctx:
+            stub_side_effect_result(mf)
+        self.assertEqual(ctx.exception.code, "SIDE_EFFECT_BLOCKED")
 
     def test_deny(self):
         mf = {"side_effects": [{"type": "fs", "mock_strategy": "deny"}]}
@@ -203,7 +226,9 @@ class McpSkillApiTest(unittest.TestCase):
         body = probe.json()
         self.assertEqual(body.get("mode"), "registered")
         self.assertEqual(body.get("target"), "builtin/mcp_gateway")
-        tools = (((body.get("result") or {}).get("result") or {}).get("tools")) or []
+        result = body.get("result") or {}
+        inner = result.get("result") if isinstance(result.get("result"), dict) else result
+        tools = inner.get("tools") or []
         self.assertGreaterEqual(len(tools), 1)
 
     def test_mcp_probe_source_mutex(self):
@@ -261,25 +286,10 @@ class McpSkillApiTest(unittest.TestCase):
         self.assertEqual(reg.status_code, 200, reg.text)
         inv = self.client.post("/api/resources/invoke", json={"resource_id": rid, "body": {}}, headers=self.h)
         self.assertEqual(inv.status_code, 200, inv.text)
-        self.assertTrue(inv.json()["body"]["result"].get("stubbed"))
-
-
-class RemoteMcpClientTest(unittest.IsolatedAsyncioTestCase):
-    async def test_remote_initialize_mocked(self):
-        from app.services.mcp_client import mcp_initialize
-
-        fake = {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
-        with patch("app.services.mcp_client.httpx.AsyncClient") as client_cls:
-            inst = client_cls.return_value.__aenter__.return_value
-            resp = AsyncMock()
-            resp.raise_for_status = lambda: None
-            resp.json = lambda: fake
-            inst.post = AsyncMock(return_value=resp)
-            data = await mcp_initialize(
-                "https://mcp.example.com/rpc",
-                manifest={"interfaces": {"egress_allowlist": ["mcp.example.com"]}},
-            )
-            self.assertEqual(data["result"]["protocolVersion"], "2024-11-05")
+        body = inv.json()["body"]
+        self.assertEqual(body.get("status"), "error")
+        self.assertEqual(body.get("error", {}).get("code"), "SIDE_EFFECT_BLOCKED")
+        self.assertFalse((body.get("result") or {}).get("stubbed"))
 
 
 if __name__ == "__main__":

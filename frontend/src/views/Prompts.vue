@@ -11,7 +11,19 @@
       </div>
     </div>
     <el-card>
+      <div class="toolbar">
+        <el-input v-model="search" placeholder="搜索模板名称" clearable style="width: 220px" />
+      </div>
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <template v-else>
       <el-table v-loading="loading" :data="items" stripe>
+        <template #empty>
+          <EmptyState type="default" title="暂无提示词模板" description="新增模板或使用自动生成创建第一条" action-text="新增模板" :show-action="userStore.hasPermission('prompt:create')" @action="openCreate" />
+        </template>
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="applicable_task" label="任务" width="100" />
         <el-table-column prop="current_version" label="版本" width="90" />
@@ -26,6 +38,16 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pager-line">第 {{ page }} 页 · 共 {{ total }} 条</div>
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        layout="total, sizes, prev, pager, next"
+        class="pagination"
+        @change="loadData"
+      />
+      </template>
     </el-card>
 
     <el-dialog v-model="showForm" :title="form.id ? '编辑提示词' : '新增提示词'" width="760px">
@@ -142,15 +164,46 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { datasetsApi, modelsApi, promptsApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
+import { readListQuery, writeListQuery } from '@/utils/listQuery.js'
 
 const userStore = useUserStore()
+const router = useRouter()
+const route = useRoute()
+const initialQuery = readListQuery(route.query)
 const taskTypes = ['qa', 'summary', 'safety', 'code', 'rag']
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
+const forbidden = ref(false)
 const items = ref([])
+const total = ref(0)
+const page = ref(initialQuery.page)
+const pageSize = ref(initialQuery.page_size)
+const search = ref(initialQuery.q)
+let skipFilterWatch = false
+let searchTimer = null
+
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: forbidden.value,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function listErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 const showForm = ref(false)
 const submitting = ref(false)
 const previewText = ref('')
@@ -170,11 +223,28 @@ const experiments = ref([])
 const expLoading = ref(false)
 const expForm = ref({ dataset_id: null })
 
+async function persistQuery() {
+  await writeListQuery(router, {
+    page: page.value,
+    page_size: pageSize.value,
+    q: search.value,
+    status: '',
+  })
+}
+
 async function loadData() {
+  await persistQuery()
   loading.value = true
+  loadError.value = ''
+  forbidden.value = false
   try {
-    const res = await promptsApi.list({ page_size: 50 })
+    const res = await promptsApi.list({ page: page.value, page_size: pageSize.value, search: search.value })
     items.value = res.items || []
+    total.value = res.total || 0
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = listErr(e, '提示词列表加载失败')
+    if (e?.response?.status === 403) forbidden.value = true
   } finally {
     loading.value = false
   }
@@ -344,9 +414,30 @@ async function removeOne() {
 }
 
 onMounted(loadData)
+watch(search, () => {
+  if (skipFilterWatch) return
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    page.value = 1
+    loadData()
+  }, 250)
+})
+watch(() => route.query, () => {
+  const next = readListQuery(route.query)
+  if (next.page === page.value && next.page_size === pageSize.value && next.q === search.value) return
+  skipFilterWatch = true
+  page.value = next.page
+  pageSize.value = next.page_size
+  search.value = next.q
+  queueMicrotask(() => { skipFilterWatch = false })
+  loadData()
+})
 </script>
 
 <style scoped>
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.pagination { margin-top: 16px; justify-content: flex-end; }
+.pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .result { margin-top: 12px; white-space: pre-wrap; background: var(--bg-page); padding: 12px; border-radius: 8px; }
 h4 { margin: 16px 0 8px; }
 </style>

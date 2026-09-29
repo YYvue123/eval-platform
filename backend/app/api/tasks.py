@@ -446,7 +446,14 @@ async def render_task_report(
     results = (await db.execute(select(EvalResult).where(EvalResult.task_id == task_id).order_by(EvalResult.item_no))).scalars().all()
     extra = {
         "results": [
-            {"id": r.id, "item_no": r.item_no, "score": r.score, "passed": r.passed}
+            {
+                "id": r.id,
+                "item_no": r.item_no,
+                "score": r.score if (getattr(r, "score_status", "") or "") == "scored" else None,
+                "passed": r.passed,
+                "score_status": getattr(r, "score_status", "legacy_unverified") or "legacy_unverified",
+                "execution_status": getattr(r, "execution_status", "unknown") or "unknown",
+            }
             for r in results
         ]
     }
@@ -514,7 +521,7 @@ async def task_results(
                 "input_content": r.input_content,
                 "model_output": r.model_output,
                 "reference_answer": r.reference_answer,
-                "score": r.score,
+                "score": r.score if (getattr(r, "score_status", "") or "") == "scored" else None,
                 "passed": r.passed,
                 "metrics": loads(r.metrics_json, {}),
                 "error_message": r.error_message,
@@ -543,9 +550,9 @@ async def run_task(
     if t.status == "running":
         raise HTTPException(400, "任务正在执行")
     await enqueue_task(db, t)
+    await log_audit(db, "task", "run", user_id=current.id, username=current.username, target_id=t.id, ip=get_client_ip(request))
     await db.commit()
     background.add_task(dispatch_queue, t.id)
-    await log_audit(db, "task", "run", user_id=current.id, username=current.username, target_id=t.id, ip=get_client_ip(request))
     return task_out(t)
 
 
@@ -574,9 +581,9 @@ async def retry_task_api(
     if not t:
         raise HTTPException(404, "任务不存在")
     await retry_task(db, t, clear_results=True)
+    await log_audit(db, "task", "retry", user_id=current.id, username=current.username, target_id=t.id, ip=get_client_ip(request))
     await db.commit()
     background.add_task(dispatch_queue, t.id)
-    await log_audit(db, "task", "retry", user_id=current.id, username=current.username, target_id=t.id, ip=get_client_ip(request))
     return task_out(t)
 
 
@@ -989,8 +996,6 @@ async def shadow_service(
     actor: ActorContext = Depends(require_actor("service:edit")),
 ):
     from datetime import datetime
-    import uuid
-    from app.services.shadow_router import evaluate_shadow, make_server_observation
     from app.services.object_policy import get_visible_or_404
 
     s = await get_visible_or_404(db, EvalServiceRequest, sid, actor, not_found="评测服务单不存在或无权访问")
@@ -998,62 +1003,20 @@ async def shadow_service(
         s.shadow_started_at = datetime.utcnow()
     s.gray_version = body.gray_version
     s.traffic_pct = float(body.traffic_pct or 0.05)
-
-    # 服务端成对探测：对绑定模型做两次受控调用（无模型则 insufficient）
-    production = None
-    candidate = None
-    pair_count = 0
-    try:
-        if s.model_id:
-            model = await db.get(EvalModel, s.model_id)
-            if model and (model.api_url or "").strip():
-                from app.services.model_client import invoke_model
-
-                prompt = f"shadow-probe service={s.id} version={s.production_version or 'v1'}"
-                r1 = await invoke_model(model, prompt)
-                r2 = await invoke_model(model, prompt + " candidate")
-                # 用延迟构造相对样本，分数用确定性 hash 归一（非客户端）
-                def _score(out: dict) -> float:
-                    raw = str(out.get("output") or "")
-                    return (sum(ord(c) for c in raw) % 1000) / 1000.0
-
-                s1 = _score(r1)
-                s2 = _score(r2)
-                production = make_server_observation(
-                    observation_id=uuid.uuid4().hex,
-                    score=s1,
-                    latency_ms=float(r1.get("latency_ms") or 0),
-                    samples=[s1, s1],
-                    failed=False,
-                )
-                candidate = make_server_observation(
-                    observation_id=uuid.uuid4().hex,
-                    score=s2,
-                    latency_ms=float(r2.get("latency_ms") or 0),
-                    samples=[s2, s2],
-                    failed=bool(r2.get("mock")),
-                )
-                pair_count = 1
-                prev = loads(s.shadow_json, {})
-                pair_count = int(prev.get("evidence_pair_count") or 0) + 1
-    except Exception as exc:  # noqa: BLE001
-        result = {
-            "returned": "production",
-            "promotable": False,
-            "status": "insufficient_evidence",
-            "gates": [{"code": "server_probe_failed", "ok": False, "detail": str(exc)[:200]}],
-            "traffic_pct": s.traffic_pct,
-        }
-        s.shadow_json = dumps(result)
-        return _service_out(s)
-
-    result = evaluate_shadow(
-        production,
-        candidate,
-        traffic_pct=s.traffic_pct,
-        started_at=s.shadow_started_at,
-        evidence_pair_count=pair_count,
-    )
+    # 没有独立裁判与冻结版本对照时不调用模型、不构造分数。
+    result = {
+        "returned": "production",
+        "promotable": False,
+        "status": "blocked",
+        "scoring": "not_run",
+        "evidence_pair_count": 0,
+        "gates": [{
+            "code": "shadow_real_judge_required",
+            "ok": False,
+            "detail": "影子对照需要冻结版本与独立裁判的成对样本，当前不构造分数",
+        }],
+        "traffic_pct": s.traffic_pct,
+    }
     s.shadow_json = dumps(result)
     return _service_out(s)
 

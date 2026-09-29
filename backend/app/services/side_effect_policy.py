@@ -4,43 +4,59 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 
+class SideEffectBlocked(PermissionError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def _declared(value) -> bool:
+    if value is None or value is False:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "none"}
+    if isinstance(value, (list, dict)):
+        return len(value) > 0
+    return bool(value)
+
+
 def has_side_effects(manifest: dict) -> bool:
-    top = manifest.get("side_effects")
-    if isinstance(top, list) and top:
-        return True
-    if isinstance(top, str) and top not in {"", "none"}:
+    if not isinstance(manifest, dict):
+        return False
+    if _declared(manifest.get("side_effects")):
         return True
     caps = manifest.get("capabilities") or {}
-    se = caps.get("side_effects")
-    if se and se not in {"none", False, [], ""}:
+    if isinstance(caps, dict) and _declared(caps.get("side_effects")):
         return True
     return False
 
 
 def mock_strategy(manifest: dict) -> str:
-    """dry_run | stub | record | deny。默认 stub。"""
-    for item in manifest.get("side_effects") or []:
+    """dry_run | stub | record | deny。未声明时不使用。"""
+    raw = manifest.get("side_effects") if isinstance(manifest, dict) else None
+    items = raw if isinstance(raw, list) else []
+    for item in items:
         if isinstance(item, dict) and item.get("mock_strategy"):
             return str(item["mock_strategy"])
-    caps = manifest.get("capabilities") or {}
-    if caps.get("mock_strategy"):
+    caps = (manifest.get("capabilities") or {}) if isinstance(manifest, dict) else {}
+    if isinstance(caps, dict) and caps.get("mock_strategy"):
         return str(caps["mock_strategy"])
     return "stub"
 
 
-def stub_side_effect_result(manifest: dict) -> dict:
+def side_effect_block(manifest: dict) -> SideEffectBlocked:
+    """声明了副作用但没有受控真实执行时，一律阻断，不返回 stub 成功。"""
     strategy = mock_strategy(manifest)
     if strategy == "deny":
-        raise PermissionError("资源声明副作用且策略为 deny，拒绝执行")
-    return {
-        "stubbed": True,
-        "mocked": True,
-        "mock_strategy": strategy,
-        "message": f"副作用已按 {strategy} 策略短路，未执行真实副作用",
-        "score": 0.0,
-        "passed": False,
-        "side_effects": manifest.get("side_effects") or [],
-    }
+        return SideEffectBlocked("SIDE_EFFECT_DENIED", "资源声明副作用且策略为 deny，拒绝执行")
+    return SideEffectBlocked(
+        "SIDE_EFFECT_BLOCKED",
+        f"副作用策略 {strategy} 未接入受控真实执行，拒绝记为成功",
+    )
+
+
+def stub_side_effect_result(manifest: dict) -> dict:
+    raise side_effect_block(manifest)
 
 
 def egress_allowlist(manifest: dict) -> list[str]:

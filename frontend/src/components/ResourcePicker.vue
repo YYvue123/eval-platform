@@ -1,31 +1,41 @@
 <template>
-  <el-select
-    :model-value="modelValue"
-    filterable
-    remote
-    clearable
-    reserve-keyword
-    :remote-method="search"
-    :loading="loading"
-    :placeholder="placeholder"
-    :disabled="disabled"
-    style="width: 100%"
-    @update:model-value="onChange"
-    @visible-change="(v) => v && ensureLoaded()"
-  >
-    <el-option
-      v-for="opt in options"
-      :key="opt.id"
-      :label="opt.label"
-      :value="opt.id"
-      :disabled="opt.disabled"
+  <div class="resource-picker">
+    <el-select
+      :model-value="modelValue"
+      filterable
+      remote
+      clearable
+      reserve-keyword
+      :remote-method="search"
+      :loading="loading"
+      :placeholder="placeholder"
+      :disabled="disabled"
+      style="width: 100%"
+      @update:model-value="onChange"
+      @visible-change="(v) => v && ensureLoaded()"
     >
-      <div class="opt">
-        <span>{{ opt.label }}</span>
-        <span v-if="opt.hint" class="hint">{{ opt.hint }}</span>
-      </div>
-    </el-option>
-  </el-select>
+      <el-option
+        v-for="opt in options"
+        :key="opt.id"
+        :label="opt.label"
+        :value="opt.id"
+        :disabled="opt.disabled"
+      >
+        <div class="opt">
+          <span>{{ opt.label }}</span>
+          <span v-if="opt.hint" class="hint">{{ opt.hint }}</span>
+        </div>
+      </el-option>
+      <el-option
+        v-if="canLoadMore"
+        key="__more__"
+        label="加载更多"
+        value="__more__"
+        :disabled="false"
+      />
+    </el-select>
+    <p v-if="loadError" class="picker-error">{{ loadError }}</p>
+  </div>
 </template>
 
 <script setup>
@@ -44,8 +54,16 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'select'])
 
 const loading = ref(false)
+const loadError = ref('')
 const options = ref([])
+const page = ref(1)
+const pageSize = 30
+const lastQuery = ref('')
+const lastFetchCount = ref(0)
+const catalogTotal = ref(0)
 let loadedOnce = false
+
+const canLoadMore = ref(false)
 
 function mapDataset(d) {
   const status = d.status || d.publish_status || ''
@@ -75,23 +93,57 @@ function mapModel(m) {
   }
 }
 
-async function search(q = '') {
+function mapper() {
+  return props.kind === 'dataset' ? mapDataset : mapModel
+}
+
+function updateCanLoadMore(res, mergedLength) {
+  const batch = res.items || []
+  lastFetchCount.value = batch.length
+  catalogTotal.value = res.total || 0
+  canLoadMore.value = catalogTotal.value > mergedLength || batch.length === pageSize
+}
+
+async function fetchPage(q, nextPage, replace) {
   loading.value = true
+  loadError.value = ''
   try {
-    if (props.kind === 'dataset') {
-      const res = await datasetsApi.list({ page: 1, page_size: 30, search: q || undefined })
-      options.value = (res.items || []).map(mapDataset)
+    const api = props.kind === 'dataset' ? datasetsApi : modelsApi
+    const res = await api.list({ page: nextPage, page_size: pageSize, search: q || undefined })
+    const mapped = (res.items || []).map(mapper())
+    if (replace) {
+      options.value = mapped
     } else {
-      const res = await modelsApi.list({ page: 1, page_size: 30, search: q || undefined })
-      options.value = (res.items || []).map(mapModel)
+      const seen = new Set(options.value.map((o) => o.id))
+      for (const o of mapped) {
+        if (!seen.has(o.id)) {
+          options.value.push(o)
+          seen.add(o.id)
+        }
+      }
     }
-    // 保证当前值出现在选项中
+    page.value = nextPage
+    updateCanLoadMore(res, options.value.length)
     if (props.modelValue && !options.value.some((o) => o.id === props.modelValue)) {
       await hydrateCurrent()
     }
+  } catch (e) {
+    const d = e?.response?.data
+    const msg = d?.message || d?.detail || e?.message
+    loadError.value = typeof msg === 'string' && msg ? msg : '资源列表加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function search(q = '') {
+  lastQuery.value = q
+  page.value = 1
+  await fetchPage(q, 1, true)
+}
+
+async function loadMore() {
+  await fetchPage(lastQuery.value, page.value + 1, false)
 }
 
 async function hydrateCurrent() {
@@ -116,6 +168,10 @@ async function ensureLoaded() {
 }
 
 function onChange(v) {
+  if (v === '__more__') {
+    loadMore()
+    return
+  }
   emit('update:modelValue', v || null)
   const hit = options.value.find((o) => o.id === v)
   emit('select', hit || null)
@@ -133,4 +189,5 @@ watch(
 <style scoped>
 .opt { display: flex; justify-content: space-between; gap: 12px; width: 100%; }
 .hint { color: var(--el-text-color-secondary); font-size: 12px; }
+.picker-error { margin: 6px 0 0; font-size: 12px; color: var(--el-color-danger); line-height: 1.4; }
 </style>

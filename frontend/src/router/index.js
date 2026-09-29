@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { firstAccessiblePath, safeHomePath } from '@/utils/navigation'
+import { safeHomePath } from '@/utils/navigation'
 
 const APP_TITLE = '大模型智能评测平台'
 
@@ -41,11 +41,17 @@ const routes = [
     ]
   },
   {
-    path: '/:pathMatch(.*)*',
-    name: 'NotFound',
+    path: '/not-found',
     component: () => import('@/layouts/MainLayout.vue'),
     children: [
-      { path: '', name: 'NotFoundPage', component: () => import('@/views/NotFound.vue'), meta: { title: '页面不存在' } }
+      { path: '', name: 'NotFound', component: () => import('@/views/NotFound.vue'), meta: { title: '页面不存在' } }
+    ]
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [
+      { path: '', name: 'NotFoundCatchAll', component: () => import('@/views/NotFound.vue'), meta: { title: '页面不存在' } }
     ]
   }
 ]
@@ -74,14 +80,9 @@ router.beforeEach((to, _from, next) => {
     return
   }
   if (to.meta.permission && !hasRoutePermission(userStore, to.meta.permission)) {
-    // 无权限：不要强制 dashboard（可能同样无权）
-    if (to.path === '/dashboard' || to.name === 'Dashboard') {
-      next(firstAccessiblePath(router, userStore))
-      return
-    }
     next({
-      path: firstAccessiblePath(router, userStore),
-      query: { denied: to.fullPath },
+      path: '/not-found',
+      query: { reason: 'forbidden', from: to.fullPath },
     })
     return
   }

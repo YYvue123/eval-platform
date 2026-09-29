@@ -14,6 +14,12 @@
       </div>
     </div>
 
+    <PageAsyncState
+      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
+      :state="pageState"
+      :errorMessage="loadError"
+    />
+    <template v-else>
     <div class="probe-row">
       <div class="probe" :class="liveOk ? 'ok' : 'bad'">
         <div class="probe-k">Liveness</div>
@@ -52,6 +58,9 @@
                 #{{ admission.id }} · {{ admission.level }} · hash {{ shortHash(admission.artifact_hash) }} · {{ admission.elapsed_ms }}ms
               </div>
               <el-table :data="admission.items || []" size="small">
+                <template #empty>
+                  <EmptyState type="default" title="暂无准入项" description="运行基础或完整准入后查看结果。" :show-action="false" />
+                </template>
                 <el-table-column prop="name" label="项" min-width="150" />
                 <el-table-column label="状态" width="100">
                   <template #default="{ row }"><span :class="statusClass(row)">{{ statusText(row) }}</span></template>
@@ -207,6 +216,7 @@
         <el-button type="primary" :loading="authSaving" @click="createAuth">保存</el-button>
       </template>
     </el-dialog>
+    </template>
   </div>
 </template>
 
@@ -215,9 +225,15 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { opsApi, tasksApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const userStore = useUserStore()
 const tab = ref('probe')
+const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 const status = ref({})
 const metricsText = ref('')
 const backing = ref(false)
@@ -265,6 +281,20 @@ const admissionTagType = computed(() => {
   if (admission.value.ok === null) return 'warning'
   return 'info'
 })
+
+const pageState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: status.value?.env ? [status.value] : [],
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 function shortHash(h) {
   return h ? `${h.slice(0, 10)}…` : '—'
@@ -314,20 +344,33 @@ async function loadGov() {
 }
 
 async function load() {
-  await loadProbes()
-  const [st, al] = await Promise.all([opsApi.status(), tasksApi.alerts()])
-  status.value = st
-  alerts.value = al.items || []
-  if (st.last_admission) admission.value = st.last_admission
-  else {
-    try {
-      admission.value = await opsApi.acceptance()
-    } catch {
-      admission.value = {}
+  loading.value = true
+  loadError.value = ''
+  try {
+    await loadProbes()
+    const [st, al] = await Promise.all([opsApi.status(), tasksApi.alerts()])
+    status.value = st
+    alerts.value = al.items || []
+    if (st.last_admission) admission.value = st.last_admission
+    else {
+      try {
+        admission.value = await opsApi.acceptance()
+      } catch {
+        admission.value = {}
+      }
     }
+    try {
+      metricsText.value = await opsApi.metrics()
+    } catch {
+      metricsText.value = '指标加载失败'
+    }
+    await loadGov()
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = loadErr(e, '运行支撑加载失败')
+  } finally {
+    loading.value = false
   }
-  metricsText.value = await opsApi.metrics()
-  await loadGov()
 }
 
 async function backup() {

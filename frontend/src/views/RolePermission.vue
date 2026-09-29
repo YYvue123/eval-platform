@@ -4,7 +4,12 @@
       <p class="page-desc">配置角色权限、数据范围，控制页面/按钮显隐与数据可见性</p>
     </div>
 
-    <el-row :gutter="24">
+    <PageAsyncState
+      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
+      :state="pageState"
+      :errorMessage="loadError"
+    />
+    <el-row v-else :gutter="24">
       <!-- 角色列表 -->
       <el-col :span="6">
         <el-card class="role-card" shadow="hover">
@@ -93,20 +98,39 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { rolesApi } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const roles = ref([])
 const permissionGroups = ref([])
 const selectedRole = ref(null)
 const saving = ref(false)
+const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 
 const form = reactive({
   data_scope: 'all',
   permission_codes: []
 })
+
+const pageState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: roles.value,
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 function roleTagType(code) {
   const map = { admin: 'danger', researcher: 'success', viewer: 'info' }
@@ -176,16 +200,16 @@ function actionLabel(act) {
 async function loadRoles() {
   try {
     roles.value = await rolesApi.list()
-  } catch (_) {
-    roles.value = []
+  } catch (e) {
+    loadError.value = loadErr(e, '角色列表加载失败')
   }
 }
 
 async function loadPermissions() {
   try {
     permissionGroups.value = await rolesApi.listPermissions()
-  } catch (_) {
-    permissionGroups.value = []
+  } catch (e) {
+    if (!loadError.value) loadError.value = loadErr(e, '权限目录加载失败')
   }
 }
 
@@ -236,17 +260,26 @@ async function save() {
     })
     ElMessage.success('保存成功')
     loadRoles()
-  } catch (_) {}
+  } catch (e) {
+    ElMessage.error(loadErr(e, '保存失败'))
+  }
   finally {
     saving.value = false
   }
 }
 
 onMounted(async () => {
-  await loadPermissions()
-  await loadRoles()
-  if (roles.value.length && !selectedRole.value) {
-    selectRole(roles.value.find((r) => r.code === 'researcher') || roles.value[0])
+  loading.value = true
+  loadError.value = ''
+  try {
+    await loadPermissions()
+    await loadRoles()
+    createdOnce.value = !loadError.value
+    if (roles.value.length && !selectedRole.value) {
+      selectRole(roles.value.find((r) => r.code === 'researcher') || roles.value[0])
+    }
+  } finally {
+    loading.value = false
   }
 })
 </script>

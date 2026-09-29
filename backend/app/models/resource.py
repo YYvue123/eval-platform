@@ -42,6 +42,16 @@ class ResourceCallLog(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str] = mapped_column(Text, default="")
     correlation_id: Mapped[str] = mapped_column(String(64), default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), default="")
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version: Mapped[str] = mapped_column(String(32), default="")
+    trace_id: Mapped[str] = mapped_column(String(64), default="")
+    input_digest: Mapped[str] = mapped_column(Text, default="")
+    output_digest: Mapped[str] = mapped_column(Text, default="")
+    input_hash: Mapped[str] = mapped_column(String(64), default="")
+    output_hash: Mapped[str] = mapped_column(String(64), default="")
+    source: Mapped[str] = mapped_column(String(32), default="gateway")
+    parent_correlation_id: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

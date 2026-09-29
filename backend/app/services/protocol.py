@@ -183,6 +183,63 @@ def normalize_invoke_body(body: dict | None) -> tuple[str, dict]:
     return "execute", dict(body)
 
 
+_SECRET_KEYS = {"token", "api_key", "apikey", "secret", "password", "authorization"}
+
+
+def find_plaintext_secrets(node, path: str = "") -> list[str]:
+    found: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            if str(key).lower() in _SECRET_KEYS and isinstance(value, str) and value.strip():
+                found.append(here)
+            else:
+                found.extend(find_plaintext_secrets(value, here))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found.extend(find_plaintext_secrets(value, f"{path}[{index}]"))
+    return found
+
+
+def executable_errors(manifest: dict) -> list[str]:
+    """注册必须可执行：禁止 local:// 空壳和明文凭证。"""
+    errors = [f"禁止保存明文凭证: {item}" for item in find_plaintext_secrets(manifest)]
+    rtype = manifest.get("resource_type")
+    interfaces = manifest.get("interfaces") or {}
+    endpoint = str(interfaces.get("endpoint") or interfaces.get("url") or "")
+    if rtype == "tool":
+        if not endpoint.startswith("http"):
+            errors.append("工具必须配置 http(s) endpoint，不能使用 local://")
+    elif rtype == "skill":
+        skill = manifest.get("skill") or {}
+        if skill.get("execution_type") not in {None, "", "workflow"}:
+            errors.append("Skill 仅支持 workflow")
+        chain = skill.get("chain") or []
+        if not isinstance(chain, list) or not chain:
+            errors.append("Skill 必须声明非空 skill.chain")
+        else:
+            for index, step in enumerate(chain):
+                if not isinstance(step, dict) or not (step.get("resource_id") or step.get("$ref")):
+                    errors.append(f"skill.chain[{index}] 缺少 resource_id")
+    elif rtype == "mcp":
+        from app.services.mcp.stdio_transport import list_stdio_aliases
+
+        transport = interfaces.get("transport", "streamable_http")
+        if transport == "stdio":
+            if interfaces.get("command") or interfaces.get("args"):
+                errors.append("stdio MCP 只能使用 command_alias")
+            if not interfaces.get("command_alias"):
+                errors.append("stdio MCP 必须配置 command_alias")
+            elif interfaces["command_alias"] not in list_stdio_aliases():
+                errors.append("stdio command_alias 不在服务端白名单")
+        elif transport == "streamable_http":
+            if not endpoint.startswith("http"):
+                errors.append("Streamable HTTP MCP 必须配置 http(s) endpoint")
+        else:
+            errors.append("MCP transport 仅支持 streamable_http 或 stdio")
+    return errors
+
+
 def validate_manifest(manifest: dict) -> list[str]:
     errors = []
     if not isinstance(manifest, dict):

@@ -32,6 +32,7 @@
           <el-option label="全部" :value="null" />
           <el-option v-for="u in creatorOptions" :key="u.id" :label="u.username" :value="u.id" />
         </el-select>
+        <span v-if="creatorOptionsError" class="hint">{{ creatorOptionsError }}</span>
         <el-date-picker v-model="createdAtRange" type="daterange" range-separator="至" start-placeholder="创建时间起" end-placeholder="创建时间止" value-format="YYYY-MM-DD" clearable style="width: 240px" />
         <el-select v-model="sortBy" placeholder="排序字段" style="width: 130px">
           <el-option label="创建时间" value="created_at" />
@@ -51,6 +52,12 @@
         @remove="clearExtraFilter"
         @clear="clearExtraFilters"
       />
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <template v-else>
       <el-table v-loading="loading" :data="items" stripe @sort-change="onSortChange">
         <template #empty>
           <EmptyState type="user" action-text="新增用户" :show-action="userStore.hasPermission('user:create')" @action="openCreate" />
@@ -66,23 +73,34 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="status" label="状态" width="90">
+          <template #default="{ row }">{{ row.status === 'disabled' ? '已禁用' : '启用' }}</template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" sortable="custom">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
         <el-table-column prop="created_by_username" label="创建人" width="100">
           <template #default="{ row }">{{ row.created_by_username || '-' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <div class="op-btns">
               <el-button v-if="userStore.hasPermission('user:edit')" link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button
+                v-if="userStore.hasPermission('user:edit') && row.id !== currentUserId"
+                link
+                size="small"
+                :type="row.status === 'disabled' ? 'success' : 'warning'"
+                @click="toggleStatus(row)"
+              >{{ row.status === 'disabled' ? '启用' : '禁用' }}</el-button>
               <el-button v-if="userStore.hasPermission('user:delete') && row.role !== 'admin' && row.id !== currentUserId" link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
             </div>
           </template>
         </el-table-column>
       </el-table>
+      <div class="pager-line">第 {{ page }} 页 · 共 {{ total }} 条</div>
       <el-pagination
-        v-if="userStore.hasPermission('user:list') && total > pageSize"
+        v-if="userStore.hasPermission('user:list')"
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
@@ -91,6 +109,7 @@
         class="pagination"
         @change="loadData"
       />
+      </template>
     </el-card>
 
     <!-- 新增/编辑弹窗 -->
@@ -154,32 +173,62 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { usersApi } from '@/api'
 import EmptyState from '@/components/EmptyState.vue'
 import ActiveFilterHint from '@/components/ActiveFilterHint.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
 import { getPasswordStrength, validatePassword } from '@/utils/password'
+import { deriveAsyncState } from '@/utils/asyncState.js'
+import { readListQuery, writeListQuery } from '@/utils/listQuery.js'
 
 const userStore = useUserStore()
+const router = useRouter()
+const route = useRoute()
+const initialQuery = readListQuery(route.query)
 const isAdmin = computed(() => userStore.isAdmin())
 const currentUserId = ref(null)
 
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
+const forbidden = ref(false)
 const items = ref([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(10)
-const search = ref('')
-const roleFilter = ref('')
-const creatorFilter = ref(null)
+const page = ref(initialQuery.page)
+const pageSize = ref(initialQuery.page_size)
+const search = ref(initialQuery.q)
+const roleFilter = ref(typeof route.query.role === 'string' ? route.query.role : '')
+const creatorFilter = ref(route.query.created_by ? Number(route.query.created_by) : null)
 const creatorOptions = ref([])
-const createdAtRange = ref(null)
-const sortBy = ref('created_at')
-const sortOrder = ref('desc')
+const creatorOptionsError = ref('')
+const createdAtRange = ref(
+  route.query.created_at_start && route.query.created_at_end
+    ? [String(route.query.created_at_start), String(route.query.created_at_end)]
+    : null
+)
+const sortBy = ref(typeof route.query.sort_by === 'string' ? route.query.sort_by : 'created_at')
+const sortOrder = ref(typeof route.query.sort_order === 'string' ? route.query.sort_order : 'desc')
 const showMoreFilters = ref(false)
 const listReady = ref(false)
 let searchTimer = null
+let skipFilterWatch = false
+
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: forbidden.value,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function listErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 const USER_SORT_LABELS = { created_at: '创建时间', username: '用户名', id: 'ID', updated_at: '更新时间' }
 
@@ -266,8 +315,26 @@ function onSortChange({ prop, order }) {
   loadData()
 }
 
+async function persistQuery() {
+  await writeListQuery(router, {
+    page: page.value,
+    page_size: pageSize.value,
+    q: search.value,
+    status: '',
+    role: roleFilter.value,
+    created_by: creatorFilter.value,
+    created_at_start: createdAtRange.value?.[0],
+    created_at_end: createdAtRange.value?.[1],
+    sort_by: sortBy.value !== 'created_at' ? sortBy.value : '',
+    sort_order: sortOrder.value !== 'desc' ? sortOrder.value : '',
+  })
+}
+
 async function loadData() {
+  await persistQuery()
   loading.value = true
+  loadError.value = ''
+  forbidden.value = false
   try {
     if (!currentUserId.value) {
       const me = await usersApi.getMe().catch(() => ({}))
@@ -282,9 +349,10 @@ async function loadData() {
     const res = await usersApi.list(params)
     items.value = res.items || []
     total.value = res.total || 0
+    createdOnce.value = true
   } catch (e) {
-    items.value = []
-    total.value = 0
+    loadError.value = listErr(e, '用户列表加载失败')
+    if (e?.response?.status === 403) forbidden.value = true
   } finally {
     loading.value = false
   }
@@ -374,6 +442,18 @@ function handleDelete(row) {
   showDelete.value = true
 }
 
+async function toggleStatus(row) {
+  const next = row.status === 'disabled' ? 'active' : 'disabled'
+  if (next === 'disabled') {
+    await ElMessageBox.confirm(`确定禁用用户「${row.username}」？禁用后该账号将无法登录。`, '确认禁用')
+    await usersApi.update(row.id, { status: 'disabled' })
+  } else {
+    await usersApi.update(row.id, { status: 'active' })
+  }
+  ElMessage.success(next === 'disabled' ? '已禁用' : '已启用')
+  loadData()
+}
+
 async function confirmDelete() {
   if (!deleteTarget.value) return
   deleting.value = true
@@ -389,9 +469,13 @@ async function confirmDelete() {
 
 onMounted(async () => {
   if (userStore.hasPermission('user:list')) {
+    creatorOptionsError.value = ''
     try {
       creatorOptions.value = await usersApi.listOptions() || []
-    } catch { creatorOptions.value = [] }
+    } catch (e) {
+      creatorOptions.value = []
+      creatorOptionsError.value = listErr(e, '创建人列表加载失败')
+    }
   }
   await loadData()
   listReady.value = true
@@ -400,18 +484,51 @@ onMounted(async () => {
 watch(
   () => [roleFilter.value, creatorFilter.value, createdAtRange.value, sortBy.value, sortOrder.value],
   () => {
-    if (!listReady.value) return
+    if (!listReady.value || skipFilterWatch) return
     page.value = 1
     loadData()
   }
 )
 watch(search, () => {
-  if (!listReady.value) return
+  if (!listReady.value || skipFilterWatch) return
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
     page.value = 1
     loadData()
   }, 300)
+})
+watch(() => route.query, () => {
+  const next = readListQuery(route.query)
+  const nextRole = typeof route.query.role === 'string' ? route.query.role : ''
+  const nextCreator = route.query.created_by ? Number(route.query.created_by) : null
+  const nextRange = route.query.created_at_start && route.query.created_at_end
+    ? [String(route.query.created_at_start), String(route.query.created_at_end)]
+    : null
+  const nextSortBy = typeof route.query.sort_by === 'string' ? route.query.sort_by : 'created_at'
+  const nextSortOrder = typeof route.query.sort_order === 'string' ? route.query.sort_order : 'desc'
+  const sameRange = (nextRange?.[0] || '') === (createdAtRange.value?.[0] || '')
+    && (nextRange?.[1] || '') === (createdAtRange.value?.[1] || '')
+  if (
+    next.page === page.value
+    && next.page_size === pageSize.value
+    && next.q === search.value
+    && nextRole === roleFilter.value
+    && nextCreator === creatorFilter.value
+    && sameRange
+    && nextSortBy === sortBy.value
+    && nextSortOrder === sortOrder.value
+  ) return
+  skipFilterWatch = true
+  page.value = next.page
+  pageSize.value = next.page_size
+  search.value = next.q
+  roleFilter.value = nextRole
+  creatorFilter.value = nextCreator
+  createdAtRange.value = nextRange
+  sortBy.value = nextSortBy
+  sortOrder.value = nextSortOrder
+  queueMicrotask(() => { skipFilterWatch = false })
+  loadData()
 })
 </script>
 
@@ -425,6 +542,8 @@ watch(search, () => {
 .toolbar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .toolbar-more { margin-bottom: 16px; }
 .pagination { margin-top: 16px; justify-content: flex-end; }
+.pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
+.hint { color: var(--text-secondary); font-size: 13px; }
 .password-strength { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
 .password-strength .strength-label { color: var(--text-secondary); }
 .password-strength .el-progress { flex: 1; max-width: 120px; }

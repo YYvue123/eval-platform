@@ -1,14 +1,13 @@
 """统一工具网关：信封校验、幂等、限流、分发。"""
 from __future__ import annotations
 
-import asyncio
-from typing import Any
+import time
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import BaseResource, IdempotencyRecord, ResourceCallLog, ResourceVersion, User
+from app.models import BaseResource, IdempotencyRecord, ResourceCallLog, ResourceVersion
 from app.services.actor_context import ActorContext
 from app.services.builtin_tools import run_builtin_tool
 from app.services.gateway import check_gateway, record_gateway
@@ -20,14 +19,78 @@ from app.services.protocol import (
     request_hash,
     validate_request_envelope,
 )
+from app.services.mcp.catalog import persist_catalog
 from app.services.skill_runtime import run_mcp, run_skill
-from app.services.side_effect_policy import has_side_effects, stub_side_effect_result
+from app.services.object_policy import object_is_visible
+from app.services.redaction import evidence_digest, redact_error_text
+from app.services.side_effect_policy import has_side_effects, side_effect_block
 from app.utils.jsonutil import dumps, loads
 
 
 class IdempotencyConflict(HTTPException):
     def __init__(self, detail: str = "幂等键冲突：相同 correlation 不同 payload"):
         super().__init__(status_code=409, detail=detail)
+
+
+class NestedSkillError(RuntimeError):
+    code = "SKILL_NESTING_FORBIDDEN"
+    public_message = "Skill 不允许嵌套 Skill"
+
+
+def _canon(value):
+    if isinstance(value, dict):
+        return {k: _canon(value[k]) for k in sorted(value)}
+    if isinstance(value, list):
+        return [_canon(x) for x in value]
+    return value
+
+
+def manifests_equal(left, right) -> bool:
+    def load(raw):
+        if isinstance(raw, str):
+            return loads(raw, {})
+        return raw or {}
+
+    return dumps(_canon(load(left))) == dumps(_canon(load(right)))
+
+
+def _evidence_log(
+    *,
+    resource_id: str,
+    task_id: int | None,
+    status: str,
+    latency_ms: int,
+    error_message: str,
+    correlation_id: str,
+    parent_correlation_id: str,
+    tenant_id: str,
+    user_id: int | None,
+    version: str,
+    trace_id: str,
+    source: str,
+    params: dict,
+    output,
+) -> ResourceCallLog:
+    input_digest, input_hash = evidence_digest(params)
+    output_digest, output_hash = evidence_digest(output)
+    return ResourceCallLog(
+        resource_id=resource_id,
+        task_id=task_id,
+        status=status,
+        latency_ms=latency_ms,
+        error_message=error_message,
+        correlation_id=correlation_id,
+        parent_correlation_id=parent_correlation_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        version=version,
+        trace_id=trace_id,
+        input_digest=input_digest,
+        output_digest=output_digest,
+        input_hash=input_hash,
+        output_hash=output_hash,
+        source=source,
+    )
 
 
 async def ensure_resource_version(db: AsyncSession, r: BaseResource, creator_id: int | None = None) -> ResourceVersion:
@@ -38,7 +101,10 @@ async def ensure_resource_version(db: AsyncSession, r: BaseResource, creator_id:
             ResourceVersion.version == ver,
         )
     )
+    current = r.manifest_json or "{}"
     if existing:
+        if not manifests_equal(existing.manifest_json, current):
+            raise HTTPException(409, "同版本 Manifest 内容与冻结快照不一致，请升级 version")
         return existing
     row = ResourceVersion(
         resource_id=r.resource_id,
@@ -59,16 +125,23 @@ async def invoke_tool(
     resource_id: str,
     body: dict | None,
     correlation_id: str | None = None,
+    parent_correlation_id: str | None = None,
     parent_trace_id: str | None = None,
     continue_trace_id: str | None = None,
     task_id: int | None = None,
     caller_id: str = "gateway",
     require_action: bool = False,
+    _depth: int = 0,
 ) -> dict:
     """统一调用入口，返回标准响应信封。"""
     r = (await db.execute(select(BaseResource).where(BaseResource.resource_id == resource_id))).scalar_one_or_none()
-    if not r or r.status not in {"online", "pending"}:
+    if not r or r.status not in {"online", "pending", "registered"}:
         raise HTTPException(404, "资源不可用")
+    if actor is not None:
+        if not object_is_visible(r, actor):
+            raise HTTPException(404, "资源不存在或无权访问")
+    elif not r.builtin:
+        raise HTTPException(404, "资源不存在或无权访问")
 
     tenant_key = str(actor.tenant_id) if actor else ""
     action, params = normalize_invoke_body(body)
@@ -105,31 +178,90 @@ async def invoke_tool(
             raise IdempotencyConflict()
         return loads(existing.response_json, {})
 
-    manifest = loads(r.manifest_json, {})
+    manifest = loads(rv.manifest_json, {})
+    trace_id = (req.get("trace") or {}).get("trace_id") or ""
+    actor_user = actor.user_id if actor else None
+    started = time.perf_counter()
     if has_side_effects(manifest):
-        try:
-            result = stub_side_effect_result(manifest)
-        except PermissionError as exc:
-            resp = make_response(
-                req,
-                "error",
-                {},
-                error={"code": "SIDE_EFFECT_DENIED", "message": str(exc), "retryable": False, "trace_id": req["trace"]["trace_id"]},
-            )
-            db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="failed", correlation_id=cid, error_message=str(exc)[:500]))
-            return resp
-        record_gateway(r.resource_id, True)
-        r.call_count = int(r.call_count or 0) + 1
-        resp = make_response(req, "success", result, usage={"total_tokens": 0})
-        await _persist_idempotent(db, tenant_key, resource_id, rv.version, action, cid, rh, resp)
-        db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="success", correlation_id=cid))
+        blocked = side_effect_block(manifest)
+        error = {
+            "code": blocked.code,
+            "message": str(blocked),
+            "retryable": False,
+            "trace_id": trace_id,
+        }
+        resp = make_response(
+            req,
+            "error",
+            {},
+            error=error,
+        )
+        db.add(_evidence_log(
+            resource_id=resource_id,
+            task_id=task_id,
+            status="blocked",
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            correlation_id=cid,
+            error_message=str(blocked)[:500],
+            parent_correlation_id=parent_correlation_id or "",
+            tenant_id=tenant_key,
+            user_id=actor_user,
+            version=rv.version,
+            trace_id=trace_id,
+            source=caller_id,
+            params=params,
+            output=error,
+        ))
         return resp
 
     try:
         if r.resource_type == "skill":
-            result = run_skill(manifest, params)
+            if _depth >= 1:
+                raise NestedSkillError()
+
+            async def invoke_skill_step(
+                step_id: str,
+                step_resource_id: str,
+                step_payload: dict,
+            ) -> dict:
+                return await invoke_tool(
+                    db,
+                    actor=actor,
+                    resource_id=step_resource_id,
+                    body=step_payload,
+                    correlation_id=f"{cid}:{step_id}",
+                    parent_correlation_id=cid,
+                    parent_trace_id=trace_id,
+                    continue_trace_id=trace_id,
+                    task_id=task_id,
+                    caller_id="skill_step",
+                    _depth=_depth + 1,
+                )
+
+            result = await run_skill(
+                manifest,
+                params,
+                step_invoker=invoke_skill_step,
+            )
         elif r.resource_type == "mcp":
-            result = await run_mcp(manifest, params)
+            method = str(params.get("method") or "")
+            rpc_params = params.get("params") if isinstance(params.get("params"), dict) else {}
+            req_id = params.get("id", 1)
+            run = await run_mcp(manifest, method, rpc_params, req_id=req_id)
+            result = run.result
+            tools = []
+            if method in {"tools/list", "list_tools"} and isinstance(result, dict):
+                tools = result.get("tools")
+                if not isinstance(tools, list):
+                    inner = result.get("result")
+                    tools = inner.get("tools") if isinstance(inner, dict) else []
+                if not isinstance(tools, list):
+                    tools = []
+                await persist_catalog(
+                    db, resource_id, tools, changed=run.catalog_changed, actor=actor,
+                )
+            elif run.catalog_changed:
+                await persist_catalog(db, resource_id, [], changed=True, actor=actor)
         elif r.resource_id.startswith("builtin/") or r.builtin:
             result = run_builtin_tool(r.resource_id, params)
         else:
@@ -140,8 +272,31 @@ async def invoke_tool(
         record_gateway(r.resource_id, True)
         usage = result.get("usage") if isinstance(result, dict) else None
         resp = make_response(req, "success", result if isinstance(result, dict) else {"result": result}, usage=usage)
+        if r.resource_type == "mcp":
+            meta = resp["body"].setdefault("metadata", {})
+            meta["mcp_session"] = {
+                "protocol_version": run.protocol_version,
+                "server_info": run.server_info,
+                "session_id_present": run.session_id_present,
+            }
+            meta["mcp_notifications"] = list(run.notifications)
         await _persist_idempotent(db, tenant_key, resource_id, rv.version, action, cid, rh, resp)
-        db.add(ResourceCallLog(resource_id=resource_id, task_id=task_id, status="success", correlation_id=cid))
+        db.add(_evidence_log(
+            resource_id=resource_id,
+            task_id=task_id,
+            status="success",
+            correlation_id=cid,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            error_message="",
+            parent_correlation_id=parent_correlation_id or "",
+            tenant_id=tenant_key,
+            user_id=actor_user,
+            version=rv.version,
+            trace_id=trace_id,
+            source=caller_id,
+            params=params,
+            output=result,
+        ))
         return resp
     except HTTPException:
         raise
@@ -149,18 +304,39 @@ async def invoke_tool(
         r.fail_count = int(r.fail_count or 0) + 1
         r.consecutive_fail = int(r.consecutive_fail or 0) + 1
         record_gateway(r.resource_id, False)
+        public_message = getattr(exc, "public_message", None)
+        safe_message = (
+            redact_error_text(public_message)
+            if isinstance(public_message, str) and public_message.strip()
+            else f"工具执行失败 ({type(exc).__name__})"
+        )
+        error = {
+            "code": getattr(exc, "code", "TOOL_EXEC_FAILED") or "TOOL_EXEC_FAILED",
+            "message": safe_message,
+            "retryable": True,
+            "trace_id": req["trace"]["trace_id"],
+        }
         resp = make_response(
             req,
             "error",
             {},
-            error={"code": "TOOL_EXEC_FAILED", "message": str(exc), "retryable": True, "trace_id": req["trace"]["trace_id"]},
+            error=error,
         )
-        db.add(ResourceCallLog(
+        db.add(_evidence_log(
             resource_id=resource_id,
             task_id=task_id,
             status="failed",
-            error_message=str(exc)[:2000],
+            error_message=safe_message[:2000],
             correlation_id=cid,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            parent_correlation_id=parent_correlation_id or "",
+            tenant_id=tenant_key,
+            user_id=actor_user,
+            version=rv.version,
+            trace_id=trace_id,
+            source=caller_id,
+            params=params,
+            output=error,
         ))
         # 失败不写入幂等成功记录，允许重试
         return resp

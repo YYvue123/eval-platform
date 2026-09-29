@@ -98,7 +98,8 @@ class RunIn(BaseModel):
     planner_model_id: int | None = None
 
 
-def _session_out(s: AgentSession, messages=None, suggestions=None, approvals=None):
+def _session_out(s: AgentSession, messages=None, suggestions=None, approvals=None, facts=None):
+    facts = facts or {}
     return {
         "id": s.id,
         "title": s.title,
@@ -107,10 +108,42 @@ def _session_out(s: AgentSession, messages=None, suggestions=None, approvals=Non
         "plan": loads(s.plan_json, {}),
         "task_id": s.task_id,
         "active_run_id": getattr(s, "active_run_id", None),
+        "last_run_id": facts.get("last_run_id"),
+        "task_status": facts.get("task_status"),
+        "report_status": facts.get("report_status", "none"),
+        "recent_runs": facts.get("recent_runs") or [],
         "created_at": iso(s.created_at),
         "messages": messages or [],
         "suggestions": suggestions or [],
         "approvals": approvals or [],
+    }
+
+
+async def _session_facts(db: AsyncSession, s: AgentSession) -> dict:
+    last = await db.scalar(
+        select(AgentRun).where(AgentRun.session_id == s.id).order_by(AgentRun.id.desc()).limit(1)
+    )
+    recent = (
+        await db.execute(select(AgentRun).where(AgentRun.session_id == s.id).order_by(AgentRun.id.desc()).limit(10))
+    ).scalars().all()
+    task_status = None
+    report_status = "none"
+    if s.task_id:
+        task = await db.get(EvalTask, int(s.task_id))
+        if task is None:
+            task_status = "missing"
+            report_status = "missing"
+        else:
+            task_status = task.status
+            report_status = "available" if (task.report_path or "").strip() else "missing"
+    return {
+        "last_run_id": last.id if last else None,
+        "task_status": task_status,
+        "report_status": report_status,
+        "recent_runs": [
+            {"id": row.id, "status": row.status, "created_at": iso(row.created_at)}
+            for row in recent
+        ],
     }
 
 
@@ -198,7 +231,10 @@ async def list_sessions(
 ):
     q = apply_object_scope(select(AgentSession), AgentSession, actor)
     rows = (await db.execute(q.order_by(AgentSession.id.desc()).limit(50))).scalars().all()
-    return {"items": [_session_out(s) for s in rows], "total": len(rows)}
+    items = []
+    for row in rows:
+        items.append(_session_out(row, facts=await _session_facts(db, row)))
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/sessions")
@@ -254,6 +290,7 @@ async def get_session(
         [_msg_out(m) for m in msgs],
         [{"id": g.id, "action": g.action, "reason": g.reason, "status": g.status, "task_id": g.task_id} for g in sugg],
         [approval_service.approval_out(a) for a in apprs],
+        facts=await _session_facts(db, s),
     )
 
 
@@ -359,16 +396,19 @@ async def confirm_session(
     t = await create_task_from_plan(db, plan, current, tenant_id=s.tenant_id)
     await approval_service.consume_approval(db, appr, task_id=t.id, invocation_id=invocation)
     s.task_id = t.id
+    should_dispatch = False
     if body.execute:
         await enqueue_task(db, t)
-        await db.commit()
-        background.add_task(dispatch_queue, t.id)
         s.status = "running"
+        should_dispatch = True
     else:
         s.status = "done"
     db.add(AgentMessage(session_id=s.id, role="main", content=f"已通过审批创建任务 #{t.id}" + (" 并提交执行" if body.execute else ""), tool_name="create_task"))
     await archive_experience(db, f"编排案例 {t.name}", s.requirement, "case", [t.scene, t.industry], current.id)
     await log_audit(db, "agent", "confirm", user_id=current.id, username=current.username, target_id=s.id, ip=get_client_ip(request))
+    await db.commit()
+    if should_dispatch:
+        background.add_task(dispatch_queue, t.id)
     return {**_session_out(s), "task_id": t.id, "approval": approval_service.approval_out(appr), "idempotent": False}
 
 
@@ -444,12 +484,15 @@ async def act_suggestion(
     if not g:
         raise HTTPException(404, "建议不存在")
     g.status = "accepted" if body.accepted else "rejected"
+    dispatch_task_id = None
     if body.accepted and g.action == "retry" and g.task_id:
         t = await db.get(EvalTask, g.task_id)
         if t and t.status != "running":
             await enqueue_task(db, t)
-            await db.commit()
-            background.add_task(dispatch_queue, t.id)
+            dispatch_task_id = t.id
+    await db.commit()
+    if dispatch_task_id is not None:
+        background.add_task(dispatch_queue, dispatch_task_id)
     return {"id": g.id, "status": g.status}
 
 

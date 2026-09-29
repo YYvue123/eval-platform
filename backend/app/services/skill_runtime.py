@@ -2,12 +2,53 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Awaitable, Callable
+
+from fastapi import HTTPException
 
 from app.services.builtin_tools import run_builtin_tool
-from app.services.mcp_client import mcp_initialize, mcp_request, mcp_tools_call, mcp_tools_list
+from app.services.mcp.errors import McpError
+from app.services.mcp.runner import McpRunResult
+from app.services.mcp.runner import run_mcp as run_remote_mcp
 
 STEP_REF = re.compile(r"^(?:step_(\d+)|([A-Za-z_][\w-]*))(?:\.(.+))?$")
+
+
+class SkillStepError(RuntimeError):
+    def __init__(
+        self,
+        step_id: str,
+        code: str,
+        message: str,
+        completed_steps: list[str],
+    ):
+        completed = ", ".join(completed_steps) if completed_steps else "无"
+        self.code = code or "SKILL_STEP_FAILED"
+        self.step_id = step_id
+        self.completed_steps = list(completed_steps)
+        self.public_message = (
+            f"Skill 步骤 {step_id} 执行失败: {message}；已完成步骤: {completed}"
+        )
+        super().__init__(self.public_message)
+
+
+def _skill_step_from_http(
+    step_id: str,
+    exc: HTTPException,
+    completed_steps: list[str],
+) -> SkillStepError:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or "SKILL_STEP_FAILED")
+        message = str(detail.get("message") or "下游工具执行失败")
+    else:
+        code = {
+            404: "RESOURCE_UNAVAILABLE",
+            409: "IDEMPOTENCY_CONFLICT",
+            422: "SCHEMA_VALIDATION_FAILED",
+        }.get(exc.status_code, "SKILL_STEP_FAILED")
+        message = str(detail) if detail else "下游工具执行失败"
+    return SkillStepError(step_id, code, message, completed_steps)
 
 
 def _dig(obj: Any, path: str) -> Any:
@@ -32,6 +73,19 @@ def _dig(obj: Any, path: str) -> Any:
         else:
             return None
     return cur
+
+
+def _step_result(result: Any) -> Any:
+    """把列表型工具结果映射为可被 sN.output.values 引用的对象。"""
+    if isinstance(result, list):
+        return {"values": result}
+    if (
+        isinstance(result, dict)
+        and "values" not in result
+        and isinstance(result.get("result"), list)
+    ):
+        return {**result, "values": result["result"]}
+    return result
 
 
 def resolve_value(value: Any, *, inputs: dict, steps_by_id: dict[str, dict], step_index: int) -> Any:
@@ -87,7 +141,14 @@ def _detect_resource_cycle(chain: list[dict]) -> None:
     return
 
 
-def run_skill(manifest: dict, body: dict) -> dict:
+async def run_skill(
+    manifest: dict,
+    body: dict,
+    *,
+    step_invoker: Callable[[str, str, dict], Awaitable[dict]],
+) -> dict:
+    from app.services.tool_gateway import response_result
+
     skill = manifest.get("skill") or {}
     chain = skill.get("chain") or []
     if not chain:
@@ -121,59 +182,67 @@ def run_skill(manifest: dict, body: dict) -> dict:
             if not isinstance(payload, dict):
                 raise ValueError(f"步骤 {step_id} 解析后的 input 必须是对象")
 
-        result = run_builtin_tool(rid, payload)
+        try:
+            envelope = await step_invoker(step_id, rid, payload)
+        except HTTPException as exc:
+            raise _skill_step_from_http(
+                step_id,
+                exc,
+                [item["step_id"] for item in steps_out],
+            ) from exc
+        response_body = envelope.get("body") or {}
+        if not isinstance(response_body, dict) or response_body.get("status") != "success":
+            error = response_body.get("error") if isinstance(response_body, dict) else {}
+            error = error if isinstance(error, dict) else {}
+            raise SkillStepError(
+                step_id,
+                str(error.get("code") or "SKILL_STEP_FAILED"),
+                str(error.get("message") or "下游工具执行失败"),
+                [item["step_id"] for item in steps_out],
+            )
+        result = _step_result(response_result(envelope))
         entry = {"step_id": step_id, "ref": rid, "resource_id": rid, "result": result, "output": result}
         steps_out.append(entry)
         steps_by_id[step_id] = entry
         steps_by_id[f"step_{i}"] = entry
 
-    scores = [float((s["result"] or {}).get("score") or 0) for s in steps_out]
-    passed = all(bool((s["result"] or {}).get("passed")) for s in steps_out) if steps_out else False
-    avg = round(sum(scores) / len(scores), 4) if scores else 0.0
+    scores = [
+        float(s["result"]["score"])
+        for s in steps_out
+        if isinstance(s.get("result"), dict)
+        and s["result"].get("score") is not None
+    ]
+    pass_values = [
+        bool(s["result"]["passed"])
+        for s in steps_out
+        if isinstance(s.get("result"), dict) and "passed" in s["result"]
+    ]
+    avg = round(sum(scores) / len(scores), 4) if scores else None
+    passed = all(pass_values) if pass_values else None
+    final_result = steps_out[-1]["result"] if steps_out else None
     return {
         "score": avg,
         "passed": passed,
         "metrics": {"chain_score": avg, "steps": len(steps_out), "execution_type": execution_type},
         "steps": steps_out,
+        "result": final_result,
         "priority": skill.get("priority", 0),
     }
 
 
-async def run_mcp(manifest: dict | None, body: dict) -> dict:
-    """本地 builtin 或远程 HTTP MCP。"""
-    method = str(body.get("method") or "")
-    params = body.get("params") if isinstance(body.get("params"), dict) else {}
-    req_id = body.get("id", 1)
+def _is_local_builtin_mcp(manifest: dict | None) -> bool:
     mf = manifest or {}
+    rid = str(mf.get("resource_id") or "")
+    if rid.startswith("builtin/"):
+        return True
     interfaces = mf.get("interfaces") or {}
+    if str(interfaces.get("transport") or "streamable_http") == "stdio":
+        return False
     endpoint = str(interfaces.get("endpoint") or interfaces.get("url") or "")
-    auth = interfaces.get("auth") or {}
-    token = auth.get("token") if isinstance(auth, dict) else None
-    timeout = int((mf.get("capabilities") or {}).get("timeout") or 30)
-    channel = str(interfaces.get("channel") or "https")
+    return not endpoint.startswith("http")
 
-    if endpoint.startswith("http"):
-        if method in {"initialize", "mcp/initialize"}:
-            data = await mcp_initialize(endpoint, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf)
-            return data
-        if method in {"tools/list", "list_tools"}:
-            data = await mcp_tools_list(endpoint, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf)
-            return data
-        if method in {"tools/call", "call_tool"}:
-            name = str(params.get("name") or params.get("resource_id") or "")
-            arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
-            if not name:
-                return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32602, "message": "缺少 tool name"}}
-            data = await mcp_tools_call(
-                endpoint, name, arguments, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf
-            )
-            return data
-        data = await mcp_request(
-            endpoint, method, params, req_id=req_id, auth_token=token, timeout=timeout, channel=channel, manifest=mf
-        )
-        return data
 
-    # 本地内置网关
+def _builtin_mcp_rpc(method: str, params: dict, req_id) -> dict:
     if method in {"initialize", "mcp/initialize"}:
         return {
             "jsonrpc": "2.0",
@@ -205,3 +274,26 @@ async def run_mcp(manifest: dict | None, body: dict) -> dict:
         result = run_builtin_tool(name, arguments)
         return {"jsonrpc": "2.0", "id": req_id, "result": result}
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"未知方法 {method}"}}
+
+
+async def run_mcp(manifest: dict | None, method: str, params: dict | None = None, req_id=1) -> McpRunResult:
+    """内置 JSON-RPC 或远程/stdio MCP runner。"""
+    mf = manifest or {}
+    params = params if isinstance(params, dict) else {}
+    method = str(method or "")
+    if _is_local_builtin_mcp(mf):
+        rpc = _builtin_mcp_rpc(method, params, req_id)
+        err = rpc.get("error")
+        if err:
+            message = err.get("message") if isinstance(err, dict) else str(err)
+            raise McpError("MCP_PROTOCOL_ERROR", str(message or "MCP error"))
+        inner = rpc.get("result") if isinstance(rpc.get("result"), dict) else {}
+        return McpRunResult(
+            result=rpc,
+            protocol_version=str(inner.get("protocolVersion") or "2024-11-05"),
+            server_info=inner.get("serverInfo") if isinstance(inner.get("serverInfo"), dict) else {},
+            session_id_present=False,
+            notifications=[],
+            catalog_changed=False,
+        )
+    return await run_remote_mcp(mf, method, params, req_id=req_id)

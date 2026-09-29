@@ -7,15 +7,27 @@
       :required="field.required"
     >
       <el-input
-        v-if="field.kind === 'string'"
+        v-if="field.kind === 'string' && !field.advanced"
         :model-value="modelValue[field.key]"
         :placeholder="field.placeholder"
+        @update:model-value="set(field.key, $event)"
+      />
+      <el-input-number
+        v-else-if="field.kind === 'integer'"
+        :model-value="modelValue[field.key]"
+        style="width: 100%"
+        :step="1"
+        :precision="0"
+        :min="field.minimum"
+        :max="field.maximum"
         @update:model-value="set(field.key, $event)"
       />
       <el-input-number
         v-else-if="field.kind === 'number'"
         :model-value="modelValue[field.key]"
         style="width: 100%"
+        :min="field.minimum"
+        :max="field.maximum"
         @update:model-value="set(field.key, $event)"
       />
       <el-switch
@@ -24,7 +36,7 @@
         @update:model-value="set(field.key, $event)"
       />
       <el-select
-        v-else-if="field.kind === 'enum'"
+        v-else-if="field.kind === 'enum' && !field.advanced"
         :model-value="modelValue[field.key]"
         style="width: 100%"
         clearable
@@ -36,18 +48,29 @@
         v-else
         type="textarea"
         :rows="3"
-        :model-value="stringifyComplex(modelValue[field.key])"
+        :model-value="drafts[field.key]"
         :placeholder="field.placeholder || 'JSON'"
-        @update:model-value="setComplex(field.key, $event)"
+        @update:model-value="setComplex(field, $event)"
       />
+      <div v-if="boundHint(field)" class="hint">{{ boundHint(field) }}</div>
       <div v-if="field.description" class="hint">{{ field.description }}</div>
+      <div v-if="fieldErrors[field.key]" class="field-error" role="alert">{{ fieldErrors[field.key] }}</div>
     </el-form-item>
     <el-alert v-if="!fields.length" type="info" :closable="false" title="无 Schema 字段，请使用高级 JSON" />
   </el-form>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, reactive, watch } from 'vue'
+import {
+  applyDefaults,
+  buildFields,
+  collectValidation,
+  isComplexField,
+  jsonErrorMessage,
+  stringifyComplex,
+  validateValue,
+} from '@/utils/schemaForm.js'
 
 const props = defineProps({
   schema: { type: Object, default: () => ({}) },
@@ -55,63 +78,101 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 
-const fields = computed(() => {
-  const schema = props.schema || {}
-  const propsMap = schema.properties || {}
-  const required = new Set(schema.required || [])
-  return Object.entries(propsMap).map(([key, def]) => {
-    const d = def || {}
-    let kind = d.type || 'string'
-    if (d.enum) kind = 'enum'
-    if (kind === 'integer') kind = 'number'
-    if (kind === 'array' || kind === 'object') kind = 'complex'
-    return {
-      key,
-      label: d.title || key,
-      description: d.description || '',
-      required: required.has(key),
-      kind,
-      enum: d.enum || [],
-      placeholder: d.default != null ? String(d.default) : '',
-    }
-  })
-})
+const drafts = reactive({})
+const fieldErrors = reactive({})
+const draftErrors = reactive({})
+
+const fields = computed(() => buildFields(props.schema).map((field) => ({
+  ...field,
+  placeholder: field.default != null ? String(field.default) : '',
+})))
+
+function clearFieldError(key) {
+  delete fieldErrors[key]
+  delete draftErrors[key]
+}
 
 function set(key, val) {
+  clearFieldError(key)
   emit('update:modelValue', { ...props.modelValue, [key]: val })
 }
 
-function stringifyComplex(v) {
-  if (v == null || v === '') return ''
-  if (typeof v === 'string') return v
-  try {
-    return JSON.stringify(v, null, 2)
-  } catch {
-    return String(v)
-  }
-}
-
-function setComplex(key, text) {
-  const raw = (text || '').trim()
-  if (!raw) {
-    set(key, undefined)
+function setComplex(field, text) {
+  drafts[field.key] = text
+  if (!String(text || '').trim()) {
+    clearFieldError(field.key)
+    set(field.key, undefined)
     return
   }
   try {
-    set(key, JSON.parse(raw))
-  } catch {
-    set(key, raw)
+    const parsed = JSON.parse(text)
+    const error = validateValue(field.definition, parsed)
+    if (error) {
+      fieldErrors[field.key] = error
+      draftErrors[field.key] = error
+      return
+    }
+    clearFieldError(field.key)
+    set(field.key, parsed)
+  } catch (error) {
+    const message = jsonErrorMessage(error, text)
+    fieldErrors[field.key] = message
+    draftErrors[field.key] = message
   }
 }
 
+function boundHint(field) {
+  if (field.kind !== 'integer' && field.kind !== 'number') return ''
+  const parts = []
+  if (field.minimum != null) parts.push(`最小 ${field.minimum}`)
+  if (field.maximum != null) parts.push(`最大 ${field.maximum}`)
+  if (field.exclusiveMinimum != null) parts.push(`大于 ${field.exclusiveMinimum}`)
+  if (field.exclusiveMaximum != null) parts.push(`小于 ${field.exclusiveMaximum}`)
+  return parts.join('，')
+}
+
+function valuesEqual(a, b) {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return a === b
+  }
+}
+
+watch(
+  () => [props.schema, props.modelValue],
+  () => {
+    const next = applyDefaults(props.schema, props.modelValue)
+    if (!valuesEqual(next, props.modelValue)) emit('update:modelValue', next)
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () => [props.schema, props.modelValue],
+  () => {
+    for (const field of fields.value) {
+      if (!isComplexField(field) && field.kind !== 'object' && field.kind !== 'array') continue
+      if (fieldErrors[field.key]) continue
+      drafts[field.key] = stringifyComplex(props.modelValue[field.key])
+    }
+  },
+  { deep: true, immediate: true },
+)
+
 defineExpose({
   validate() {
-    const missing = fields.value.filter((f) => f.required && (props.modelValue[f.key] === undefined || props.modelValue[f.key] === '' || props.modelValue[f.key] === null))
-    return { ok: !missing.length, missing: missing.map((m) => m.key) }
+    const result = collectValidation(fields.value, props.modelValue, draftErrors)
+    for (const key of Object.keys(fieldErrors)) {
+      if (!Object.prototype.hasOwnProperty.call(result.errors, key)) delete fieldErrors[key]
+    }
+    Object.assign(fieldErrors, result.errors)
+    return result
   },
 })
 </script>
 
 <style scoped>
 .hint { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
+.field-error { font-size: 12px; color: var(--el-color-danger); margin-top: 4px; }
 </style>
