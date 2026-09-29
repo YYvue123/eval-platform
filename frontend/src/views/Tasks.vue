@@ -21,6 +21,12 @@
         </el-select>
         <el-button @click="onFilter">查询</el-button>
       </div>
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <template v-else>
       <el-table v-loading="loading" :data="items" stripe>
         <template #empty>
           <EmptyState type="task" action-text="创建任务" :show-action="userStore.hasPermission('task:create')" @action="openCreate" />
@@ -58,8 +64,8 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pager-line">第 {{ page }} 页 · 共 {{ total }} 条</div>
       <el-pagination
-        v-if="total > 0"
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
@@ -69,6 +75,7 @@
         @current-change="loadData"
         @size-change="() => { page = 1; loadData() }"
       />
+      </template>
     </el-card>
 
     <el-dialog v-model="showForm" title="创建评测任务" width="620px">
@@ -153,17 +160,24 @@ import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/EmptyState.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ResourcePicker from '@/components/ResourcePicker.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
+import { readListQuery, writeListQuery } from '@/utils/listQuery.js'
 
 const userStore = useUserStore()
 const router = useRouter()
 const route = useRoute()
+const initialQuery = readListQuery(route.query)
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
+const forbidden = ref(false)
 const items = ref([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(20)
-const search = ref('')
-const statusFilter = ref(typeof route.query.status === 'string' ? route.query.status : '')
+const page = ref(initialQuery.page)
+const pageSize = ref(initialQuery.page_size)
+const search = ref(initialQuery.q)
+const statusFilter = ref(initialQuery.status)
 const showForm = ref(false)
 const submitting = ref(false)
 const prompts = ref([])
@@ -176,6 +190,20 @@ const selectedDataset = ref(null)
 const selectedModel = ref(null)
 const form = ref(emptyForm())
 let pollTimer
+
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: forbidden.value,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function listErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 function emptyForm() {
   return {
@@ -259,8 +287,19 @@ function onFilter() {
   loadData()
 }
 
-async function loadData() {
-  loading.value = true
+async function persistQuery() {
+  await writeListQuery(router, {
+    page: page.value,
+    page_size: pageSize.value,
+    q: search.value,
+    status: statusFilter.value,
+  })
+}
+
+async function fetchList({ silent = false } = {}) {
+  if (!silent) loading.value = true
+  loadError.value = ''
+  forbidden.value = false
   try {
     const res = await tasksApi.list({
       page: page.value,
@@ -270,9 +309,18 @@ async function loadData() {
     })
     items.value = res.items || []
     total.value = res.total ?? items.value.length
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = listErr(e, '任务列表加载失败')
+    if (e?.response?.status === 403) forbidden.value = true
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
+}
+
+async function loadData() {
+  await persistQuery()
+  await fetchList()
 }
 
 async function searchDeps(q) {
@@ -362,17 +410,26 @@ async function audit(row, approved) {
   loadData()
 }
 
-watch(() => route.query.status, (v) => {
-  statusFilter.value = typeof v === 'string' ? v : ''
-  page.value = 1
-  loadData()
+watch(() => route.query, () => {
+  const next = readListQuery(route.query)
+  if (
+    next.page === page.value
+    && next.page_size === pageSize.value
+    && next.q === search.value
+    && next.status === statusFilter.value
+  ) return
+  page.value = next.page
+  pageSize.value = next.page_size
+  search.value = next.q
+  statusFilter.value = next.status
+  fetchList()
 })
 
 onMounted(async () => {
   await loadData()
   pollTimer = setInterval(() => {
     const busy = items.value.some((x) => ['queued', 'running'].includes(x.status))
-    if (busy) loadData()
+    if (busy) fetchList({ silent: true })
   }, 3000)
   if (route.query.template) openCreate(route.query.template)
 })
@@ -382,6 +439,7 @@ onUnmounted(() => clearInterval(pollTimer))
 <style scoped>
 .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .pagination { margin-top: 16px; justify-content: flex-end; }
+.pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .hint { margin-left: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .warn { display: block; margin-top: 4px; color: var(--el-color-warning); }
 .muted { color: var(--el-text-color-secondary); font-size: 12px; }

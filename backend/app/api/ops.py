@@ -323,6 +323,7 @@ async def create_drill(
             db,
             drill_type=body.drill_type,
             operator_id=user.id,
+            operator_name=user.username,
             result=body.result,
             checklist=body.checklist,
             notes=body.notes,

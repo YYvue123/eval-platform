@@ -21,7 +21,15 @@
           <el-option label="blocked" value="blocked" />
         </el-select>
       </div>
-      <el-table v-loading="loading" :data="items" stripe>
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <el-table v-else v-loading="loading" :data="items" stripe>
+        <template #empty>
+          <EmptyState type="default" title="暂无基准套件" description="调整分类或就绪状态后再试。" :show-action="false" />
+        </template>
         <el-table-column prop="code" label="编码" min-width="150" />
         <el-table-column prop="name" label="名称" min-width="160" />
         <el-table-column prop="category" label="类" width="90" />
@@ -101,9 +109,14 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { benchmarksApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const userStore = useUserStore()
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 const items = ref([])
 const category = ref('')
 const readiness = ref('')
@@ -119,22 +132,44 @@ const simResult = ref(null)
 
 const packSuites = computed(() => items.value.filter((i) => i.has_pack).map((i) => i.code))
 
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
+
 async function loadData() {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await benchmarksApi.list({
       category: category.value || undefined,
       readiness: readiness.value || undefined,
     })
     items.value = res.items || []
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = loadErr(e, '基准套件加载失败')
   } finally {
     loading.value = false
   }
 }
 
 async function loadSims() {
-  const res = await benchmarksApi.simulators()
-  simulators.value = res.items || []
+  try {
+    const res = await benchmarksApi.simulators()
+    simulators.value = res.items || []
+  } catch (e) {
+    if (!loadError.value) loadError.value = loadErr(e, '模拟器列表加载失败')
+  }
 }
 
 async function markReady(row) {

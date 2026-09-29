@@ -129,8 +129,8 @@ class OpsGovernanceTest(unittest.TestCase):
                     "evidence": {"sha256": "abc", "rpo_seconds": 1, "rto_seconds": 2},
                 },
             )
-            self.assertEqual(d.status_code, 200, d.text)
-            self.assertEqual(d.json()["policy_version"], "2026-09-28-wp16")
+            self.assertEqual(d.status_code, 400, d.text)
+            self.assertIn("drill_pass_requires_artifact", d.text)
 
             draft = client.post(
                 "/api/ops/drills",
@@ -139,6 +139,7 @@ class OpsGovernanceTest(unittest.TestCase):
             )
             self.assertEqual(draft.status_code, 200, draft.text)
             self.assertEqual(draft.json()["result"], "draft")
+            self.assertEqual(draft.json()["policy_version"], "2026-09-28-wp16")
 
             report = client.get("/api/ops/report", headers=h)
             self.assertEqual(report.status_code, 200, report.text)

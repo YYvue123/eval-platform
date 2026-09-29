@@ -8,11 +8,19 @@
       <el-button type="primary" :loading="calLoading" v-if="userStore.hasPermission('task:edit')" @click="runCalibrate">重新校准</el-button>
     </div>
 
-    <el-row :gutter="16">
+    <PageAsyncState
+      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
+      :state="pageState"
+      :errorMessage="loadError"
+    />
+    <el-row v-else :gutter="16">
       <el-col :span="14">
         <el-card>
           <template #header>类别表现（人工金标一致率）</template>
           <el-table v-loading="loading" :data="categories" stripe>
+            <template #empty>
+              <EmptyState type="default" title="暂无安全类别" description="加载成功后将显示风险/标识/对齐/幻觉类别。" :show-action="false" />
+            </template>
             <el-table-column prop="category" label="类别" width="120" />
             <el-table-column prop="rule_version" label="规则版本" min-width="140" />
             <el-table-column label="固定/探索" width="100">
@@ -155,13 +163,18 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { safetyApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const userStore = useUserStore()
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 const calLoading = ref(false)
 const categories = ref([])
 const reviews = ref([])
@@ -186,8 +199,23 @@ function reviewStatusCn(s) {
   return ({ pending: '待复核', resolved: '已复核', closed: '已关闭' }[s] || s)
 }
 
+const pageState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: categories.value,
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
+
 async function loadAll() {
   loading.value = true
+  loadError.value = ''
   try {
     const [c, r, cand] = await Promise.all([
       safetyApi.categories(),
@@ -197,6 +225,9 @@ async function loadAll() {
     categories.value = c.items || []
     reviews.value = r.items || []
     candidates.value = cand.items || []
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = loadErr(e, '安全评测加载失败')
   } finally {
     loading.value = false
   }

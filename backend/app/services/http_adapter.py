@@ -2,26 +2,77 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import httpx
 
+from app.services.redaction import redact_error_text, safe_error_message
 from app.services.side_effect_policy import assert_egress_allowed
 from app.services.tls_channel import httpx_tls_kwargs
 
 MAX_RETRIES = 3
+
+_FAIL_STATUS = {"error", "failed", "blocked", "denied"}
+
+
+class HttpToolError(RuntimeError):
+    def __init__(self, public_message: str, code: str = "TOOL_EXEC_FAILED"):
+        super().__init__("HTTP tool execution failed")
+        self.public_message = redact_error_text(public_message)
+        self.code = code
+
+
+def _safe_error_value(value) -> str:
+    if isinstance(value, (dict, list)):
+        return safe_error_message(value)
+    return "上游工具返回错误"
+
+
+def _require_explicit_success(data) -> dict:
+    """只有明确 status=success 且没有协议错误才算执行成功。"""
+    if not isinstance(data, dict):
+        raise HttpToolError("HTTP 工具响应不是对象，缺少明确成功状态")
+    if data.get("stubbed") or data.get("mocked") or data.get("isError") is True:
+        raise HttpToolError("HTTP 工具返回 stub/isError，不能记为成功")
+    protocol_error = data.get("error")
+    if isinstance(protocol_error, (dict, list)) and protocol_error:
+        message = (
+            protocol_error.get("message") or protocol_error
+            if isinstance(protocol_error, dict)
+            else protocol_error
+        )
+        raise HttpToolError(f"HTTP 工具协议错误: {_safe_error_value(message)}")
+    body = data.get("body") if "body" in data else data
+    if not isinstance(body, dict):
+        raise HttpToolError("HTTP 工具响应缺少明确成功状态")
+    if body.get("stubbed") or body.get("mocked") or body.get("isError") is True:
+        raise HttpToolError("HTTP 工具返回 stub/isError，不能记为成功")
+    status = str(body.get("status") or "").lower()
+    if status in _FAIL_STATUS:
+        err = body.get("error") or body.get("message") or status
+        raise HttpToolError(f"HTTP 工具业务失败: {_safe_error_value(err)}")
+    if status != "success":
+        raise HttpToolError("HTTP 工具响应缺少明确成功状态")
+    result = body.get("result") if "result" in body else {k: v for k, v in body.items() if k != "status"}
+    return result if isinstance(result, dict) else {"result": result}
 
 
 async def invoke_http_tool(manifest: dict, envelope: dict) -> dict:
     interfaces = manifest.get("interfaces") or {}
     url = interfaces.get("endpoint") or interfaces.get("url") or ""
     if not str(url).startswith("http"):
-        raise RuntimeError("外部工具未配置 HTTP endpoint")
+        raise HttpToolError("外部工具未配置 HTTP endpoint")
     assert_egress_allowed(url, manifest)
     method = (interfaces.get("method") or "POST").upper()
     headers = {"Content-Type": "application/json"}
     auth = interfaces.get("auth") or {}
-    if auth.get("type") == "bearer" and auth.get("token"):
-        headers["Authorization"] = f"Bearer {auth['token']}"
+    token = ""
+    if isinstance(auth, dict) and auth.get("credential_ref"):
+        token = os.environ.get(str(auth["credential_ref"]), "")
+    elif isinstance(auth, dict) and auth.get("type") == "bearer" and auth.get("token"):
+        token = str(auth["token"])
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     tr = envelope.get("trace") or {}
     if tr.get("traceparent"):
         headers["traceparent"] = tr["traceparent"]
@@ -44,14 +95,7 @@ async def invoke_http_tool(manifest: dict, envelope: dict) -> dict:
                     continue
                 resp.raise_for_status()
                 data = resp.json()
-                if isinstance(data, dict) and "body" in data:
-                    body = data.get("body") or {}
-                    if isinstance(body, dict) and body.get("status") == "success":
-                        return body.get("result") or {}
-                    if isinstance(body, dict) and "result" in body:
-                        return body.get("result") or {}
-                    return body
-                return data if isinstance(data, dict) else {"result": data}
+                return _require_explicit_success(data)
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 if exc.response is not None and exc.response.status_code == 429 and attempt < MAX_RETRIES - 1:
@@ -64,7 +108,7 @@ async def invoke_http_tool(manifest: dict, envelope: dict) -> dict:
                 raise
     if last_exc:
         raise last_exc
-    raise RuntimeError("HTTP 工具调用失败")
+    raise HttpToolError("HTTP 工具调用失败")
 
 
 async def health_http_tool(manifest: dict) -> dict:

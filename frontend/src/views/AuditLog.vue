@@ -1,7 +1,10 @@
 <template>
   <div class="audit-log-page">
     <div class="page-header">
-      <p class="page-desc">记录登录、删除、权限变更等关键操作</p>
+      <div>
+        <p class="page-desc">记录登录、删除、权限变更等关键操作</p>
+      </div>
+      <el-button disabled title="当前环境未开放导出">导出</el-button>
     </div>
     <el-card>
       <div class="toolbar">
@@ -43,7 +46,16 @@
         @remove="clearExtraFilter"
         @clear="clearExtraFilters"
       />
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <template v-else>
       <el-table v-loading="loading" :data="items" stripe>
+        <template #empty>
+          <EmptyState type="default" title="暂无审计记录" description="调整筛选条件后再试" />
+        </template>
         <el-table-column prop="id" label="ID" width="72" />
         <el-table-column prop="created_at" label="时间" width="180">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
@@ -61,6 +73,7 @@
         <el-table-column prop="trace_id" label="Trace" min-width="140" show-overflow-tooltip />
         <el-table-column prop="tenant_id" label="租户" width="100" show-overflow-tooltip />
       </el-table>
+      <div class="pager-line">第 {{ page }} 页 · 共 {{ total }} 条</div>
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
@@ -70,27 +83,58 @@
         class="pagination"
         @change="loadData"
       />
+      </template>
     </el-card>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { auditApi } from '@/api'
 import ActiveFilterHint from '@/components/ActiveFilterHint.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
+import { readListQuery, writeListQuery } from '@/utils/listQuery.js'
 
+const router = useRouter()
+const route = useRoute()
+const initialQuery = readListQuery(route.query)
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
+const forbidden = ref(false)
 const items = ref([])
 const total = ref(0)
-const page = ref(1)
-const pageSize = ref(20)
-const resourceFilter = ref('')
-const actionFilter = ref('')
-const usernameFilter = ref('')
-const createdAtRange = ref(null)
+const page = ref(initialQuery.page)
+const pageSize = ref(initialQuery.page_size)
+const resourceFilter = ref(typeof route.query.resource === 'string' ? route.query.resource : '')
+const actionFilter = ref(typeof route.query.action === 'string' ? route.query.action : '')
+const usernameFilter = ref(initialQuery.q)
+const createdAtRange = ref(
+  route.query.created_at_start && route.query.created_at_end
+    ? [String(route.query.created_at_start), String(route.query.created_at_end)]
+    : null
+)
 const showMoreFilters = ref(false)
 const listReady = ref(false)
 let searchTimer = null
+let skipFilterWatch = false
+
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: forbidden.value,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function listErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 const extraFilterItems = computed(() => {
   const items = []
@@ -152,8 +196,24 @@ function formatDate(v) {
   return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+async function persistQuery() {
+  await writeListQuery(router, {
+    page: page.value,
+    page_size: pageSize.value,
+    q: usernameFilter.value,
+    status: '',
+    resource: resourceFilter.value,
+    action: actionFilter.value,
+    created_at_start: createdAtRange.value?.[0],
+    created_at_end: createdAtRange.value?.[1],
+  })
+}
+
 async function loadData() {
+  await persistQuery()
   loading.value = true
+  loadError.value = ''
+  forbidden.value = false
   try {
     const params = { page: page.value, page_size: pageSize.value }
     if (resourceFilter.value) params.resource = resourceFilter.value
@@ -166,6 +226,10 @@ async function loadData() {
     const res = await auditApi.list(params)
     items.value = res.items || []
     total.value = res.total || 0
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = listErr(e, '审计日志加载失败')
+    if (e?.response?.status === 403) forbidden.value = true
   } finally {
     loading.value = false
   }
@@ -179,23 +243,51 @@ onMounted(async () => {
 watch(
   () => [resourceFilter.value, actionFilter.value, createdAtRange.value],
   () => {
-    if (!listReady.value) return
+    if (!listReady.value || skipFilterWatch) return
     page.value = 1
     loadData()
   }
 )
 watch(usernameFilter, () => {
-  if (!listReady.value) return
+  if (!listReady.value || skipFilterWatch) return
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
     page.value = 1
     loadData()
   }, 300)
 })
+watch(() => route.query, () => {
+  const next = readListQuery(route.query)
+  const nextResource = typeof route.query.resource === 'string' ? route.query.resource : ''
+  const nextAction = typeof route.query.action === 'string' ? route.query.action : ''
+  const nextRange = route.query.created_at_start && route.query.created_at_end
+    ? [String(route.query.created_at_start), String(route.query.created_at_end)]
+    : null
+  const sameRange = (nextRange?.[0] || '') === (createdAtRange.value?.[0] || '')
+    && (nextRange?.[1] || '') === (createdAtRange.value?.[1] || '')
+  if (
+    next.page === page.value
+    && next.page_size === pageSize.value
+    && next.q === usernameFilter.value
+    && nextResource === resourceFilter.value
+    && nextAction === actionFilter.value
+    && sameRange
+  ) return
+  skipFilterWatch = true
+  page.value = next.page
+  pageSize.value = next.page_size
+  usernameFilter.value = next.q
+  resourceFilter.value = nextResource
+  actionFilter.value = nextAction
+  createdAtRange.value = nextRange
+  queueMicrotask(() => { skipFilterWatch = false })
+  loadData()
+})
 </script>
 
 <style scoped>
-.audit-log-page .page-header { margin-bottom: 16px; }
+.audit-log-page .page-header { margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .audit-log-page .page-desc { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); }
 .audit-log-page .pagination { margin-top: 16px; justify-content: flex-end; }
+.audit-log-page .pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 </style>

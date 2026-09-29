@@ -121,7 +121,7 @@ class EvalFlowTest(unittest.TestCase):
                 if status in {"success", "failed", "partial_failed"}:
                     break
                 time.sleep(0.1)
-            self.assertEqual(status, "success", detail)
+            self.assertEqual(status, "failed", detail)
             self.assertGreaterEqual(detail["total"], 2)
             self.assertTrue(detail.get("simulation") or detail.get("trial_run"))
             results = client.get(f"/api/tasks/{task_id}/results", headers=h)
@@ -129,17 +129,18 @@ class EvalFlowTest(unittest.TestCase):
             items = results.json()["items"]
             self.assertGreaterEqual(len(items), 2)
             for row in items:
-                self.assertEqual(row.get("score_status"), "scored")
-                self.assertEqual(row.get("execution_status"), "ok")
-                self.assertIn(row.get("score"), (0.0, 1.0))
-            # mock 输出形如 [mock:name] 中国首都 — contains 裁判对 reference=北京/2 通常不通过
-            self.assertEqual(detail["success_count"], sum(1 for r in items if r["passed"]))
+                self.assertEqual(row.get("execution_status"), "model_failed")
+                self.assertEqual(row.get("score_status"), "skipped")
+                self.assertIsNone(row.get("score"))
+                self.assertIn("model_api_url_required", row.get("error_message") or "")
+            self.assertEqual(detail["success_count"], 0)
             lin = client.get(f"/api/tasks/{task_id}/lineage", headers=h)
             self.assertEqual(lin.status_code, 200, lin.text)
             self.assertTrue(lin.json().get("found"))
             self.assertEqual(lin.json()["task_id"], task_id)
             board = client.get("/api/leaderboard", headers=h)
             self.assertEqual(board.status_code, 200)
+            self.assertTrue(all(row.get("task_id") != task_id for row in board.json()["items"]))
             stats = client.get("/api/dashboard/stats", headers=h)
             self.assertGreaterEqual(stats.json()["dataset_count"], 1)
 
@@ -258,7 +259,8 @@ class EvalFlowTest(unittest.TestCase):
             }, headers=h)
             self.assertEqual(ok.status_code, 200, ok.text)
             inv = client.post(f"/api/models/{mid}/invoke", json={"prompt": "hi"}, headers=h)
-            self.assertEqual(inv.status_code, 200, inv.text)
+            self.assertEqual(inv.status_code, 400, inv.text)
+            self.assertIn("model_api_url_required", inv.text)
             gone = client.delete(f"/api/models/{mid}", headers=h)
             self.assertTrue(gone.json()["logical"])
             listed = client.get("/api/models", headers=h, params={"search": name}).json()
@@ -373,6 +375,16 @@ class EvalFlowTest(unittest.TestCase):
         with TestClient(app) as client:
             token = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()["access_token"]
             h = {"Authorization": f"Bearer {token}"}
+            import asyncio
+            from app.database import async_session
+            from app.services.eval_packs import seed_eval_packs
+
+            async def _seed_packs():
+                async with async_session() as db:
+                    await seed_eval_packs(db)
+                    await db.commit()
+
+            asyncio.run(_seed_packs())
             tpls = client.get("/api/tasks/templates", headers=h)
             self.assertEqual(tpls.status_code, 200, tpls.text)
             self.assertGreaterEqual(tpls.json()["total"], 33)
@@ -417,13 +429,35 @@ class EvalFlowTest(unittest.TestCase):
                 if status in {"success", "failed", "partial_failed"}:
                     break
                 time.sleep(0.1)
-            self.assertEqual(status, "success", detail)
+            self.assertEqual(status, "failed", detail)
+            task_results = client.get(f"/api/tasks/{a_id}/results", headers=h)
+            self.assertEqual(task_results.status_code, 200, task_results.text)
+            result_items = task_results.json()["items"]
+            self.assertEqual(len(result_items), 1)
+            self.assertEqual(result_items[0]["execution_status"], "model_failed")
+            self.assertEqual(result_items[0]["score_status"], "skipped")
+            self.assertIsNone(result_items[0]["score"])
+            self.assertIn("model_api_url_required", result_items[0]["error_message"])
             report = client.get(f"/api/tasks/{a_id}/report", headers=h)
-            self.assertEqual(report.status_code, 200)
+            self.assertEqual(report.status_code, 200, report.text)
+            self.assertEqual(report.json()["status"], "failed")
             xlsx = client.get(f"/api/tasks/{a_id}/report", headers=h, params={"fmt": "xlsx"})
-            self.assertEqual(xlsx.status_code, 200)
+            self.assertEqual(xlsx.status_code, 200, xlsx.text)
+            rendered = client.post(f"/api/tasks/{a_id}/report/render", headers=h)
+            self.assertEqual(rendered.status_code, 200, rendered.text)
+            self.assertEqual(rendered.json()["status"], "ready")
+            rendered_report = client.get(f"/api/tasks/{a_id}/report", headers=h)
+            self.assertEqual(rendered_report.status_code, 200, rendered_report.text)
+            rendered_items = rendered_report.json()["results"]
+            self.assertEqual(len(rendered_items), 1)
+            self.assertIsNone(rendered_items[0]["score"])
+            self.assertEqual(rendered_items[0]["score_status"], "skipped")
+            self.assertEqual(rendered_items[0]["execution_status"], "model_failed")
             sub = client.get(f"/api/tasks/{a_id}/subtasks", headers=h)
             self.assertGreaterEqual(len(sub.json()["items"]), 1)
+            terminal_events = client.get(f"/api/tasks/{a_id}/events", headers=h)
+            self.assertEqual(terminal_events.status_code, 200, terminal_events.text)
+            self.assertTrue(any(e["event_type"] == "failed" for e in terminal_events.json()["items"]))
             self.assertEqual(client.post(f"/api/tasks/{a_id}/submit", headers=h).status_code, 400)
             alerts = client.get("/api/tasks/alerts", headers=h)
             self.assertGreaterEqual(len(alerts.json()["items"]), 4)

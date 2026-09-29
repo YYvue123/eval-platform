@@ -3,7 +3,12 @@
     <div class="page-header">
       <p class="page-desc">管理头像、昵称、联系方式与密码</p>
     </div>
-    <el-row :gutter="24">
+    <PageAsyncState
+      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
+      :state="pageState"
+      :errorMessage="loadError"
+    />
+    <el-row v-else :gutter="24">
       <el-col :span="24" :md="14">
         <el-card class="card">
           <template #header><span>基本信息</span></template>
@@ -90,12 +95,17 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { usersApi } from '@/api'
 import { getPasswordStrength, validatePassword } from '@/utils/password'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const userStore = useUserStore()
 const formRef = ref(null)
 const pwdRef = ref(null)
 const saving = ref(false)
 const changingPwd = ref(false)
+const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 
 const form = reactive({
   nickname: '',
@@ -154,6 +164,20 @@ const createdAt = computed(() => {
     return '-'
   }
 })
+
+const pageState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: userStore.username ? [userStore.username] : [],
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 function loadForm() {
   form.nickname = userStore.nickname || ''
@@ -228,8 +252,20 @@ function changePassword() {
   })
 }
 
-onMounted(() => {
-  loadForm()
+onMounted(async () => {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const data = await usersApi.getMe()
+    userStore.setUserInfo(data)
+    loadForm()
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = loadErr(e, '个人资料加载失败')
+    loadForm()
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 

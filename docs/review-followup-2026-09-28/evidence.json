@@ -1,0 +1,1366 @@
+{
+  "captured_at": "2026-09-28T15:54:14.103596+00:00",
+  "scope": "read-only metadata and pure-function probes; not live integration or browser verification",
+  "wizard_manifest_validation_errors": [
+    "capabilities.idempotent 必填"
+  ],
+  "capabilities_side_effects_none": {
+    "raised": true,
+    "error_type": "TypeError",
+    "message": "unhashable type: 'list'"
+  },
+  "side_effect_stub_result": {
+    "stubbed": true,
+    "mocked": true,
+    "mock_strategy": "stub",
+    "message": "副作用已按 stub 策略短路，未执行真实副作用",
+    "score": 0.0,
+    "passed": false,
+    "side_effects": [
+      {
+        "type": "write"
+      }
+    ]
+  },
+  "env_config_presence_only": {
+    "APP_ENV": {
+      "configured": true
+    },
+    "DATABASE_URL": {
+      "configured": true
+    },
+    "L3_MODEL_API_URL": {
+      "configured": true
+    },
+    "L3_MODEL_API_KEY": {
+      "configured": true
+    },
+    "L3_MODEL_PRIMARY": {
+      "configured": true
+    },
+    "L3_MODEL_SECONDARY": {
+      "configured": true
+    },
+    "L3_MODEL_CHANNEL": {
+      "configured": true
+    },
+    "L3_MCP_ENDPOINT": {
+      "configured": true
+    }
+  },
+  "business_db": {
+    "exists": true,
+    "path": "backend\\eval_platform.db",
+    "tables": {
+      "agent_approvals": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_delegations": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_events": {
+        "rows": 7,
+        "marker_candidate_rows": {
+          "mock": 1,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_messages": {
+        "rows": 101,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_monitor_states": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_runs": {
+        "rows": 1,
+        "provider_mock_rows": 1,
+        "marker_candidate_rows": {
+          "mock": 1,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_sessions": {
+        "rows": 22,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_suggestions": {
+        "rows": 18,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "alert_policies": {
+        "rows": 5,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "audit_logs": {
+        "rows": 1350,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 1,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "base_resources": {
+        "rows": 11,
+        "marker_candidate_rows": {
+          "mock": 1,
+          "stub": 1,
+          "demo": 1,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "batch_jobs": {
+        "rows": 33,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "batch_shard_results": {
+        "rows": 44,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "batch_snapshots": {
+        "rows": 24,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "benchmark_suites": {
+        "rows": 10,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "data_authorizations": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "data_tags": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "dataset_items": {
+        "rows": 328,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "dataset_logs": {
+        "rows": 508,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "dataset_versions": {
+        "rows": 193,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "datasets": {
+        "rows": 223,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_lineages": {
+        "rows": 47,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_models": {
+        "rows": 117,
+        "marker_candidate_rows": {
+          "mock": 92,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_results": {
+        "rows": 103,
+        "simulation_true_rows": 50,
+        "structured_mock_true_rows": 0,
+        "marker_candidate_rows": {
+          "mock": 103,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_service_requests": {
+        "rows": 17,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_tasks": {
+        "rows": 137,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_workspaces": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "idempotency_records": {
+        "rows": 107,
+        "marker_candidate_rows": {
+          "mock": 2,
+          "stub": 2,
+          "demo": 9,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "knowledge_candidates": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "knowledge_entries": {
+        "rows": 27,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "leaderboard_releases": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "leaderboard_snapshots": {
+        "rows": 21,
+        "marker_candidate_rows": {
+          "mock": 18,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "leaderboard_weights": {
+        "rows": 41,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_access_configs": {
+        "rows": 119,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_acls": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_call_logs": {
+        "rows": 128,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_costs": {
+        "rows": 1
+      },
+      "model_health_samples": {
+        "rows": 5267,
+        "marker_candidate_rows": {
+          "mock": 5004,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_metas": {
+        "rows": 113,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_versions": {
+        "rows": 138,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "notification_reads": {
+        "rows": 19
+      },
+      "notifications": {
+        "rows": 19,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "ops_drill_records": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "ops_tickets": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "permissions": {
+        "rows": 66,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_call_logs": {
+        "rows": 23,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_experiments": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_templates": {
+        "rows": 70,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_test_runs": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_versions": {
+        "rows": 70,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "quality_issues": {
+        "rows": 42,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "quality_reports": {
+        "rows": 56,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "quality_rules": {
+        "rows": 8,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "report_jobs": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "resource_call_logs": {
+        "rows": 218,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 2,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "resource_events": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 1,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "resource_versions": {
+        "rows": 6,
+        "marker_candidate_rows": {
+          "mock": 1,
+          "stub": 1,
+          "demo": 1,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "role_permissions": {
+        "rows": 126
+      },
+      "roles": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "task_events": {
+        "rows": 386,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "task_subtasks": {
+        "rows": 67,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "task_templates": {
+        "rows": 33,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "tenant_memberships": {
+        "rows": 64
+      },
+      "tenants": {
+        "rows": 10,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "usage_ledgers": {
+        "rows": 12,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "usage_reservations": {
+        "rows": 2,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "users": {
+        "rows": 55,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      }
+    }
+  },
+  "historical_l3_db": {
+    "exists": true,
+    "path": "backend\\tests\\_isolated\\l3\\l3_live.db",
+    "tables": {
+      "agent_approvals": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_delegations": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_events": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_messages": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_monitor_states": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_runs": {
+        "rows": 0,
+        "provider_mock_rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_sessions": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "agent_suggestions": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "alert_policies": {
+        "rows": 5,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "audit_logs": {
+        "rows": 21,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "base_resources": {
+        "rows": 11,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 4,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "batch_jobs": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "batch_shard_results": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "batch_snapshots": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "benchmark_suites": {
+        "rows": 10,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "data_authorizations": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "data_tags": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "dataset_items": {
+        "rows": 69,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "dataset_logs": {
+        "rows": 9,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "dataset_versions": {
+        "rows": 36,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "datasets": {
+        "rows": 36,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_lineages": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_models": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_results": {
+        "rows": 3,
+        "simulation_true_rows": 0,
+        "structured_mock_true_rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_service_requests": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_tasks": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "eval_workspaces": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "idempotency_records": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "knowledge_candidates": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "knowledge_entries": {
+        "rows": 10,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "leaderboard_releases": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "leaderboard_snapshots": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "leaderboard_weights": {
+        "rows": 41,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_access_configs": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_acls": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_call_logs": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_costs": {
+        "rows": 0
+      },
+      "model_health_samples": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_metas": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "model_versions": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "notification_reads": {
+        "rows": 0
+      },
+      "notifications": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "ops_drill_records": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "ops_tickets": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "permissions": {
+        "rows": 66,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_call_logs": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_experiments": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_templates": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_test_runs": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "prompt_versions": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "quality_issues": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "quality_reports": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "quality_rules": {
+        "rows": 8,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "report_jobs": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "resource_call_logs": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "resource_events": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "resource_versions": {
+        "rows": 2,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "role_permissions": {
+        "rows": 126
+      },
+      "roles": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "task_events": {
+        "rows": 15,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "task_subtasks": {
+        "rows": 3,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "task_templates": {
+        "rows": 33,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "tenant_memberships": {
+        "rows": 1
+      },
+      "tenants": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "usage_ledgers": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "usage_reservations": {
+        "rows": 0,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      },
+      "users": {
+        "rows": 1,
+        "marker_candidate_rows": {
+          "mock": 0,
+          "stub": 0,
+          "demo": 0,
+          "示例": 0,
+          "模拟": 0
+        }
+      }
+    }
+  },
+  "source_sha256": {
+    "backend/app/services/agent_runtime.py": "4152e32e56a9de702568c9c36a64e917d644605dfd0cd615e9ec32813197316b",
+    "backend/app/services/tool_gateway/__init__.py": "6c506542a1e2670fcdf1a171b19065ccb03ed8d8478723777d1d952033330c52",
+    "backend/app/services/side_effect_policy.py": "afb01cd8d470ebad7c4e9380d155ac83e56cc358a8807578c2d7ac17a00f0bec",
+    "backend/app/services/http_adapter.py": "c514a50f3e4a87a5ade3399b93dea65ed2b698e1b10a2a8e93a24878e1935c91",
+    "backend/app/services/protocol.py": "213786237dbdf773c14944090b8f794dae095a83eaa16c13d5473b8fb697b2bf",
+    "backend/app/api/resources.py": "74f7eb949c9f7a764a9c46f1aa7eb5cf6ab2800eefe16d82625a1e42947b665f",
+    "backend/app/api/tasks.py": "6e0842a91506ef9962d9b08a9f5d18c4412c10d51495a964206ce8c919467c83",
+    "backend/app/services/ops_governance.py": "316f054e08e763db4e67f481bf88d909bd056d19f0118dd8fae7f67c8b3df498",
+    "frontend/src/views/Agents.vue": "b1a99ec096d18865139d77aae57f9beec84621e47eb57045d4ed89b4fcd523ac",
+    "frontend/src/views/Resources.vue": "3394fc5e5740fc1e1c6736d1b78c47450e6b6af949e9359d0a939353a47b187b",
+    "frontend/src/components/SchemaForm.vue": "4b02db07f1768e56de8b81793978324927b3cdf9c4e83bbdbaac963e7d76ee98"
+  }
+}

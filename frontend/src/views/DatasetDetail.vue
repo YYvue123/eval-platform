@@ -1,5 +1,5 @@
 <template>
-  <div v-loading="loading">
+  <div>
     <div class="page-header">
       <div>
         <h2 class="page-title">{{ detail.name || '数据集详情' }}</h2>
@@ -43,6 +43,12 @@
         </el-dropdown>
       </div>
     </div>
+    <PageAsyncState
+      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
+      :state="pageState"
+      :errorMessage="loadError"
+    />
+    <template v-else>
     <el-alert v-if="detail.review_comment" :title="`审核意见：${detail.review_comment}`" type="warning" show-icon class="block" />
 
     <el-card class="block">
@@ -69,8 +75,8 @@
         <el-table-column prop="reference_answer" label="参考答案" min-width="180" show-overflow-tooltip />
         <el-table-column prop="quality_flag" label="质量标记" width="110" />
       </el-table>
+      <div class="pager-line">第 {{ itemPage }} 页 · 共 {{ itemTotal }} 条</div>
       <el-pagination
-        v-if="itemTotal > itemPageSize"
         v-model:current-page="itemPage"
         :page-size="itemPageSize"
         :total="itemTotal"
@@ -133,6 +139,7 @@
         <el-button type="primary" :loading="importing" @click="doImport">确认导入</el-button>
       </template>
     </el-dialog>
+    </template>
   </div>
 </template>
 
@@ -142,10 +149,14 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { datasetsApi, qualityApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import PageAsyncState from '@/components/PageAsyncState.vue'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const route = useRoute()
 const userStore = useUserStore()
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 const detail = ref({})
 const items = ref([])
 const itemTotal = ref(0)
@@ -167,6 +178,20 @@ const mapFields = [
 
 const canPublish = computed(() => ['passed', 'ok', 'good'].includes(detail.value?.quality_status))
 
+const pageState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: detail.value?.id ? [detail.value] : [],
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
+
 function qualityLabel(s) {
   return ({
     unchecked: '未检测', checking: '检测中', passed: '合格', needs_clean: '需清洗',
@@ -179,18 +204,26 @@ function statusLabel(s) {
 
 async function loadDetail() {
   loading.value = true
+  loadError.value = ''
   try {
     detail.value = await datasetsApi.get(route.params.id)
     await loadItems()
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = loadErr(e, '数据集详情加载失败')
   } finally {
     loading.value = false
   }
 }
 
 async function loadItems() {
-  const res = await datasetsApi.items(route.params.id, { page: itemPage.value, page_size: itemPageSize })
-  items.value = res.items || []
-  itemTotal.value = res.total || 0
+  try {
+    const res = await datasetsApi.items(route.params.id, { page: itemPage.value, page_size: itemPageSize })
+    items.value = res.items || []
+    itemTotal.value = res.total || 0
+  } catch (e) {
+    loadError.value = loadErr(e, '样本列表加载失败')
+  }
 }
 
 async function onFile(uploadFile) {
@@ -277,4 +310,5 @@ onMounted(loadDetail)
 <style scoped>
 .block { margin-bottom: 16px; }
 .pagination { margin-top: 12px; justify-content: flex-end; }
+.pager-line { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 </style>

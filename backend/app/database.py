@@ -193,6 +193,16 @@ async def init_db():
             ("base_resources", "visibility", "ALTER TABLE base_resources ADD COLUMN visibility VARCHAR(20) DEFAULT 'private'"),
             ("agent_runs", "planner_model_id", "ALTER TABLE agent_runs ADD COLUMN planner_model_id INTEGER"),
             ("agent_sessions", "planner_model_id", "ALTER TABLE agent_sessions ADD COLUMN planner_model_id INTEGER"),
+            ("resource_call_logs", "tenant_id", "ALTER TABLE resource_call_logs ADD COLUMN tenant_id VARCHAR(64) DEFAULT ''"),
+            ("resource_call_logs", "user_id", "ALTER TABLE resource_call_logs ADD COLUMN user_id INTEGER"),
+            ("resource_call_logs", "version", "ALTER TABLE resource_call_logs ADD COLUMN version VARCHAR(32) DEFAULT ''"),
+            ("resource_call_logs", "trace_id", "ALTER TABLE resource_call_logs ADD COLUMN trace_id VARCHAR(64) DEFAULT ''"),
+            ("resource_call_logs", "input_digest", "ALTER TABLE resource_call_logs ADD COLUMN input_digest TEXT DEFAULT ''"),
+            ("resource_call_logs", "output_digest", "ALTER TABLE resource_call_logs ADD COLUMN output_digest TEXT DEFAULT ''"),
+            ("resource_call_logs", "input_hash", "ALTER TABLE resource_call_logs ADD COLUMN input_hash VARCHAR(64) DEFAULT ''"),
+            ("resource_call_logs", "output_hash", "ALTER TABLE resource_call_logs ADD COLUMN output_hash VARCHAR(64) DEFAULT ''"),
+            ("resource_call_logs", "source", "ALTER TABLE resource_call_logs ADD COLUMN source VARCHAR(32) DEFAULT 'gateway'"),
+            ("resource_call_logs", "parent_correlation_id", "ALTER TABLE resource_call_logs ADD COLUMN parent_correlation_id VARCHAR(128) DEFAULT ''"),
         ]:
             try:
                 r = await conn.execute(text(f"PRAGMA table_info({table})"))
@@ -513,19 +523,6 @@ async def seed_knowledge(db):
     from app.models import KnowledgeEntry, TaskTemplate
     from app.utils.jsonutil import dumps
 
-    if not await db.scalar(select(KnowledgeEntry.id).limit(1)):
-        db.add(KnowledgeEntry(
-            category="exception",
-            title="任务失败不自动恢复",
-            content="诊断 Agent 只给建议，需人工确认后通过工具重跑，禁止直接改队列。",
-            tags_json=dumps(["failed", "retry"]),
-        ))
-        db.add(KnowledgeEntry(
-            category="profile",
-            title="内置裁判画像",
-            content="exact_match/contains/fuzzy 与四类安全启发式裁判可直接编排。",
-            tags_json=dumps(["tool", "judge"]),
-        ))
     tpls = (await db.execute(select(TaskTemplate).limit(8))).scalars().all()
     for t in tpls:
         exists = await db.scalar(select(KnowledgeEntry.id).where(KnowledgeEntry.ref_type == "template", KnowledgeEntry.ref_id == t.code))
@@ -556,8 +553,6 @@ async def seed_db():
         await seed_task_templates(db)
         from app.api.benchmarks import sync_benchmark_suites
         await sync_benchmark_suites(db)
-        from app.services.eval_packs import seed_eval_packs
-        await seed_eval_packs(db)
         await seed_alert_policies(db)
         await seed_leaderboard_weights(db)
         await seed_default_workspace(db)

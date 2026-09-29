@@ -46,8 +46,8 @@ const models = read(path.join(root, 'src/views/Models.vue'))
 if (/留空则使用本地 Mock/.test(models)) {
   errors.push('Models.vue 仍提示本地 Mock')
 }
-if (!/不会回退到本地 Mock/.test(models) && !/无法正式调用/.test(models)) {
-  warnings.push('Models.vue 建议明示无 api_url 不可正式调用')
+if (!/无法探测或试调用/.test(models)) {
+  errors.push('Models.vue 未明示无法探测或试调用')
 }
 
 // 4) permissions.discovered.json 存在且非空

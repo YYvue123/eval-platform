@@ -49,6 +49,7 @@ request.interceptors.response.use(
     return response.data
   },
   async (error) => {
+    const skipToast = Boolean(error.config?.skipErrorToast || error.response?.config?.skipErrorToast)
     if (error.response) {
       const { status, config } = error.response
       let data = error.response.data
@@ -72,18 +73,18 @@ request.interceptors.response.use(
         const isAuthEndpoint = config?.url && (config.url.endsWith('auth/login') || config.url.endsWith('auth/register'))
         if (isAuthEndpoint) {
           // 登录/注册接口的 401：仅展示后端文案（如「用户名或密码错误」），不登出、不跳转
-          ElMessage.error(displayMsg)
+          if (!skipToast) ElMessage.error(displayMsg)
         } else {
           // 其它接口 401（如 token 失效）：登出并跳转登录页，优先展示后端文案
           const userStore = useUserStore()
           userStore.logout()
           router.push('/login')
-          ElMessage.error(displayMsg || '登录已过期，请重新登录')
+          if (!skipToast) ElMessage.error(displayMsg || '登录已过期，请重新登录')
         }
-      } else {
+      } else if (!skipToast) {
         ElMessage.error(displayMsg)
       }
-    } else {
+    } else if (!skipToast) {
       ElMessage.error(error.message || '网络错误')
     }
     return Promise.reject(error)

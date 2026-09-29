@@ -1,15 +1,16 @@
 <template>
   <div class="not-found">
     <div class="not-found-content">
-      <div class="code">{{ denied ? '403' : '404' }}</div>
-      <h1 class="title">{{ denied ? '无权访问该页面' : '页面不存在' }}</h1>
+      <div class="code">{{ forbidden ? '403' : '404' }}</div>
+      <h1 class="title">{{ forbidden ? '无权访问该页面' : '页面不存在' }}</h1>
       <p class="desc">
         {{
-          denied
-            ? '当前账号没有访问该模块的权限。可返回上一页，或进入你有权使用的工作台。'
+          forbidden
+            ? '当前账号没有权限访问该模块。请联系管理员开通，或返回可访问工作台。'
             : '您访问的地址无效或已被移除。可返回上一页，或进入可访问工作台。'
         }}
       </p>
+      <p v-if="fromPath" class="desc from-path">来源：{{ fromPath }}</p>
       <div class="actions">
         <el-button @click="goBack">返回上一页</el-button>
         <el-button type="primary" @click="goHome">可访问工作台</el-button>
@@ -25,7 +26,8 @@ import { safeHomePath } from '@/utils/navigation'
 
 const router = useRouter()
 const route = useRoute()
-const denied = computed(() => !!route.query.denied)
+const forbidden = computed(() => route.query.reason === 'forbidden' || !!route.query.denied)
+const fromPath = computed(() => (typeof route.query.from === 'string' ? route.query.from : ''))
 
 function goBack() {
   if (window.history.length > 1) router.back()

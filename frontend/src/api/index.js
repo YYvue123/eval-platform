@@ -38,7 +38,7 @@ export const auditApi = {
 
 export const notificationsApi = {
   listMine: (params) => request.get('/notifications/mine', { params }),
-  getUnreadCount: () => request.get('/notifications/mine/unread-count'),
+  getUnreadCount: () => request.get('/notifications/mine/unread-count', { skipErrorToast: true }),
   markRead: (id) => request.post(`/notifications/mine/${id}/read`),
   markAllRead: () => request.post('/notifications/mine/read-all'),
   list: (params) => request.get('/notifications', { params }),
@@ -111,12 +111,15 @@ export const resourcesApi = {
   register: (manifest) => request.post('/resources/register', { manifest }),
   invoke: (data) => request.post('/resources/invoke', data),
   mcpProbe: (data) => request.post('/resources/mcp/probe', data),
+  stdioAliases: () => request.get('/resources/mcp/stdio-aliases'),
   offline: (id) => request.post(`/resources/${encodeURIComponent(id)}/offline`),
   match: (data) => request.post('/resources/match', data),
   events: (params) => request.get('/resources/events', { params }),
   health: (id) => request.post(`/resources/${encodeURIComponent(id)}/health`),
   registry: () => request.get('/resources/registry'),
-  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`)
+  heartbeat: (id) => request.post(`/resources/${encodeURIComponent(id)}/heartbeat`),
+  calls: (id, params) =>
+    request.get(`/resources/calls/${encodeURIComponent(id)}`, { params }),
 }
 
 export const batchApi = {

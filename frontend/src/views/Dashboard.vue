@@ -15,6 +15,8 @@
       style="margin-bottom: 12px"
     />
 
+    <PageAsyncState v-if="loadError" state="error" :errorMessage="loadError" />
+    <template v-else>
     <el-row :gutter="16">
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="never" class="stat-card clickable" @click="go('/tasks', { status: 'queued' })">
@@ -91,7 +93,13 @@
               </template>
             </el-table-column>
           </el-table>
-          <p v-else class="hint">暂无失败任务</p>
+          <EmptyState
+            v-else
+            type="default"
+            title="暂无异常任务"
+            description="失败任务会显示在这里，可从列表进入详情处理。"
+            :show-action="false"
+          />
         </el-card>
       </el-col>
     </el-row>
@@ -124,6 +132,7 @@
         @action="go('/tasks')"
       />
     </el-card>
+    </template>
   </div>
 </template>
 
@@ -133,6 +142,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { dashboardApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 const userStore = useUserStore()
@@ -140,6 +150,7 @@ const router = useRouter()
 const route = useRoute()
 const stats = ref({})
 const workbench = ref({ todos: [], running: [], failed: [], recent: [] })
+const loadError = ref('')
 
 const shortcuts = computed(() => {
   const list = []
@@ -172,9 +183,11 @@ onMounted(async () => {
   try {
     stats.value = await dashboardApi.getStats()
     workbench.value = await dashboardApi.getWorkbench()
-  } catch (_) {
-    stats.value = {}
-    workbench.value = { todos: [], running: [], failed: [], recent: [] }
+    loadError.value = ''
+  } catch (err) {
+    const data = err?.response?.data
+    const msg = data?.message ?? data?.detail ?? err?.message
+    loadError.value = typeof msg === 'string' && msg ? msg : '工作台加载失败'
   }
 })
 </script>

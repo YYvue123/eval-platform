@@ -1,7 +1,10 @@
 """运维工单状态机、演练留痕、授权与运营报表。"""
 from __future__ import annotations
 
+import hashlib
+import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
@@ -132,6 +135,30 @@ async def update_ticket(
     return ticket
 
 
+def _drill_pass_error(evidence: dict, operator_id: int | None, operator_name: str | None) -> str | None:
+    rel = str(evidence.get("artifact_path") or "").replace("\\", "/").strip()
+    digest = str(evidence.get("sha256") or "").strip().lower()
+    if not rel or Path(rel).is_absolute() or ".." in rel.split("/") or ":" in rel:
+        return "drill_pass_requires_artifact:正式通过需要 BACKUP_DIR 内相对路径制品"
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        return "drill_pass_requires_artifact:sha256 必须是制品内容的 64 位十六进制摘要"
+    root = Path(os.environ.get("BACKUP_DIR") or "backups").resolve()
+    path = (root / rel).resolve()
+    if path != root and root not in path.parents:
+        return "drill_pass_requires_artifact:证据路径越界"
+    if not path.is_file():
+        return "drill_pass_requires_artifact:制品不存在"
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != digest:
+        return "drill_pass_requires_artifact:sha256 与制品不一致"
+    signer = str(evidence.get("signed_by") or "").strip()
+    if not operator_id or not operator_name or signer != operator_name:
+        return "drill_pass_requires_signer:signed_by 必须为当前登录操作者"
+    if not str(evidence.get("signed_at") or "").strip():
+        return "drill_pass_requires_signer:缺少 signed_at"
+    return None
+
+
 async def record_drill(
     db: AsyncSession,
     *,
@@ -142,20 +169,14 @@ async def record_drill(
     notes: str,
     evidence: dict,
     policy_version: str = POLICY_VERSION,
+    operator_name: str | None = None,
 ) -> OpsDrillRecord:
     evidence = evidence or {}
     result = (result or "draft").strip().lower()
-    # 正式 pass 必须带可核验证据；否则降为 draft / 拒绝
-    evidence_ok = bool(
-        evidence.get("sha256")
-        or evidence.get("rpo_seconds") is not None
-        or evidence.get("rto_seconds") is not None
-        or evidence.get("signed_by")
-        or evidence.get("evidence_uri")
-        or evidence.get("restore_path")
-    )
-    if result == "pass" and not evidence_ok:
-        raise ValueError("drill_pass_requires_evidence:正式通过必须提供 sha256/RPO/RTO/签署人或证据 URI")
+    if result == "pass":
+        reason = _drill_pass_error(evidence, operator_id, operator_name)
+        if reason:
+            raise ValueError(reason)
     if result not in {"pass", "fail", "draft", "not_run", "blocked"}:
         result = "draft"
     d = OpsDrillRecord(

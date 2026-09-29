@@ -52,6 +52,12 @@
         @remove="clearExtraFilter"
         @clear="clearExtraFilters"
       />
+      <PageAsyncState
+        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
+        :state="listState"
+        :errorMessage="loadError"
+      />
+      <template v-else>
       <el-table v-loading="loading" :data="items" stripe @sort-change="onSortChange">
         <template #empty>
           <EmptyState type="notification" action-text="发送通知" :show-action="userStore.hasPermission('notification:create')" @action="showCreate = true" />
@@ -97,6 +103,7 @@
         class="pagination"
         @change="loadData"
       />
+      </template>
     </el-card>
 
     <el-dialog v-model="showCreate" title="发送通知" width="480px" @close="resetCreate">
@@ -120,6 +127,7 @@
             <el-option label="全体用户" :value="null" />
             <el-option v-for="u in users" :key="u.id" :label="u.username" :value="u.id" />
           </el-select>
+          <div v-if="usersLoadError" class="hint">{{ usersLoadError }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -133,14 +141,18 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import EmptyState from '@/components/EmptyState.vue'
+import PageAsyncState from '@/components/PageAsyncState.vue'
 import ActiveFilterHint from '@/components/ActiveFilterHint.vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { notificationsApi, usersApi } from '@/api'
+import { deriveAsyncState } from '@/utils/asyncState.js'
 
 const userStore = useUserStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const createdOnce = ref(false)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -154,6 +166,20 @@ const sortOrder = ref('desc')
 const showMoreFilters = ref(false)
 const listReady = ref(false)
 let searchTimer = null
+
+const listState = computed(() => deriveAsyncState({
+  loading: loading.value && !createdOnce.value,
+  error: loadError.value,
+  forbidden: false,
+  items: items.value,
+  createdOnce: createdOnce.value,
+}))
+
+function loadErr(e, fallback) {
+  const d = e?.response?.data
+  const msg = d?.message || d?.detail || e?.message
+  return typeof msg === 'string' && msg ? msg : fallback
+}
 
 const NOTICE_SORT_LABELS = { created_at: '发送时间', title: '标题', type: '类型', id: 'ID' }
 
@@ -197,6 +223,7 @@ const form = reactive({ title: '', message: '', type: 'info', user_id: null })
 const rules = { title: [{ required: true, message: '请输入标题', trigger: 'blur' }] }
 const submitting = ref(false)
 const users = ref([])
+const usersLoadError = ref('')
 
 function typeLabel(type) {
   const map = { info: '提示', success: '成功', warning: '警告', error: '错误' }
@@ -210,6 +237,7 @@ function formatDate(s) {
 
 async function loadData() {
   loading.value = true
+  loadError.value = ''
   try {
     const params = { page: page.value, page_size: pageSize.value, search: search.value, type: typeFilter.value, target: targetFilter.value, sort_by: sortBy.value, sort_order: sortOrder.value }
     if (createdAtRange.value && createdAtRange.value.length === 2) {
@@ -219,6 +247,9 @@ async function loadData() {
     const res = await notificationsApi.list(params)
     items.value = res.items || []
     total.value = res.total || 0
+    createdOnce.value = true
+  } catch (e) {
+    loadError.value = loadErr(e, '通知列表加载失败')
   } finally {
     loading.value = false
   }
@@ -239,11 +270,15 @@ function onSortChange({ prop, order }) {
 }
 
 async function loadUsers() {
+  usersLoadError.value = ''
   try {
     const res = await usersApi.list({ page: 1, page_size: 100 })
     users.value = res.items || []
-  } catch (_) {
+  } catch (err) {
     users.value = []
+    const data = err?.response?.data
+    const msg = data?.message ?? data?.detail ?? err?.message
+    usersLoadError.value = typeof msg === 'string' && msg ? msg : '用户列表加载失败'
   }
 }
 
@@ -309,4 +344,5 @@ watch(search, () => {
 .toolbar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .toolbar-more { margin-bottom: 16px; }
 .pagination { margin-top: 16px; justify-content: flex-end; }
+.hint { color: var(--text-secondary); font-size: 13px; margin-top: 6px; }
 </style>

@@ -39,6 +39,7 @@
         <el-form-item>
           <el-checkbox v-model="form.rememberMe">记住我</el-checkbox>
         </el-form-item>
+        <p v-if="displayMsg" class="login-error">{{ displayMsg }}</p>
         <el-form-item>
           <el-button
             type="primary"
@@ -74,6 +75,7 @@ const USERNAME_KEY = 'eval_username'
 const formRef = ref()
 const usernameInputRef = ref()
 const loading = ref(false)
+const displayMsg = ref('')
 
 const form = reactive({
   username: '',
@@ -94,6 +96,7 @@ onMounted(() => {
 })
 
 async function handleSubmit() {
+  displayMsg.value = ''
   try {
     await formRef.value?.validate()
     loading.value = true
@@ -107,7 +110,13 @@ async function handleSubmit() {
       router.push(safeHomePath(router))
     }
   } catch (e) {
-    if (e?.errors) return
+    if (e?.errors) {
+      displayMsg.value = '请填写用户名和密码'
+      return
+    }
+    const data = e?.response?.data
+    const msg = data?.message ?? data?.detail ?? e?.message
+    displayMsg.value = typeof msg === 'string' && msg ? msg : '登录失败'
   } finally {
     loading.value = false
   }
@@ -157,6 +166,11 @@ async function handleSubmit() {
 }
 .login-btn {
   width: 100%;
+}
+.login-error {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--el-color-danger);
 }
 @media (max-width: 480px) {
   .login-box {
