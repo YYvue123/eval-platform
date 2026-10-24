@@ -27,6 +27,8 @@ REQUIRED_ROLES = ("monitor", "diagnose")
 ROLE_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 MAIN_ROLE = "coordinator"
 MAIN_TOOLS = (
+    "get_resource_inventory",
+    "get_task_evidence",
     "search_knowledge",
     "infer_dims",
     "search_eval_resources",
@@ -39,9 +41,13 @@ MAIN_TOOLS = (
 )
 _SECRET_KEYS = {"api_key", "secret", "password", "token", "authorization", "api-key"}
 DEFAULT_MAIN_PROMPT = (
-    "你是评测编排主 Agent，是用户唯一入口。"
-    "你理解评测目标，选择数据集、被测模型和打分工具，并按需调用子 Agent、编排 Skill 和 MCP。"
-    "异常诊断只返回建议，不能执行恢复或补测。信息足够时直接回复。"
+    "你是测试任务管理主Agent，统一维护目标、授权资源、版本、计划、审批、执行和报告上下文。"
+    "规划时必须依据平台授权资源清单，比较真实数据集的样本数和质检、模型连接与场景、裁判的输入输出能力。"
+    "不要猜测ID或把规划模型当作被测模型。资源调整调用propose_resources，不能只用文字声称已修改。"
+    "按角色适用阶段和触发场景使用已启用子Agent，吸收其工具证据后形成摘要。"
+    "摘要说明选择理由、缺口、正式或试跑模式、预算、执行顺序、预期报告和需要人工确认的动作。"
+    "任务创建、配置变更、恢复和补测都需人工确认；不能改调度事实或评分。"
+    "执行后读取真实任务状态和样本结果，按需监控、诊断、审校报告。无证据只能说未知或受阻。"
 )
 
 
@@ -137,7 +143,7 @@ def _profile_out(row: OrchestrationProfile) -> dict:
         "available_tools": normalize_tool_names(loads(row.available_tools_json, [])),
         "max_iterations": int(row.max_iterations or 10),
         "supports_stream": bool(row.supports_stream),
-        "human_in_the_loop": bool(row.human_in_the_loop),
+        "human_in_the_loop": True,
         "evaluation_spec": spec if isinstance(spec, dict) else None,
         "timeout_seconds": int(row.timeout_seconds or 120),
     }
@@ -184,7 +190,7 @@ async def update_main_profile(db: AsyncSession, tenant_id: int | None, body: dic
         iterations = 10
     row.max_iterations = max(1, min(iterations, 20))
     row.supports_stream = bool(body.get("supports_stream"))
-    row.human_in_the_loop = bool(body.get("human_in_the_loop"))
+    row.human_in_the_loop = True
     spec = body.get("evaluation_spec")
     if spec in (None, "", {}):
         row.evaluation_spec_json = ""
@@ -246,6 +252,16 @@ BUILTIN_SUBAGENTS = [
         "duties": ["统计核对", "遗漏检查", "引用是否指向本任务"],
     },
     {
+        "role": "report_optimizer",
+        "name": "报告优化 Agent",
+        "required": False,
+        "background": False,
+        "human_in_the_loop": True,
+        "max_iterations": 4,
+        "description": "任务结束后以实际样本和原报告为依据优化报告表达、问题归因和建议，生成单独草稿供人工确认发布。不得改分数。",
+        "duties": ["报告结构优化", "证据引用", "可执行建议", "生成可回退修订"],
+    },
+    {
         "role": "param_advisor",
         "name": "参数推荐 Agent",
         "required": False,
@@ -257,6 +273,27 @@ BUILTIN_SUBAGENTS = [
     },
 ]
 
+ROLE_STAGES = {
+    "monitor": ["monitoring"], "diagnose": ["diagnosis"],
+    "plan_analyst": ["planning"], "param_advisor": ["planning"],
+    "report_reviewer": ["review"], "report_optimizer": ["optimization"],
+}
+ROLE_PROMPTS = {
+    "plan_analyst": "你是评测方案分析专家。读取授权资源清单和当前计划，核对需求、样本规模、数据版本与质检、被测模型场景及连接、裁判输入输出。对比候选资源并引用真实ID、名称和版本，指出覆盖不足和阻塞。不要自行更改计划或承诺资源已执行；最后给主Agent可执行配置建议与需澄清的问题。",
+    "param_advisor": "你是评测参数与成本顾问。基于真实样本数、任务场景、数据质量和工具能力，给出正式或试跑选择、合理Token预算和裁判建议。明确估算假设，用量未知时不要编造成本。检索绑定经验作为补充，区分运行预算和评测任务预算；所有参数修改交主Agent提议并经人员确认。",
+    "monitor": "你是任务监控分析专家。只根据get_task_evidence和任务事件判断状态、进度、已完成样本、失败及预算风险。区分排队、运行、终态；引用task_id及事件或样本编号。列出与上次相比的变化和下一步观察点。没有证据不要编造预计完成时间；禁止取消、重试、恢复或更改优先级。",
+    "diagnose": "你是异常诊断专家。按任务事件、逐样本execution_status、score_status和error_code区分连接故障、模型错误、裁判失败、真实答错与预算暂停。给出有证据的原因、影响范围、验证步骤和建议；不确定原因标为待验证。恢复和补测只能建议，必须人工确认，不得修改状态或评分。",
+    "report_reviewer": "你是报告审校专家。用get_task_evidence核对任务ID、数据和模型版本、样本范围、成功失败跳过数、评分口径、试跑或模拟标记与报告声明。引用具体item_no检查遗漏、夸大、缺少依据和相互矛盾。区分执行完成与业务指标达标，只给出审校意见，不改成绩或发布报告。",
+    "report_optimizer": "你是评测报告优化专家。必须以get_task_evidence的真实结果为依据，写中文Markdown报告草稿，包含执行摘要、资源和版本、逐类发现、代表样本引用、限制、风险与按优先级排列的改进建议。引用task_id和item_no，不编造分数、统计、测试次数或业务收益；避免重复套话。不能改变原始数据、状态或数值。草稿由平台单独留存，发布和回退需人工确认。",
+}
+for _agent in BUILTIN_SUBAGENTS:
+    _role = _agent["role"]
+    _agent["system_prompt"] = ROLE_PROMPTS[_role]
+    _agent["evaluation_spec"] = {"stages": ROLE_STAGES[_role]}
+    _agent["available_tools"] = (["get_resource_inventory", "search_eval_resources", "search_knowledge", "invoke_skill"]
+                                  if "planning" in ROLE_STAGES[_role] else ["get_task_evidence", "get_task_status", "search_knowledge", "invoke_skill"])
+    _agent["skill_codes"] = ["clarify_goal", "recommend_params"] if "planning" in ROLE_STAGES[_role] else ["draft_report"]
+
 BUILTIN_SKILLS = [
     {
         "code": "clarify_goal",
@@ -265,7 +302,7 @@ BUILTIN_SKILLS = [
         "trigger_type": "context",
         "trigger_value": "",
         "execution_type": "prompt_template",
-        "entry_point": "请只根据用户目标列出：评测对象、场景、成功标准、仍缺的参数。不要编造资源 ID。",
+        "entry_point": "根据用户目标与授权资源清单，列出评测对象、场景、数据覆盖、裁判口径、成功标准、预算及缺失参数；引用真实ID和版本，区分已验证事实与建议，禁止猜测资源。任务创建及配置变更交人工审批。",
         "chainable": True,
     },
     {
@@ -295,7 +332,7 @@ BUILTIN_SKILLS = [
         "trigger_type": "context",
         "trigger_value": "",
         "execution_type": "prompt_template",
-        "entry_point": "用任务统计解释结果。没有证据的数字写成不可判定。不要改写分数。",
+        "entry_point": "先读取实际任务和逐样本证据，核对总数、成功/失败/跳过、执行状态与评分状态、分数及报告一致性；区分试跑、模拟、正式执行和业务达标。逐项引用任务或样本ID，缺证据写不可判定。输出结论、限制和可执行建议，不修改评分事实；优化稿须人工确认发布。",
         "chainable": False,
     },
 ]
@@ -305,12 +342,12 @@ def _builtin_agent_out(item: dict) -> dict:
     return {
         **item,
         "builtin": True,
-        "system_prompt": item["description"],
+        "system_prompt": item.get("system_prompt") or item["description"],
         "model_config": default_model_config(),
-        "available_tools": ["search_knowledge"],
-        "skill_codes": [],
+        "available_tools": item.get("available_tools") or ["search_knowledge"],
+        "skill_codes": item.get("skill_codes") or [],
         "supports_stream": False,
-        "evaluation_spec": None,
+        "evaluation_spec": item.get("evaluation_spec"),
         "enabled": True,
         "persisted": False,
     }
@@ -354,7 +391,7 @@ def _agent_out(row: AgentDefinition) -> dict:
         "skill_codes": loads(getattr(row, "skill_codes_json", None) or "[]", []),
         "model_config": normalize_model_config(loads(getattr(row, "model_config_json", None) or "{}", {})),
         "supports_stream": bool(row.supports_stream),
-        "evaluation_spec": loads(getattr(row, "evaluation_spec_json", None) or "", None) or None,
+        "evaluation_spec": loads(getattr(row, "evaluation_spec_json", None) or "", None) or (origin or {}).get("evaluation_spec"),
         "timeout_seconds": int(getattr(row, "timeout_seconds", None) or 120),
     }
 
@@ -461,6 +498,10 @@ async def normalize_capabilities(
             raise HTTPException(400, f"未知编排 Skill：{code}")
         if code not in chosen_skills:
             chosen_skills.append(code)
+    for role in roles if skill_codes is None else []:
+        for code in (agents.get(role) or {}).get("skill_codes") or []:
+            if code not in chosen_skills and (skills.get(code) or {}).get("enabled", True):
+                chosen_skills.append(code)
     chosen_mcp: list[str] = []
     for rid in mcp_resource_ids or []:
         if rid not in mcps:
@@ -793,7 +834,7 @@ def _agent_by_role(catalog: dict, role: str) -> dict | None:
 
 async def execute_skill(db: AsyncSession, catalog: dict, code: str, text: str) -> dict:
     skill = _skill_by_code(catalog, code)
-    if not skill:
+    if not skill or skill.get("enabled") is False:
         raise HTTPException(400, f"未知编排 Skill：{code}")
     kind = skill.get("execution_type")
     entry = skill.get("entry_point") or ""
@@ -822,7 +863,7 @@ async def execute_skill(db: AsyncSession, catalog: dict, code: str, text: str) -
     raise HTTPException(400, f"未实现的 Skill 执行方式：{kind}")
 
 
-async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str, *, instruction: str = "") -> dict:
+async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str, *, instruction: str = "", context_key: str = "") -> dict:
     plan = loads(session.plan_json, {})
     caps = plan.get("capabilities") or {}
     allowed = caps.get("subagent_roles") or list(REQUIRED_ROLES)
@@ -837,7 +878,7 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
 
     parent_run = await db.get(AgentRun, session.active_run_id) if session.active_run_id else None
     parent_cp = loads(parent_run.checkpoint_json, {}) if parent_run else {}
-    invocation_id = parent_cp.get("tool_invocation_id") or ""
+    invocation_id = context_key or parent_cp.get("tool_invocation_id") or ""
     delegation = await db.scalar(select(AgentDelegation).where(
         AgentDelegation.session_id == session.id,
         AgentDelegation.run_id == session.active_run_id,
@@ -859,6 +900,9 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
         )
         db.add(delegation)
     await db.flush()
+    from app.services.agent_trace import record_delegation
+    await record_delegation(db, delegation, "started", {"name": spec["name"], "instruction": instruction or session.requirement,
+                            "available_tools": spec.get("available_tools") or [], "skills": spec.get("skill_codes") or []})
 
     task = await db.get(EvalTask, int(session.task_id)) if session.task_id else None
     timeout = int(spec.get("timeout_seconds") or 0)
@@ -868,6 +912,12 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
     timeout = max(5, min(timeout, 600))
 
     async def _dispatch() -> dict:
+        if (parent_run and parent_run.planner_model_id) or session.planner_model_id:
+            if role in {"monitor", "diagnose", "report_reviewer", "report_optimizer"} and task is None:
+                return {"status": "unavailable", "summary": "该角色在任务开始执行后使用，当前没有关联任务。"}
+            from app.services.agent_subgraph import run_agent_subgraph
+
+            return await run_agent_subgraph(db, session, actor, spec, delegation, instruction or session.requirement or "")
         if role == "monitor":
             return await _monitor(db, session, task)
         if role == "diagnose":
@@ -894,6 +944,8 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
             result = await asyncio.wait_for(_dispatch(), timeout=timeout)
             used = []
             for code in spec.get("skill_codes") or []:
+                if code not in (caps.get("skill_codes") or []) or (_skill_by_code(catalog, code) or {}).get("enabled") is False:
+                    continue
                 try:
                     used.append(await execute_skill(db, catalog, code, session.requirement or ""))
                 except HTTPException as exc:
@@ -909,20 +961,24 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
         delegation.status = "success" if result.get("status") != "unavailable" else "skipped"
         delegation.result_json = dumps(result)
         delegation.finished_at = datetime.utcnow()
+        await record_delegation(db, delegation, "completed", {"status": delegation.status, "result": result})
         db.add(
             AgentMessage(
                 session_id=session.id,
                 role=role if role in {"monitor", "diagnose"} else "main",
                 content=result.get("summary") or spec["name"],
                 tool_name=f"delegate:{role}",
-                payload_json=dumps({"role": role, "analysis_only": True}),
+                payload_json=dumps({"role": role, "agent_name": spec["name"], "analysis_only": True, "run_id": delegation.run_id, "delegation_id": delegation.id}),
             )
         )
         await db.flush()
         return {"delegation_id": delegation.id, "role": role, "result": result}
-    except Exception:
+    except Exception as exc:
+        from app.services.redaction import safe_error_message
         delegation.status = "failed"
+        delegation.error_code = "subagent_failed"
         delegation.finished_at = datetime.utcnow()
+        await record_delegation(db, delegation, "failed", {"error": safe_error_message(exc)[:500]})
         await db.flush()
         raise
 

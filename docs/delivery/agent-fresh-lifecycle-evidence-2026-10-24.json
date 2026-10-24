@@ -1,0 +1,106 @@
+{
+  "source": "fresh full real workflow after progress-wakeup fix; authenticated APIs on existing development DB",
+  "session_id": 16,
+  "planning_run_id": 24,
+  "planning_status": "waiting",
+  "plan_resources": {
+    "dataset_id": 42,
+    "model_id": 9,
+    "judge_resource_id": "builtin/exact_match",
+    "ready": true,
+    "analysis_status": "complete"
+  },
+  "task_id": 40,
+  "task_status": "success",
+  "final_run_id": 24,
+  "final_run_status": "success",
+  "completion": {
+    "kind": "evaluation_completed",
+    "objective_verified": true,
+    "verification_scope": "evaluation_execution",
+    "measured_results": 12,
+    "task_id": 40,
+    "task_status": "success",
+    "report_available": true,
+    "trial_run": false,
+    "success_count": 12,
+    "fail_count": 0
+  },
+  "delegations": [
+    {
+      "id": 58,
+      "role": "report_optimizer",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 8
+    },
+    {
+      "id": 57,
+      "role": "report_reviewer",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 4
+    },
+    {
+      "id": 56,
+      "role": "monitor",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 8
+    },
+    {
+      "id": 55,
+      "role": "monitor",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 8
+    },
+    {
+      "id": 54,
+      "role": "customer_coverage",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 8
+    },
+    {
+      "id": 53,
+      "role": "coverage_auditor",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 4
+    },
+    {
+      "id": 52,
+      "role": "param_advisor",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 10
+    },
+    {
+      "id": 51,
+      "role": "plan_analyst",
+      "status": "success",
+      "run_id": 24,
+      "event_count": 8
+    }
+  ],
+  "task_snapshots": [
+    {
+      "task_id": 40,
+      "status": "running",
+      "progress": 58,
+      "success_count": 7,
+      "fail_count": 0
+    },
+    {
+      "task_id": 40,
+      "status": "success",
+      "progress": 100,
+      "success_count": 12,
+      "fail_count": 0
+    }
+  ],
+  "revision_ids": [
+    6
+  ]
+}

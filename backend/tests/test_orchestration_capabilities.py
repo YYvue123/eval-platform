@@ -137,8 +137,8 @@ class OrchestrationCapabilityApiTest(unittest.TestCase):
             json={"role": "diagnose"},
         )
         self.assertEqual(diagnosed.status_code, 200, diagnosed.text)
-        self.assertEqual(diagnosed.json()["result"]["status"], "no_failure")
-        self.assertTrue(diagnosed.json()["result"]["requires_main_approval"])
+        self.assertEqual(diagnosed.json()["result"]["status"], "unavailable")
+        self.assertIsNone(self.client.get(f"/api/agents/sessions/{sid}", headers=self.h).json()["task_id"])
         with patch("app.services.model_client.invoke_chat_tools", new=AsyncMock(return_value={
             "content": "已核对方案缺口，不执行恢复", "tool_calls": [], "tokens": 10,
         })):
@@ -149,6 +149,11 @@ class OrchestrationCapabilityApiTest(unittest.TestCase):
             )
         self.assertEqual(custom.status_code, 200, custom.text)
         self.assertFalse(custom.json()["result"].get("executes_recovery", True))
+        self.client.put(f'/api/agents/definitions/{role}', headers=self.h, json={'role':role,'name':'已改名的覆盖检查','system_prompt':'只报告缺口，不创建任务'})
+        messages = self.client.get(f'/api/agents/sessions/{sid}/messages', headers=self.h).json()['items']
+        reply = next(item for item in messages if item['tool_name'] == f'delegate:{role}')
+        self.assertEqual(reply['payload']['agent_name'], '覆盖检查')
+        self.assertEqual(reply['payload']['role'], role)
 
     def test_judges_include_skill_and_mcp_tool(self):
         async def seed():

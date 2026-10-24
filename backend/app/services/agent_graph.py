@@ -72,10 +72,11 @@ async def _approval_consumed(db, run, cp):
 
 async def can_resume(db, run):
     cp = loads(run.checkpoint_json, {})
-    if cp.get("phase") == "await_approval":
+    if cp.get("phase") == "await_approval" and run.status == "waiting":
         return await _approval_consumed(db, run, cp)
     if cp.get("phase") == "verify" and run.status == "waiting":
-        return (await task_completion(db, run))["kind"] != "task_pending"
+        from app.services.agent_lifecycle import snapshot_changed
+        return await snapshot_changed(db, run)
     return True
 
 
@@ -97,14 +98,24 @@ async def _await_approval(db, run, cp):
 
 async def _verify(db, run, cp):
     from app.services.agent_runtime import _clear_active, append_event
+    from app.services.agent_lifecycle import track_task
 
+    session = await db.get(AgentSession, run.session_id)
+    tracking = loads(session.plan_json, {}).get("tracking_run_id") == run.id
+    if cp.get("purpose") == "followup" or cp.get("approval_plan_hash") or tracking:
+        await track_task(db, run)
+        if loads(run.checkpoint_json, {}).get("tokens_usage_unknown"):
+            cp["tokens_usage_unknown"] = True
     completion = await task_completion(db, run)
     cp["completion"] = completion
     if completion["kind"] == "task_pending":
         run.status = "waiting"
         run.checkpoint_json = dumps(cp)
         await append_event(db, run, "run.waiting_task", completion)
-        interrupt(completion)
+        # A progress update can resume this node while the task is still running.
+        # Consume earlier resume values and suspend again until facts are terminal.
+        while completion["kind"] == "task_pending":
+            interrupt(completion)
     terminal_error = completion.get("task_status") in {"failed", "partial_failed", "cancelled", "paused_budget"}
     run.status = "failed" if terminal_error else "success"
     if terminal_error:
@@ -118,12 +129,22 @@ async def _verify(db, run, cp):
     if completion.get("task_id"):
         # The fact-based suffix cannot be replaced by a model's completion claim.
         reply += f"\n实际任务状态：{completion['task_status']}；目标核验：{'通过' if completion['objective_verified'] else '未通过'}。"
+        from app.models import AgentDelegation, AgentReportRevision
+        rows = (await db.execute(select(AgentDelegation).where(AgentDelegation.run_id == run.id)
+                                 .order_by(AgentDelegation.id))).scalars().all()
+        latest = {row.role: row for row in rows}
+        for role, row in latest.items():
+            result = loads(row.result_json, {})
+            reply += f"\n\n{role}（记录 #{row.id}，{row.status}）：" + str(result.get("summary") or row.error_code or "无可用分析")[:900]
+        revisions = (await db.execute(select(AgentReportRevision).where(AgentReportRevision.run_id == run.id))).scalars().all()
+        if revisions:
+            reply += "\n\n优化报告已另存为待人工审核版本：" + "、".join(f"#{row.id}" for row in revisions) + "。原始报告与评分保留。"
     cp["final_reply"] = reply
     run.checkpoint_json = dumps(cp)
     run.finished_at = datetime.utcnow()
     run.lease_owner = ""
     run.lease_until = None
-    db.add(AgentMessage(session_id=run.session_id, role="main", content=reply, tool_name="agent_runtime"))
+    db.add(AgentMessage(session_id=run.session_id, role="main", content=reply, tool_name="agent_runtime", payload_json=dumps({"run_id": run.id, "purpose": cp.get("purpose", "dialogue")})))
     await append_event(db, run, "run.verified", completion)
     await append_event(db, run, "run.failed" if terminal_error else "run.success", {"completion": completion})
     await _clear_active(db, run)
@@ -139,6 +160,8 @@ def build_graph(db, run, saver, fencing_token=None):
         "await_approval": _await_approval,
         "verify": _verify,
     }
+    from app.services.agent_lifecycle import prepare_plan
+    handlers["prepare"] = prepare_plan
 
     def node(handler):
         async def invoke(state):
@@ -211,7 +234,7 @@ async def advance_graph(db, run, *, fencing_token=None):
             # Retry a failed node using the durable projection, without replaying completed tools.
             value = {"checkpoint": cp}
         run.graph_version = runtime.GRAPH_VERSION
-        await graph.ainvoke(value, config, interrupt_after=["select_tool", "observe", "reply", "await_approval", "verify"], durability="sync")
+        await graph.ainvoke(value, config, interrupt_after=["prepare", "select_tool", "observe", "reply", "await_approval", "verify"], durability="sync")
         if run.status == "running":
             run.lease_until = datetime.utcnow() + timedelta(seconds=runtime.LEASE_SECONDS)
     except Exception as exc:
@@ -222,6 +245,11 @@ async def advance_graph(db, run, *, fencing_token=None):
         run.status = "paused_budget" if isinstance(exc, PermissionError) else "failed"
         run.error_code = "budget_exceeded" if isinstance(exc, PermissionError) else "runtime_error"
         run.error_message = safe_error_message(exc)[:300]
+        if cp.get("purpose") == "planning":
+            session = await db.get(AgentSession, run.session_id)
+            plan = loads(session.plan_json, {})
+            plan["analysis_status"] = "failed"
+            session.plan_json = dumps(plan)
         run.finished_at = datetime.utcnow()
         await runtime.append_event(db, run, "run.failed", {"error_code": run.error_code})
         await runtime._clear_active(db, run)

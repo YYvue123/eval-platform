@@ -63,11 +63,19 @@ async def get_workbench(
         todos.append({"kind": "agent_confirm", "id": s.id, "title": s.title or f"会话 #{s.id}", "href": f"/agents?session={s.id}"})
     for t in failed_rows[:5]:
         todos.append({"kind": "task_failed", "id": t.id, "title": t.name, "href": f"/tasks/{t.id}"})
+    status_rows = (await db.execute(select(EvalTask.status, func.count()).group_by(EvalTask.status))).all()
     return {
         "todos": todos[:15],
         "running": [{"id": t.id, "name": t.name, "status": t.status, "progress": t.progress} for t in running_rows],
         "failed": [{"id": t.id, "name": t.name, "error_message": t.error_message or ""} for t in failed_rows],
-        "recent": [{"id": t.id, "name": t.name, "status": t.status, "pass_rate": t.pass_rate} for t in recent],
+        "recent": [{
+            "id": t.id,
+            "name": t.name,
+            "status": t.status,
+            "pass_rate": t.pass_rate,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        } for t in recent],
+        "status_counts": {status or "unknown": int(count) for status, count in status_rows},
         "pending_approvals": len(waiting_sessions),
         "pending_reviews": len(pending_review),
         "message": "",

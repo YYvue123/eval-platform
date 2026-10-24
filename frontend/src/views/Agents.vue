@@ -1,15 +1,16 @@
 <template>
-  <div class="agents-wb">
+  <div class="agents-wb" :class="{ 'focus-reading': focusReading }">
     <div class="page-header">
       <div>
         <h2 class="page-title">评测助手</h2>
-        <p class="page-desc">主 Agent 是唯一入口。监控分析与异常诊断跟随每个任务；方案分析、报告审校、参数推荐以及自定义子 Agent 由主 Agent 按需调用。诊断只给建议，恢复和补测仍要确认后才执行。</p>
+        <p class="page-desc">描述目标，核对计划，确认执行。助手会持续跟进任务，并在关键节点主动更新。</p>
       </div>
+      <el-button v-if="userStore.hasPermission('agent:list')" @click="settingsOpen = true">助手设置</el-button>
     </div>
 
-    <el-card class="profile-card" shadow="never">
+    <el-drawer v-model="settingsOpen" title="助手设置" size="min(760px, 94vw)">    <el-card class="profile-card" shadow="never">
       <el-collapse v-model="profilePanel">
-        <el-collapse-item title="主 Agent · coordinator" name="profile">
+        <el-collapse-item title="助手行为与工具" name="profile">
           <p class="hint">提示词在每次运行时作为系统提示。当前计划、已启用能力和工具规则会附在后面。创建任务和执行恢复仍须在下方确认。</p>
           <el-input
             v-model="profileForm.system_prompt"
@@ -21,41 +22,33 @@
             <el-form-item label="模型名">
               <el-input v-model="profileForm.model_name" placeholder="留空则用规划模型自己的名称" :disabled="!canEditProfile" />
             </el-form-item>
-            <el-form-item label="temperature">
+            <el-form-item label="采样温度">
               <el-input-number v-model="profileForm.temperature" :min="0" :max="2" :step="0.1" :disabled="!canEditProfile" />
             </el-form-item>
-            <el-form-item label="max_tokens">
+            <el-form-item label="单次输出上限">
               <el-input-number v-model="profileForm.max_tokens" :min="0" :max="8192" :step="64" :disabled="!canEditProfile" />
               <span class="hint">0 表示不额外截断。大于 0 时，模型请求和最终回复都受这个上限约束。</span>
             </el-form-item>
-            <el-form-item label="最大迭代">
+            <el-form-item label="模型决策上限">
               <el-input-number v-model="profileForm.max_iterations" :min="1" :max="20" :disabled="!canEditProfile" />
             </el-form-item>
-            <el-form-item label="子 Agent 超时">
+            <el-form-item label="单次模型超时">
               <el-input-number v-model="profileForm.timeout_seconds" :min="5" :max="600" :disabled="!canEditProfile" />
               <span class="hint">秒。超时后终止该次调用，并把失败返回主 Agent。</span>
             </el-form-item>
-            <el-form-item label="流式输出">
+            <el-form-item label="实时执行动态">
               <el-switch v-model="profileForm.supports_stream" :disabled="!canEditProfile" />
-              <span class="hint">打开后，消息接口返回运行流地址。页面里的继续对话仍等本轮结束。</span>
+              <span class="hint">开启后通过SSE及时显示已提交的执行事件和完整回复；断线自动接续。当前不逐字输出模型文本。</span>
             </el-form-item>
             <el-form-item label="人工介入">
-              <el-switch v-model="profileForm.human_in_the_loop" :disabled="!canEditProfile" />
+              <el-tag type="success">关键操作始终需确认</el-tag><span class="hint">创建并执行任务、配置变更后的执行、恢复与补测需要人员确认；助手分析不会替你自动批准，也不支持任意节点的手动接管。</span>
             </el-form-item>
             <el-form-item label="可调用工具">
               <el-checkbox-group v-model="profileForm.available_tools" :disabled="!canEditProfile">
                 <el-checkbox v-for="tool in mainToolOptions" :key="tool.name" :label="tool.name">{{ tool.label }}</el-checkbox>
               </el-checkbox-group>
             </el-form-item>
-            <el-form-item label="评测标尺">
-              <el-input
-                v-model="profileForm.evaluation_spec_text"
-                type="textarea"
-                :rows="3"
-                placeholder="主 Agent 一般留空。评测 Agent 才需要 JSON，例如 metric_names"
-                :disabled="!canEditProfile"
-              />
-            </el-form-item>
+
           </el-form>
           <el-button
             v-if="canEditProfile"
@@ -121,10 +114,12 @@
       </el-collapse>
     </el-card>
 
+    </el-drawer>
+
     <div class="wb-layout">
       <aside class="session-rail" :class="{ collapsed: railCollapsed }">
         <div class="rail-head">
-          <span>会话</span>
+          <span>评测会话</span>
           <el-button link size="small" @click="railCollapsed = !railCollapsed">{{ railCollapsed ? '展开' : '收起' }}</el-button>
         </div>
         <div v-if="!railCollapsed" class="rail-scroll">
@@ -135,18 +130,19 @@
             class="new-btn"
             @click="startNew"
           >新建评测</el-button>
+          <el-input v-model="sessionQuery" placeholder="搜索会话" clearable size="small" class="session-search" />
           <div v-if="sessionsLoadError" class="rail-empty">{{ sessionsLoadError }}</div>
           <div v-else-if="!sessions.length" class="rail-empty">暂无会话</div>
           <button
-            v-for="s in sessions"
+            v-for="s in filteredSessions"
             :key="s.id"
             type="button"
             class="sess-item"
-            :class="{ active: currentId === s.id }"
+            :class="{ active: currentId === s.id }" :aria-current="currentId === s.id ? 'page' : undefined"
             @click="selectSession(s.id)"
           >
             <div class="sess-title">#{{ s.id }} {{ s.title || '未命名' }}</div>
-            <div class="sess-meta">{{ s.status }}</div>
+            <div class="sess-meta"><span class="state-dot" :class="sessionState(s).tone"></span><span :class="sessionState(s).tone">{{ sessionState(s).label }}</span><span v-if="s.task_id">任务 #{{ s.task_id }}</span></div>
           </button>
         </div>
       </aside>
@@ -154,7 +150,7 @@
       <main class="main-pane">
         <!-- 无会话：起步 -->
         <section v-if="!currentId" class="hero-card">
-          <h3>描述你想完成的评测</h3>
+          <div class="hero-kicker">新建评测</div><h3>这次想评测什么？</h3><p class="hint">说明场景、数据和目标。助手先检索实际资源并生成计划，未经确认不会执行任务。</p>
           <el-input
             v-model="goalText"
             type="textarea"
@@ -163,15 +159,15 @@
           />
           <div class="prep">
             <div class="prep-row">
-              <span>规划模型（Runtime）</span>
+              <span>助手使用的规划模型</span>
               <StatusBadge v-if="plannerModels.length" phase="approved" text="已配置" />
               <StatusBadge v-else phase="failed" text="真实模型未配置" />
               <router-link v-if="userStore.hasPermission('model:create')" class="link" to="/models">去配置模型</router-link>
             </div>
-            <div class="prep-row hint">配置完成前不可启动 Runtime；正式评测还需数据集与被测模型。</div>
+            <div class="prep-row hint">规划模型负责理解需求与编排，被测模型在计划中另外选择。</div>
           </div>
           <el-collapse v-model="budgetPanel">
-            <el-collapse-item title="高级：预算与规划模型" name="adv">
+            <el-collapse-item title="评测准备：规划模型与预算（必填）" name="adv">
               <el-form label-width="100px" size="small">
                 <el-form-item label="Token 预算">
                   <el-input-number v-model="tokenBudget" :min="0" />
@@ -192,7 +188,7 @@
               </el-form>
             </el-collapse-item>
           </el-collapse>
-          <section class="cap-card">
+          <el-collapse class="cap-card"><el-collapse-item title="可选能力：子 Agent、Skill 与 MCP" name="capabilities">
             <div class="plan-title">子 Agent</div>
             <p class="hint">监控分析和异常诊断始终启用。其余角色在主 Agent 需要时调用。自定义角色只做分析，不直接改任务。</p>
             <el-checkbox-group v-model="selectedRoles">
@@ -225,7 +221,7 @@
               />
             </el-select>
 
-          </section>
+          </el-collapse-item></el-collapse>
           <el-button
             v-if="userStore.hasPermission('agent:invoke')"
             type="primary"
@@ -240,7 +236,7 @@
             <div>
               <h3 class="sess-heading">{{ session.title || `会话 #${currentId}` }}</h3>
               <div class="head-meta">
-                <StatusBadge :phase="productPhase" />
+                <StatusBadge :phase="productPhase" :text="productPhase === 'cancelled' ? '已停止' : ''" />
                 <el-tag v-if="session.plan?.trial_run" size="small" type="info">试跑</el-tag>
                 <el-tag v-else-if="session.plan?.ready" size="small">正式</el-tag>
                 <span v-if="session.plan?.token_budget != null" class="hint">计划预算 {{ session.plan.token_budget }}</span>
@@ -248,28 +244,40 @@
               </div>
             </div>
             <div class="head-actions">
-              <el-button size="small" @click="drawerOpen = true">计划 / 证据</el-button>
+              <el-button size="small" @click="drawerOpen = true">计划证据</el-button>
+              <el-button v-if="canStopSession && userStore.hasPermission('agent:invoke')" size="small" :loading="controlLoading" @click="stopConversation">停止助手</el-button>
+              <el-button v-if="canContinueSession && userStore.hasPermission('agent:invoke')" size="small" type="primary" :loading="controlLoading" @click="continueConversation">继续会话</el-button>
             </div>
           </div>
 
           <div v-if="sessionLoading && !session.id" class="hint">加载会话…</div>
 
+          <div class="workflow-steps"><span :class="{ current: !session.task_id }">1 理解与规划</span><span :class="{ current: productPhase === 'awaiting_approval' || productPhase === 'approved' }">2 核对并确认</span><span :class="{ current: !!session.task_id && productPhase === 'running' }">3 执行与跟踪</span><span :class="{ current: productPhase === 'completed' }">4 结果与报告</span></div>
+          <el-tabs v-model="workspaceTab" class="workspace-tabs">
+          <el-tab-pane label="对话与计划" name="conversation">
           <section class="thread">
             <div class="thread-head">
               <div>
                 <div class="plan-title">对话</div>
-                <span class="hint">{{ (session.messages || []).length }} 条 · 只在这块区域里滚动</span>
+                <span class="hint">{{ displayedMessages.length }} 条消息 · {{ realtimeState }}</span>
               </div>
-              <el-button link size="small" native-type="button" @click="scrollThread(true)">回到最新</el-button>
+              <div class="reading-actions"><el-button v-if="userStore.hasPermission('agent:view')" link size="small" @click="focusReading = !focusReading">{{ focusReading ? '退出专注阅读' : '专注阅读' }}</el-button><el-button link size="small" native-type="button" @click="scrollThread(true)">回到最新</el-button></div>
             </div>
             <div ref="threadLog" class="thread-log" @scroll="onThreadScroll">
-              <div v-if="!(session.messages || []).length" class="thread-empty">还没有对话。生成计划后，补充说明会出现在这里。</div>
-              <article v-for="m in session.messages || []" :key="m.id" class="msg" :class="m.role">
+              <div v-if="!displayedMessages.length" class="thread-empty">还没有对话。生成计划后，补充说明会出现在这里。</div>
+              <article v-for="m in displayedMessages" :key="m.id" class="msg" :class="m.role">
                 <div class="msg-meta">
-                  <b>{{ roleLabel(m.role) }}</b>
+                  <b>{{ m.role === 'user' ? '你' : m.role === 'system' ? '系统' : '助手' }}</b>
+                  <span v-if="replyAuthor(m)" class="agent-origin" :class="replyAuthor(m).kind" :title="replyAuthor(m).role">{{ replyAuthor(m).label }}</span>
                   <span v-if="m.created_at">{{ msgTime(m.created_at) }}</span>
                 </div>
-                <div class="msg-body" v-html="renderMarkdown(m.content)"></div>
+                <MarkdownMessage class="msg-body" :content="m.content" />
+                <span v-if="m.delivery === 'sending'" class="delivery-note">正在发送…</span>
+                <span v-if="m.delivery === 'failed'" class="delivery-note failed">发送未成功，请核对连接后重试。</span>
+              </article>
+              <article v-if="assistantBusy" class="msg assistant waiting-message" role="status" aria-live="polite">
+                <div class="msg-meta"><b>评测助手</b><span>{{ waitingLabel }}</span></div>
+                <span class="typing-dots" aria-label="正在等待助手更新"><i></i><i></i><i></i></span>
               </article>
             </div>
             <div class="composer">
@@ -281,16 +289,17 @@
                 @keydown.ctrl.enter="sendFollowUp"
               />
               <div class="composer-bar">
-                <span class="hint">发送后主 Agent 会检索真实资源并改计划。规划模型只负责编排。</span>
+                <span class="hint">Ctrl+Enter 发送。核对当前计划后，可输入“确认执行”提交任务并持续跟进；“好的”等普通回复不会执行。</span>
                 <el-button
                   v-if="userStore.hasPermission('agent:invoke')"
                   type="primary"
                   native-type="button"
                   :loading="runLoading"
-                  :disabled="!followUp.trim() || !plannerModelId"
+                  :disabled="!followUp.trim() || !plannerModelId || assistantBusy"
                   @click="sendFollowUp"
                 >发送</el-button>
               </div>
+              <div class="continue-analysis"><el-button v-if="userStore.hasPermission('agent:invoke')" text :disabled="assistantBusy" @click="startRuntime">继续分析当前计划</el-button><span>沿用已保存的需求，重新检查资源和未完成事项；不会重复发送原需求或自动执行评测。</span></div>
             </div>
           </section>
 
@@ -298,7 +307,7 @@
           <el-card v-if="session.plan" shadow="never" class="plan-card">
             <div class="plan-head">
               <div class="plan-title">计划摘要</div>
-              <el-button size="small" native-type="button" @click="togglePlanEdit">{{ planEditing ? '收起' : '手动修改' }}</el-button>
+              <el-button size="small" native-type="button"  :disabled="assistantBusy || !!session.task_id || !userStore.hasPermission('agent:invoke')" @click="togglePlanEdit">{{ planEditing ? '收起' : '手动修改' }}</el-button>
             </div>
             <el-form v-if="planEditing" label-width="88px" size="small" class="plan-edit" @submit.prevent>
               <el-form-item label="目标">
@@ -323,8 +332,8 @@
               <el-form-item label="预算">
                 <el-input-number v-model="clarifyForm.token_budget" :min="0" controls-position="right" />
               </el-form-item>
-              <el-form-item label="试跑">
-                <el-switch v-model="clarifyForm.trial_run" />
+              <el-form-item label="试跑模式">
+                <el-switch v-model="clarifyForm.trial_run" /><p class="hint">试跑用于调通链路，放宽部分正式门禁；仍按所选数据版本执行并产生真实用量，不自动抽样。正式结论需关闭试跑后执行。</p>
               </el-form-item>
               <el-form-item label="子 Agent">
                 <el-checkbox-group v-model="editRoles">
@@ -396,14 +405,14 @@
             <div class="plan-title">{{ clarifyTitle }}</div>
             <div v-if="productPhase === 'budget_paused'" class="budget-box">
               <p class="clarify-q">
-                这次运行已经用了 <strong>{{ run?.tokens_used || 0 }}</strong> token，限额是
-                <strong>{{ run?.token_budget || '未限额' }}</strong>，所以停在预算不足。
-                把下面的新预算调大，再点「用新预算重新运行」。执行记录会换成一次新运行；原来这次不会原地继续。
+                这次运行已经用了 <strong>{{ liveRun?.tokens_used || 0 }}</strong> Token，限额是
+                <strong>{{ liveRun?.token_budget || '未限额' }}</strong>，所以停在预算不足。
+                点击「增加预算后继续」输入新预算。原执行记录保留；新一轮沿用已保存的上下文，不重复创建已有评测任务。
               </p>
-              <div class="clarify-label">新的运行预算</div>
-              <el-input-number v-model="clarifyForm.token_budget" :min="0" controls-position="right" />
+
             </div>
-            <p v-else class="clarify-lead">每一项单独占一行。提交后计划摘要里的数字会变，旧审批作废，需要重新审批。</p>
+            <template v-if="productPhase !== 'budget_paused'">
+            <p class="clarify-lead">每一项单独占一行。提交后计划摘要里的数字会变，旧审批作废，需要重新审批。</p>
             <div
               v-for="c in editableClarifications"
               :key="c.field + c.question"
@@ -446,8 +455,8 @@
               :title="g"
             />
             <div class="clarify-block">
-              <div class="clarify-label">试用模式</div>
-              <p class="clarify-q">开启后按小规模真实样本执行，用量计入同一预算。正式评测需要正数 Token 预算，并满足数据和模型门禁。</p>
+              <div class="clarify-label">试跑模式</div>
+              <p class="clarify-q">用于调通数据、模型和裁判链路，放宽部分正式门禁；仍会真实调用模型并计费用量，不自动抽样。建议先选小题集，结果不能作为正式准入结论。</p>
               <el-switch v-model="clarifyForm.trial_run" />
             </div>
             <div v-if="!hasClarifyField('dataset_id')" class="clarify-block">
@@ -458,6 +467,7 @@
               <div class="clarify-label">被测模型</div>
               <ResourcePicker v-model="clarifyForm.model_id" kind="model" placeholder="搜索被测模型" />
             </div>
+            </template>
           </el-card>
 
           <div class="action-dock">
@@ -475,40 +485,94 @@
               :disabled="a.disabled"
               @click="a.run"
             >{{ a.label }}</el-button>
-            <el-button @click="toggleAdvanced">{{ showAdvanced ? '收起高级' : '高级' }}</el-button>
+
             <span v-if="primaryHint" class="dock-hint">{{ primaryHint }}</span>
           </div>
 
-          <el-card v-if="showAdvanced" shadow="never" class="adv-card">
-            <el-tabs>
-              <el-tab-pane label="Runtime">
-                <el-form label-width="100px" size="small">
-                  <el-form-item label="规划模型">
-                    <el-select v-model="plannerModelId" clearable filterable placeholder="必选" style="width: 100%">
-                      <el-option v-for="m in plannerModels" :key="m.id" :label="m.name" :value="m.id" />
-                    </el-select>
-                    <div v-if="modelsLoadError" class="hint">{{ modelsLoadError }}</div>
-                  </el-form-item>
-                </el-form>
-                <el-button
-                  v-if="userStore.hasPermission('agent:invoke')"
-                  :loading="runLoading"
-                  :disabled="!plannerModelId"
-                  @click="startRuntime"
-                >启动 Runtime 工具循环</el-button>
-                <el-button
-                  v-if="run && userStore.hasPermission('agent:invoke') && !['success','cancelled','paused_budget'].includes(run.status)"
-                  :loading="cancelLoading"
-                  @click="cancelRuntime"
-                >{{ cancelLoading ? '取消中…' : '取消 run' }}</el-button>
-                <el-button
-                  v-if="run && userStore.hasPermission('agent:invoke') && ['waiting','failed','queued'].includes(run.status)"
-                  type="primary"
-                  :loading="resumeLoading"
-                  @click="resumeRuntime"
-                >从 checkpoint 恢复</el-button>
-              </el-tab-pane>
-              <el-tab-pane label="知识候选">
+          </el-tab-pane>
+          <el-tab-pane label="执行明细" name="execution">
+          <!-- 执行时间线 / 结果 -->
+          <el-card v-if="run" shadow="never" class="run-card">
+            <div class="plan-head">
+              <div class="plan-title">每轮执行明细 · {{ purposeName(run.purpose) }} #{{ run.id }}</div>
+              <StatusBadge :phase="runPhase" :text="runStatusText" />
+            </div>
+            <div class="turn-controls" v-if="userStore.hasPermission('agent:view')">
+              <el-button :disabled="selectedTurnIndex <= 0" @click="moveTurn(-1)">上一轮</el-button>
+              <el-select :model-value="run.id" @change="selectTurn" style="width: 300px">
+                <el-option v-for="item in runHistory" :key="item.id" :value="item.id"
+                  :label="`第 ${item.turn} 轮 · ${purposeName(item.purpose)} · ${item.status} · ${(item.input || '').slice(0, 24)}`" />
+              </el-select>
+              <el-button :disabled="selectedTurnIndex >= runHistory.length - 1" @click="moveTurn(1)">下一轮</el-button>
+              <el-button :type="followLatest ? 'primary' : 'default'" plain @click="viewLatest">跟随最新</el-button>
+            </div>
+            <p v-if="!followLatest" class="hint">正在查看历史明细；切换明细不会停止后台执行。审批和执行操作针对当前计划。</p>
+            <AgentExecutionDetails :items="delegations" :role-names="roleNames" />
+            <p class="hint">
+              模型决策 {{ run.rounds_used || 0 }} / {{ run.max_rounds }} 轮 <el-tooltip content="指这次执行中主 Agent 已调用模型作决策的次数／上限，不是聊天消息数，也不是评测样本数。0 表示尚未调用主模型；子 Agent 的模型轮次单独统计。"><span class="round-help">ⓘ 轮次说明</span></el-tooltip>
+              · 已用 {{ run.tokens_used || 0 }} token
+              · 限额 {{ run.token_budget || '未限额' }}
+              <span v-if="run.tokens_usage_unknown"> · 用量未回报</span>
+              <span v-if="eventsUpdatedAt"> · {{ eventsUpdatedAt }} 更新</span>
+            </p>
+            <p v-if="run.error_message" class="warn">{{ run.error_message }}</p>
+            <p v-if="run.completion" class="hint">
+              {{ run.completion.objective_verified ? '评测任务已完成，目标核验通过' :
+                run.completion.kind === 'conversation_completed' ? '本轮对话已完成，尚未核验评测目标' :
+                run.completion.kind === 'task_pending' ? '正在等待评测任务的实际执行结果' :
+                run.completion.kind === 'evaluation_unverified' ? '任务已结束，评测目标尚未核验通过' : '等待执行或核验' }}
+            </p>
+            <el-timeline class="timeline">
+              <el-timeline-item v-for="e in events" :key="`${run.id}-${e.seq}`" :timestamp="eventClock(e)" placement="top">
+                <div class="event-title">{{ eventLabel(e.type) }}</div>
+                <p class="event-detail">{{ eventDetail(e) }}</p>
+                <el-collapse v-if="e.payload && Object.keys(e.payload).length">
+                  <el-collapse-item title="原始数据" :name="String(e.seq)">
+                    <pre class="payload">{{ formatPayload(e.payload) }}</pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </el-timeline-item>
+            </el-timeline>
+          </el-card>
+
+          <el-empty v-if="!run" description="助手开始分析后，执行明细会显示在这里。" />
+          </el-tab-pane>
+          <el-tab-pane label="报告与经验" name="reports">
+          <el-card v-if="reportRevisions.length" shadow="never" class="result-card">
+            <div class="plan-title">报告优化版本</div>
+            <p class="hint">优化稿单独保存，原始报告及评分保留；发布和撤回须人工确认。</p>
+            <el-collapse>
+              <el-collapse-item v-for="item in reportRevisions" :key="item.id" :name="item.id" :title="`版本 #${item.id} · ${item.status} · 任务 #${item.task_id}`">
+                <el-button v-if="userStore.hasPermission('agent:view')" @click="downloadRevision(item)">下载优化稿</el-button>
+                <el-button v-if="item.status === 'draft' && userStore.hasPermission('agent:confirm')" type="primary" @click="actRevision(item, 'publish')">确认发布</el-button>
+                <el-button v-if="item.status === 'published' && userStore.hasPermission('agent:confirm')" @click="actRevision(item, 'revert')">撤回优化稿</el-button>
+                <MarkdownMessage :content="item.content" />
+              </el-collapse-item>
+            </el-collapse>
+          </el-card>
+          <el-card v-if="session.task_id && productPhase === 'completed'" shadow="never" class="result-card">
+            <div class="plan-title">结果</div>
+            <p>已关联任务 #{{ session.task_id }}（{{ session.plan?.trial_run ? '试跑' : '正式' }}）</p>
+            <el-button type="primary" link @click="$router.push(`/tasks/${session.task_id}`)">查看任务 / 报告</el-button>
+            <el-button v-if="userStore.hasPermission('agent:invoke')" link @click="persistRecipe">沉淀为可复用经验</el-button>
+            <el-button link @click="startNew">基于此目标新建</el-button>
+          </el-card>
+          <el-empty v-if="!session.task_id" description="确认执行并完成评测后，在这里查看报告。" />
+                          <el-table v-if="session.suggestions?.length" :data="session.suggestions" size="small" style="margin-top: 8px">
+                  <el-table-column prop="action" label="建议" width="120" />
+                  <el-table-column prop="reason" label="原因" />
+                  <el-table-column width="100">
+                    <template #default="{ row }">
+                      <el-button
+                        v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
+                        link
+                        type="primary"
+                        @click="act(row, true)"
+                      >采纳</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+          <el-collapse>              <el-collapse-item title="可复用经验（可选）" name="knowledge">
                 <p class="empty-note">候选要通过审核后才进入知识库。生成计划和 Runtime 都不会把未审核条目塞进上下文，检索时也只按问题取最多 20 条已入库记录。</p>
                 <el-form v-if="userStore.hasPermission('agent:invoke')" label-width="72px" size="small" class="cand-form">
                   <el-form-item label="标题"><el-input v-model="candidateForm.title" /></el-form-item>
@@ -554,73 +618,9 @@
                     </template>
                   </el-table-column>
                 </el-table>
-              </el-tab-pane>
-              <el-tab-pane label="子任务 / 建议">
-                <p class="empty-note">任务跑起来之后，主 Agent 会在需要时调用监控或诊断。这里只显示已经返回的子任务和建议，没有调用时保持为空。</p>
-                <el-table v-if="delegations.length" :data="delegations" size="small">
-                  <el-table-column prop="id" label="子任务" width="70" />
-                  <el-table-column prop="role" label="角色" width="100" />
-                  <el-table-column prop="status" label="状态" width="90" />
-                </el-table>
-                <p v-if="!delegations.length && !(session.suggestions || []).length" class="empty-note">当前没有子任务，也没有待采纳建议。</p>
-                <el-table v-if="session.suggestions?.length" :data="session.suggestions" size="small" style="margin-top: 8px">
-                  <el-table-column prop="action" label="建议" width="120" />
-                  <el-table-column prop="reason" label="原因" />
-                  <el-table-column width="100">
-                    <template #default="{ row }">
-                      <el-button
-                        v-if="userStore.hasPermission('agent:confirm') && row.status === 'pending'"
-                        link
-                        type="primary"
-                        @click="act(row, true)"
-                      >采纳</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </el-tab-pane>
-            </el-tabs>
-          </el-card>
-
-          <!-- 执行时间线 / 结果 -->
-          <el-card v-if="run" shadow="never" class="run-card">
-            <div class="plan-head">
-              <div class="plan-title">工具循环记录</div>
-              <StatusBadge :phase="runPhase" :text="runStatusText" />
-            </div>
-            <p class="hint">
-              第 {{ run.rounds_used || 0 }} / {{ run.max_rounds }} 轮
-              · 已用 {{ run.tokens_used || 0 }} token
-              · 限额 {{ run.token_budget || '未限额' }}
-              <span v-if="run.tokens_usage_unknown"> · 用量未回报</span>
-              <span v-if="eventsUpdatedAt"> · {{ eventsUpdatedAt }} 更新</span>
-            </p>
-            <p v-if="run.error_message" class="warn">{{ run.error_message }}</p>
-            <p v-if="run.completion" class="hint">
-              {{ run.completion.objective_verified ? '评测任务已完成，目标核验通过' :
-                run.completion.kind === 'conversation_completed' ? '本轮对话已完成，尚未核验评测目标' :
-                run.completion.kind === 'task_pending' ? '正在等待评测任务的实际执行结果' :
-                run.completion.kind === 'evaluation_unverified' ? '任务已结束，评测目标尚未核验通过' : '等待执行或核验' }}
-            </p>
-            <el-timeline class="timeline">
-              <el-timeline-item v-for="e in events" :key="`${run.id}-${e.seq}`" :timestamp="eventClock(e)" placement="top">
-                <div class="event-title">{{ eventLabel(e.type) }}</div>
-                <p class="event-detail">{{ eventDetail(e) }}</p>
-                <el-collapse v-if="e.payload && Object.keys(e.payload).length">
-                  <el-collapse-item title="原始数据" :name="String(e.seq)">
-                    <pre class="payload">{{ formatPayload(e.payload) }}</pre>
-                  </el-collapse-item>
-                </el-collapse>
-              </el-timeline-item>
-            </el-timeline>
-          </el-card>
-
-          <el-card v-if="session.task_id && productPhase === 'completed'" shadow="never" class="result-card">
-            <div class="plan-title">结果</div>
-            <p>已关联任务 #{{ session.task_id }}（{{ session.plan?.trial_run ? '试跑' : '正式' }}）</p>
-            <el-button type="primary" link @click="$router.push(`/tasks/${session.task_id}`)">查看任务 / 报告</el-button>
-            <el-button v-if="userStore.hasPermission('agent:invoke')" link @click="persistRecipe">沉淀为可复用经验</el-button>
-            <el-button link @click="startNew">基于此目标新建</el-button>
-          </el-card>
+              </el-collapse-item></el-collapse>
+          </el-tab-pane>
+          </el-tabs>
         </template>
       </main>
     </div>
@@ -632,8 +632,8 @@
         <el-form-item label="系统提示词"><el-input v-model="customAgent.system_prompt" type="textarea" :rows="3" /></el-form-item>
         <el-form-item label="最大迭代"><el-input-number v-model="customAgent.max_iterations" :min="1" :max="20" /></el-form-item>
         <el-form-item label="超时秒数"><el-input-number v-model="customAgent.timeout_seconds" :min="5" :max="600" /></el-form-item>
-        <el-form-item label="流式输出"><el-switch v-model="customAgent.supports_stream" /></el-form-item>
-        <el-form-item label="人工介入"><el-switch v-model="customAgent.human_in_the_loop" /></el-form-item>
+        <el-form-item label="执行动态"><span class="hint">跟随助手设置，通过实时事件展示执行过程；当前不逐字输出子 Agent 文本。</span></el-form-item>
+        <el-form-item label="人工介入"><span class="hint">子 Agent 只提供分析；创建、恢复及补测必须经人员确认，不提供任意节点手动接管。</span></el-form-item>
         <el-form-item label="可调用工具">
           <el-checkbox-group v-model="customAgent.available_tools">
             <el-checkbox v-for="tool in mainToolOptions" :key="tool.name" :label="tool.name">{{ tool.label }}</el-checkbox>
@@ -645,7 +645,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="评测标尺">
-          <el-input v-model="customAgent.evaluation_spec_text" type="textarea" :rows="2" placeholder="评测类子 Agent 填写 JSON" />
+          <el-input v-model="customAgent.evaluation_spec_text" type="textarea" :rows="2" placeholder='如 {"stages":["planning"],"trigger_keywords":["客服","售后"]}'  />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -692,8 +692,103 @@ import { agentsApi, modelsApi, resourcesApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ResourcePicker from '@/components/ResourcePicker.vue'
+import AgentExecutionDetails from '@/components/AgentExecutionDetails.vue'
+import MarkdownMessage from '@/components/MarkdownMessage.vue'
+import { subscribeAgentEvents } from '@/utils/agentEvents'
 
 const userStore = useUserStore()
+const sessionQuery = ref('')
+const filteredSessions = computed(() => sessions.value.filter(item => !sessionQuery.value.trim() || `${item.id} ${item.title || ''}`.toLowerCase().includes(sessionQuery.value.trim().toLowerCase())))
+const settingsOpen = ref(false)
+const workspaceTab = ref('conversation')
+const pendingMessages = ref([])
+const focusReading = ref(false)
+const controlLoading = ref(false)
+const realtimeState = ref('每2.5秒更新')
+let streamController = null
+let streamRetry = null
+let streamRefresh = null
+const displayedMessages = computed(() => {
+  const stored = session.value.messages || []
+  const ids = new Set(stored.map(item => item.payload?.client_message_id).filter(Boolean))
+  return [...stored, ...pendingMessages.value.filter(item => !ids.has(item.client_message_id))]
+})
+const assistantBusy = computed(() => runLoading.value || !!liveRun.value && ['queued', 'running'].includes(liveRun.value.status) || liveRun.value?.status === 'waiting' && liveRun.value?.checkpoint?.phase === 'verify')
+const waitingLabel = computed(() => liveRun.value?.checkpoint?.phase === 'verify' ? '任务执行中，关键节点会主动更新' : liveRun.value?.checkpoint?.phase === 'prepare' ? '正在核对资源并进行专项分析' : '正在分析，请稍候')
+const canStopSession = computed(() => !!liveRun.value && ['queued','running','waiting'].includes(liveRun.value.status) && !liveRun.value.cancel_requested)
+const canContinueSession = computed(() => !assistantBusy.value && ['stopped','cancelled','failed','paused_budget'].includes(session.value.display_status || liveRun.value?.status))
+const sessionState = item => {
+  const state = item.id === currentId.value ? session.value.display_status || item.display_status || item.status : item.display_status || item.status
+  const states = {
+    planning: ['规划中','blue'], tracking: ['跟踪中','blue'], running: ['执行中','blue'], queued: ['排队中','blue'],
+    awaiting_approval: ['待确认','amber'], waiting_confirm: ['待确认','amber'], approved: ['待执行','amber'], needs_input: ['待补充','amber'],
+    paused_budget: ['预算不足','amber'], completed: ['已完成','green'], success: ['已完成','green'], done: ['已完成','green'],
+    failed: ['异常结束','red'], stopped: ['已停止','gray'], cancelled: ['已停止','gray'], stopping: ['正在停止','amber'],
+  }
+  const [label, tone] = states[state] || ['待处理','gray']
+  return { label, tone }
+}
+async function stopConversation() {
+  try { await ElMessageBox.confirm('停止助手的分析和跟踪？当前模型或工具请求会在节点结束后停止。已经提交的评测任务继续运行，可在任务详情单独管理，之后可以继续此会话。', '停止助手') } catch { return }
+  controlLoading.value = true
+  try { await agentsApi.stopSession(currentId.value); await loadSession(); await loadList() } finally { controlLoading.value = false }
+}
+async function continueConversation() {
+  let budget = Number(session.value.plan?.token_budget || 0)
+  if (liveRun.value?.status === 'paused_budget') {
+    const floor = Math.max(Number(liveRun.value.tokens_used || 0), Number(liveRun.value.token_budget || 0))
+    let answer
+    try { answer = await ElMessageBox.prompt(`已用 ${liveRun.value.tokens_used} Token。输入大于 ${floor} 的新预算；原记录保留，并启动新的执行轮。`, '增加预算后继续', { inputValue: String(floor + 10000), inputValidator: value => Number.isInteger(Number(value)) && Number(value) > floor || `请输入大于 ${floor} 的整数` }) } catch { return }
+    budget = Number(answer.value)
+  }
+  controlLoading.value = true
+  followLatest.value = true
+  try {
+    await agentsApi.continueSession(currentId.value, { token_budget: budget })
+    workspaceTab.value = 'conversation'
+    await loadSession()
+    await loadList()
+    ElMessage.success('已继续会话；不会重复创建已有任务')
+  } finally { controlLoading.value = false }
+}
+function stopEventStream() {
+  streamController?.abort()
+  streamController = null
+  clearTimeout(streamRetry)
+  clearTimeout(streamRefresh)
+}
+function startEventStream() {
+  stopEventStream()
+  if (!profileForm.value.supports_stream || !run.value?.id || ['success','failed','cancelled','paused_budget'].includes(run.value.status)) {
+    realtimeState.value = '每2.5秒更新'
+    return
+  }
+  const rid = run.value.id, sid = currentId.value, gen = sessionGen
+  const controller = new AbortController()
+  streamController = controller
+  realtimeState.value = '正在连接实时动态'
+  let eof = false
+  subscribeAgentEvents({ runId: rid, afterSeq: eventCursor, token: userStore.token, signal: controller.signal,
+    onConnected: () => { if (!controller.signal.aborted) realtimeState.value = '实时动态已连接' },
+    onEvent: event => {
+      if (controller.signal.aborted || gen !== sessionGen || run.value?.id !== rid) return
+      if (event.type === 'run.eof') eof = true
+      else mergeEvents([event], rid)
+      clearTimeout(streamRefresh)
+      streamRefresh = setTimeout(async () => {
+        try {
+          await refreshRun()
+          const data = await agentsApi.getSession(sid)
+          if (gen !== sessionGen || currentId.value !== sid) return
+          session.value = data
+          await Promise.all([loadRunHistory(sid,gen), loadRevisions(sid,gen)])
+        } catch { /* periodic refresh remains active */ }
+      }, 180)
+    },
+  }).catch(() => { if (!controller.signal.aborted) realtimeState.value = '连接中断，轮询更新' }).finally(() => {
+    if (!controller.signal.aborted && !eof && streamController === controller) streamRetry = setTimeout(startEventStream, 1500)
+  })
+}
 const route = useRoute()
 const router = useRouter()
 
@@ -708,6 +803,8 @@ const showCustomAgent = ref(false)
 const showCustomSkill = ref(false)
 const savingCustom = ref(false)
 const mainToolOptions = [
+  { name: 'get_resource_inventory', label: '读取授权资源清单' },
+  { name: 'get_task_evidence', label: '读取任务及样本证据' },
   { name: 'search_knowledge', label: '检索经验知识' },
   { name: 'infer_dims', label: '推断场景' },
   { name: 'search_eval_resources', label: '检索评测资源' },
@@ -756,7 +853,6 @@ const activeSubagents = computed(() => (catalog.value.subagents || []).filter((i
 const activeSkills = computed(() => (catalog.value.skills || []).filter((item) => item.enabled !== false))
 const railCollapsed = ref(false)
 const drawerOpen = ref(false)
-const showAdvanced = ref(false)
 const goalText = ref('')
 const followUp = ref('')
 const planEditing = ref(false)
@@ -797,6 +893,57 @@ const currentId = ref(null)
 const session = ref({})
 const approvalId = ref(null)
 const run = ref(null)
+const runHistory = ref([])
+const reportRevisions = ref([])
+const followLatest = ref(true)
+let selectionGen = 0
+const roleNames = computed(() => Object.fromEntries((catalog.value.subagents || []).map(item => [item.role, item.name])))
+const selectedTurnIndex = computed(() => runHistory.value.findIndex(item => item.id === run.value?.id))
+const liveRun = computed(() => {
+  const id = session.value.active_run_id || session.value.last_run_id
+  return run.value?.id === id ? run.value : runHistory.value.find(item => item.id === id)
+})
+const purposeName = value => ({ planning: '需求规划', dialogue: '对话', followup: '执行跟踪' }[value] || '对话')
+async function loadRunHistory(sid = currentId.value, gen = sessionGen) {
+  let page = 1, items = [], response
+  do {
+    response = await agentsApi.runs(sid, { page, page_size: 100 })
+    items.push(...(response.items || []))
+    page++
+  } while (items.length < response.total)
+  if (sid === currentId.value && gen === sessionGen) runHistory.value = items
+}
+async function selectTurn(id) {
+  followLatest.value = false
+  await loadRun(id)
+}
+async function moveTurn(offset) {
+  const target = runHistory.value[selectedTurnIndex.value + offset]
+  if (target) await selectTurn(target.id)
+}
+async function viewLatest() {
+  followLatest.value = true
+  await loadSession()
+}
+async function loadRevisions(sid = currentId.value, gen = sessionGen) {
+  const data = await agentsApi.reportRevisions(sid)
+  if (sid === currentId.value && gen === sessionGen) reportRevisions.value = data.items || []
+}
+async function actRevision(row, action) {
+  await ElMessageBox.confirm(action === 'publish' ? '确认发布此优化稿？原始报告及评分仍保留。' : '确认撤回优化稿并恢复使用原始报告？', '人工确认')
+  await (action === 'publish' ? agentsApi.publishReportRevision(row.id) : agentsApi.revertReportRevision(row.id))
+  await loadRevisions()
+  ElMessage.success(action === 'publish' ? '已发布优化稿' : '已撤回优化稿')
+}
+async function downloadRevision(row) {
+  const blob = await agentsApi.downloadReportRevision(row.id)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `task-${row.task_id}-revision-${row.id}.md`
+  link.click()
+  URL.revokeObjectURL(url)
+}
 const events = ref([])
 const eventsUpdatedAt = ref('')
 const pollError = ref('')
@@ -828,7 +975,7 @@ const resourceGapTexts = computed(() => {
   const fromClarify = dynamicClarifications.value.filter((c) => c.field === 'resource').map((c) => c.question)
   return [...new Set([...fromPlan, ...fromClarify].filter(Boolean))]
 })
-const showClarify = computed(() => ['needs_input', 'awaiting_approval', 'planning', 'budget_paused'].includes(productPhase.value))
+const showClarify = computed(() => session.value.plan?.analysis_status !== 'pending' && ['needs_input', 'budget_paused'].includes(productPhase.value))
 const clarifyTitle = computed(() => {
   if (productPhase.value === 'awaiting_approval') return '修改计划（提交后旧审批失效）'
   if (productPhase.value === 'budget_paused') return '预算已暂停，请调整后再提交'
@@ -854,6 +1001,15 @@ function roleLabel(role) {
     report_reviewer: '报告审校',
     param_advisor: '参数推荐',
   }[role] || role)
+}
+
+function replyAuthor(message) {
+  const delegatedRole = String(message.tool_name || '').startsWith('delegate:') ? message.tool_name.slice(9) : ''
+  if (!delegatedRole && ['user', 'system'].includes(message.role)) return null
+  const role = delegatedRole || message.role
+  if (['main', 'assistant'].includes(role)) return { kind: 'main-agent', role: 'main', label: '主 Agent' }
+  const name = message.payload?.agent_name || catalog.value.subagents.find(agent => agent.role === role)?.name || roleLabel(role)
+  return { kind: 'sub-agent', role, label: `子 Agent · ${name}` }
 }
 
 const judgeLabel = computed(() => {
@@ -930,7 +1086,16 @@ async function loadJudges() {
 }
 
 function eventLabel(type) {
+  if (type.startsWith('subagent.')) return `子 Agent · ${{ started: '开始专项任务', 'model.request': '模型输入', 'model.response': '模型响应', 'tool.started': '调用工具', 'tool.completed': '工具返回', 'tool.failed': '工具失败', completed: '专项完成', failed: '专项失败' }[type.slice(9)] || type.slice(9)}`
   const map = {
+    'planning.started': '开始规划分析',
+    'resources.discovered': '已读取授权资源',
+    'llm.request': '主 Agent 模型输入',
+    'task.tracking_started': '开始跟踪评测任务',
+    'task.observed': '任务状态与结果更新',
+    'task.heartbeat': '长任务定时跟进',
+    'report.optimized': '优化报告草稿已保存',
+    'collaboration.failed': '专项协作失败',
     'run.created': '已创建运行',
     'run.claimed': '已领取执行',
     'llm.select': '规划模型决策',
@@ -978,6 +1143,11 @@ function eventClock(event) {
 
 function eventDetail(event) {
   const payload = event?.payload || {}
+  if (event.type.startsWith('subagent.')) return `${roleNames.value[payload.role] || payload.role || '子 Agent'} · 记录 #${payload.delegation_id || '—'}${payload.error ? ` · ${payload.error}` : ''}。详细输入和结果可在上方专项协作记录展开。`
+  if (event.type === 'resources.discovered') return `已读取数据集 ${payload.datasets?.length || 0} 个、被测模型 ${payload.models?.length || 0} 个、工具 ${payload.tools?.length || 0} 个。`
+  if (event.type === 'task.observed' || event.type === 'task.heartbeat') return `任务 #${payload.task_id}：${payload.status}，进度 ${payload.progress}%，通过 ${payload.success_count}，失败 ${payload.fail_count}。`
+  if (event.type === 'report.optimized') return `优化稿 #${payload.revision_id} 已保存，等待人工审核。`
+  if (event.type === 'llm.request') return '本轮主 Agent 的实际模型输入和工具范围已保存，可展开查看。'
   if (event.type === 'run.created') {
     return `开始向规划模型提问：${clipText(payload.message) || '（无问题文本）'}`
   }
@@ -1019,8 +1189,7 @@ function eventDetail(event) {
 
 function formatPayload(p) {
   try {
-    const s = JSON.stringify(p, null, 2)
-    return s.length > 2000 ? `${s.slice(0, 2000)}\n…` : s
+    return JSON.stringify(p, null, 2)
   } catch {
     return String(p)
   }
@@ -1047,11 +1216,13 @@ const TASK_DONE = ['completed', 'success', 'done']
 
 const productPhase = computed(() => {
   const s = session.value
-  const r = run.value
+  const r = liveRun.value
   if (!currentId.value || !s?.id) return 'idle'
   if (r?.status === 'paused_budget') return 'budget_paused'
-  if (r?.status === 'cancelled') return 'cancelled'
+  if (s.display_status === 'stopped' || r?.status === 'cancelled') return 'cancelled'
   if (r?.status === 'failed') return 'failed'
+  if (s.plan?.analysis_status === 'pending') return 'planning'
+  if (r?.checkpoint?.phase === 'await_approval' && !s.task_id) return activeApproval.value ? 'approved' : 'awaiting_approval'
   if (r && ['queued', 'running', 'waiting'].includes(r.status)) return 'running'
   if (s.task_id) {
     const ts = s.task_status || ''
@@ -1064,9 +1235,9 @@ const productPhase = computed(() => {
   }
   if (r?.status === 'success' && !s.task_id) {
     if (activeApproval.value) return 'approved'
-    if (s.plan?.ready && (s.status === 'waiting_confirm' || s.status === 'approved')) return 'awaiting_approval'
+    if (s.plan?.ready) return 'awaiting_approval'
     if (!s.plan?.ready || (s.plan?.clarifications || []).length) return 'needs_input'
-    return 'completed'
+    return 'needs_input'
   }
   if (activeApproval.value) return 'approved'
   if (s.plan?.ready && s.status === 'waiting_confirm') return 'awaiting_approval'
@@ -1087,6 +1258,7 @@ const runPhase = computed(() => {
 
 const primaryAction = computed(() => {
   if (!currentId.value) return null
+  if (session.value.plan?.analysis_status === 'pending') return { key: 'noop', label: '正在检索资源并分析', disabled: true }
   const p = productPhase.value
   if (p === 'needs_input' || p === 'planning') return { key: 'clarify', label: '补充并更新计划' }
   if (p === 'awaiting_approval') return { key: 'approve', label: '审批计划' }
@@ -1097,12 +1269,13 @@ const primaryAction = computed(() => {
       : { key: 'noop', label: '执行中', disabled: true }
   }
   if (p === 'failed') {
-    if (run.value && ['waiting', 'failed', 'queued'].includes(run.value.status)) return { key: 'resume', label: '安全恢复' }
+    if (!session.value?.task_id) return { key: 'continue', label: '继续会话' }
+    if (liveRun.value && ['waiting', 'failed', 'queued'].includes(liveRun.value.status)) return { key: 'resume', label: '安全恢复' }
     if (session.value?.task_id) return { key: 'view_task', label: '查看失败任务' }
     return { key: 'clarify', label: '修改计划' }
   }
-  if (p === 'cancelled') return { key: 'restart', label: '基于此目标新建' }
-  if (p === 'budget_paused') return { key: 'raise_budget', label: '用新预算重新运行' }
+  if (p === 'cancelled') return { key: 'continue', label: '继续会话' }
+  if (p === 'budget_paused') return { key: 'continue', label: '增加预算后继续' }
   if (p === 'report_pending') return { key: 'view_task', label: '查看任务' }
   if (p === 'completed' && session.value?.report_status === 'available') return { key: 'report', label: '查看报告' }
   if (p === 'completed' && session.value?.task_id) return { key: 'view_task', label: '查看任务' }
@@ -1115,12 +1288,14 @@ const primaryLoading = computed(() => {
   if (k === 'clarify' || k === 'raise_budget') return clarifying.value || runLoading.value
   if (k === 'approve') return approving.value
   if (k === 'confirm') return confirming.value
+  if (k === 'continue') return controlLoading.value
   if (k === 'resume') return resumeLoading.value
   return false
 })
 
 const primaryDisabled = computed(() => {
   if (primaryAction.value?.disabled) return true
+  if (primaryAction.value?.key === 'continue' && !userStore.hasPermission('agent:invoke')) return true
   const k = primaryAction.value?.key
   if (k === 'approve' && !userStore.hasPermission('agent:confirm')) return true
   if (k === 'confirm' && (!userStore.hasPermission('agent:confirm') || !activeApproval.value)) return true
@@ -1130,11 +1305,12 @@ const primaryDisabled = computed(() => {
 
 const primaryHint = computed(() => {
   const p = productPhase.value
+  if (session.value.plan?.analysis_status === 'pending') return '正在读取授权资源并调用规划子 Agent，可在下方展开已完成的专项记录。'
   if (p === 'approved' && !activeApproval.value) return '审批已失效，请重新签发后再执行。'
   if (p === 'budget_paused') return '新预算必须大于这次已用 token。确认后会重新启动一次运行，执行记录换成新的 run。'
   if (p === 'needs_input' || p === 'planning') return '补全缺项后点「补充并更新计划」。计划就绪后，主按钮会变成「审批计划」。'
   if (p === 'awaiting_approval') return '核对数据集、模型和预算后审批。若要改配置，点「保存计划修改」，旧审批会失效。'
-  if (p === 'cancelled') return '本次运行已取消，可以基于同一目标新建会话。'
+  if (p === 'cancelled') return '助手已停止，点击「继续会话」沿用保存的上下文继续；已提交任务不会重复创建。'
   if (p === 'running' && !session.value?.task_id) return '工具循环还在执行，评测任务尚未创建。'
   if (primaryAction.value?.key === 'resume' && run.value && !['waiting', 'failed', 'queued'].includes(run.value.status)) {
     return '当前状态不可恢复'
@@ -1157,13 +1333,7 @@ const secondaryActions = computed(() => {
   return list
 })
 
-function toggleAdvanced() {
-  showAdvanced.value = !showAdvanced.value
-  if (showAdvanced.value) {
-    loadCandidates().catch(() => {})
-    if (currentId.value && session.value?.task_id) loadDelegations().catch(() => {})
-  }
-}
+
 
 async function runPrimary() {
   const k = primaryAction.value?.key
@@ -1174,9 +1344,9 @@ async function runPrimary() {
     if (session.value.task_id) router.push(`/tasks/${session.value.task_id}`)
     return
   }
-  if (k === 'resume') return resumeRuntime()
+  if (k === 'continue' || k === 'resume') return continueConversation()
   if (k === 'restart') return startNew()
-  if (k === 'raise_budget') return raiseBudgetAndRerun()
+
 }
 
 function stopPoll() {
@@ -1187,6 +1357,7 @@ function stopPoll() {
 }
 
 function resetRunContext() {
+  stopEventStream()
   stopPoll()
   run.value = null
   events.value = []
@@ -1199,7 +1370,12 @@ function resetRunContext() {
 
 function resetSessionSideState() {
   resetRunContext()
+  runHistory.value = []
+  reportRevisions.value = []
+  followLatest.value = true
+  selectionGen++
   session.value = {}
+  pendingMessages.value = []
   approvalId.value = null
   delegations.value = []
   evidence.value = []
@@ -1277,6 +1453,19 @@ async function reviewCand(row, approveFlag) {
 }
 
 function startNew() {
+  focusReading.value = false
+  sessionGen++
+  goalText.value = ''
+  followUp.value = ''
+  tokenBudget.value = 0
+  recipeId.value = null
+  selectedRoles.value = ['monitor','diagnose']
+  selectedSkills.value = []
+  selectedMcps.value = []
+  clarifyForm.value = { dataset_id: null, model_id: null, token_budget: 0, trial_run: true, scene: '', judge_resource_id: '' }
+  planEditing.value = false
+  workspaceTab.value = 'conversation'
+  pendingMessages.value = []
   currentId.value = null
   resetSessionSideState()
   router.replace({ path: '/agents', query: {} })
@@ -1362,8 +1551,8 @@ async function loadSession() {
     approvalId.value = valid?.id || null
     await resolveLabels(data.plan, sid, gen)
     if (gen !== sessionGen || currentId.value !== sid) return
-    if (data.task_id) await loadDelegations(sid, gen)
-    const runId = data.active_run_id || data.last_run_id
+    await Promise.all([loadRunHistory(sid, gen), loadRevisions(sid, gen)])
+    const runId = !followLatest.value && sameSession && run.value?.id ? run.value.id : data.active_run_id || data.last_run_id
     if (runId) await loadRun(runId, sid, gen)
     if (!plannerModelId.value && run.value?.planner_model_id) plannerModelId.value = run.value.planner_model_id
     if (gen === sessionGen && currentId.value === sid) applyPausedBudgetDefault()
@@ -1385,8 +1574,9 @@ async function loadSession() {
 
 async function loadDelegations(sid = currentId.value, gen = sessionGen) {
   if (!sid) return
-  const res = await agentsApi.delegations(sid)
-  if (gen !== sessionGen || currentId.value !== sid) return
+  const rid = run.value?.id
+  const res = await agentsApi.delegations(sid, rid ? { run_id: rid } : {})
+  if (gen !== sessionGen || currentId.value !== sid || run.value?.id !== rid) return
   delegations.value = res.items || []
   evidence.value = res.evidence || []
 }
@@ -1603,7 +1793,7 @@ async function createSession() {
       recipe_id: recipeId.value || undefined,
       planner_model_id: plannerModelId.value,
     })
-    ElMessage.success(created.plan?.ready ? '计划已就绪，可审批' : '需要补充信息')
+    ElMessage.success(created.plan?.analysis_status === 'pending' ? '正在检索资源并调用规划子 Agent' : created.plan?.ready ? '计划已就绪，可审批' : '需要补充信息')
     await loadList()
     currentId.value = created.id
     router.replace({ path: '/agents', query: { session: String(created.id) } })
@@ -1708,16 +1898,19 @@ function mergeEvents(items, rid) {
 }
 
 async function loadRun(rid, sid = currentId.value, gen = sessionGen) {
+  const selection = ++selectionGen
   resetRunContext()
   const data = await agentsApi.getRun(rid)
-  if (gen !== sessionGen || currentId.value !== sid) return
+  if (gen !== sessionGen || currentId.value !== sid || selection !== selectionGen) return
   run.value = data
   const res = await agentsApi.runEvents(rid, { after_seq: 0 })
-  if (gen !== sessionGen || currentId.value !== sid) return
+  if (gen !== sessionGen || currentId.value !== sid || selection !== selectionGen) return
   events.value = []
   seenEventSeq = new Set()
   eventCursor = 0
   mergeEvents(res.items || [], rid)
+  await loadDelegations(sid, gen)
+  startEventStream()
   schedulePoll()
 }
 
@@ -1734,6 +1927,7 @@ async function refreshRun() {
     const res = await agentsApi.runEvents(rid, { after_seq: eventCursor })
     if (gen !== sessionGen || run.value?.id !== rid) return
     mergeEvents(res.items || [], rid)
+    await loadDelegations(sid, gen)
     pollError.value = ''
   } catch (e) {
     if (gen === sessionGen) pollError.value = e?.response?.data?.detail || e?.message || '刷新失败'
@@ -1744,19 +1938,27 @@ async function refreshRun() {
 
 function schedulePoll() {
   stopPoll()
+  const sid = currentId.value
+  const gen = sessionGen
   const tick = async () => {
-    if (!run.value?.id) return
-    if (['success', 'failed', 'cancelled', 'paused_budget'].includes(run.value.status)) {
-      stopPoll()
-      return
+    if (sid !== currentId.value || gen !== sessionGen) return
+    try {
+      await refreshRun()
+      const data = await agentsApi.getSession(sid)
+      if (sid !== currentId.value || gen !== sessionGen) return
+      const finishedPlanning = session.value.plan?.analysis_status === 'pending' && data.plan?.analysis_status !== 'pending'
+      session.value = data
+      await Promise.all([loadRunHistory(sid, gen), loadRevisions(sid, gen)])
+      if (finishedPlanning) { await loadSession(); return }
+      const latest = data.active_run_id || data.last_run_id
+      if (followLatest.value && latest && latest !== run.value?.id) { await loadRun(latest, sid, gen); return }
+      pollError.value = ''
+    } catch (e) {
+      if (gen === sessionGen) pollError.value = loadFailureMessage(e, '刷新执行明细失败')
     }
-    await refreshRun()
-    if (!run.value?.id) return
-    if (['success', 'failed', 'cancelled', 'paused_budget'].includes(run.value.status)) {
-      stopPoll()
-      return
-    }
-    pollTimer = setTimeout(tick, 2000)
+    if (gen !== sessionGen) return
+    const active = liveRun.value && ['queued', 'running', 'waiting'].includes(liveRun.value.status)
+    if (active || TASK_RUNNING.includes(session.value.task_status)) pollTimer = setTimeout(tick, 2500)
   }
   pollTimer = setTimeout(tick, 2000)
 }
@@ -1774,111 +1976,46 @@ function applyPausedBudgetDefault() {
   }
 }
 
-async function raiseBudgetAndRerun() {
-  const used = Number(run.value?.tokens_used || 0)
-  const oldCap = Number(run.value?.token_budget || 0)
-  const next = Number(clarifyForm.value.token_budget || 0)
-  const floor = Math.max(used, oldCap)
-  if (next <= floor) {
-    ElMessage.warning(`新预算需要大于 ${floor}。这次已用 ${used}，原限额 ${oldCap || '未限额'}。`)
-    return
-  }
-  if (!plannerModelId.value && run.value?.planner_model_id) {
-    plannerModelId.value = run.value.planner_model_id
-  }
-  if (!plannerModelId.value) {
-    showAdvanced.value = true
-    ElMessage.warning('请在按钮下方的高级面板里选择规划模型')
-    return
-  }
-  clarifying.value = true
-  const prevPlan = Number(session.value?.plan?.token_budget || 0)
-  try {
-    const payload = {
-      objective: goalText.value || session.value.requirement,
-      trial_run: clarifyForm.value.trial_run,
-      token_budget: next,
-    }
-    if (clarifyForm.value.dataset_id) payload.dataset_id = clarifyForm.value.dataset_id
-    if (clarifyForm.value.model_id) payload.model_id = clarifyForm.value.model_id
-    await agentsApi.clarify(currentId.value, payload)
-    tokenBudget.value = next
-    await launchRuntime({ quiet: true, budget: next })
-    ElMessage.success(`运行限额已从 ${oldCap || '未限额'} 提高到 ${next}，计划预算从 ${prevPlan} 改为 ${next}。下方执行记录已换成新的运行。`)
-  } catch (e) {
-    await loadSession().catch(() => {})
-    ElMessage.error(e?.response?.data?.detail || e?.message || '调整预算失败')
-  } finally {
-    clarifying.value = false
-  }
-}
-
 function startRuntime() {
-  return launchRuntime({}).catch(() => {})
+  return launchRuntime({ message: '请沿用当前需求和计划，检查尚未完成的分析与资源缺口，给出下一步建议；不要重述原需求，不自动执行任务。' }).catch(() => {})
 }
-
 async function sendFollowUp() {
   const text = followUp.value.trim()
-  if (!text || runLoading.value) return
+  if (!text || runLoading.value || assistantBusy.value) return
+  if (!plannerModelId.value) { ElMessage.warning('请选择已配置的规划模型'); return }
+  const sid = currentId.value
+  const local = { id: `pending-${crypto.randomUUID()}`, client_message_id: crypto.randomUUID(), role: 'user', content: text, created_at: new Date().toISOString(), delivery: 'sending' }
+  pendingMessages.value.push(local)
+  followUp.value = ''
+  nextTick(() => scrollThread(true))
   try {
-    await launchRuntime({ message: text })
-    followUp.value = ''
-  } catch {
-    /* launchRuntime 已提示 */
+    if (['确认执行', '确认当前计划并执行', '按当前计划执行', '确认提交并执行'].includes(text.replace(/[。！!.]+$/, ''))) {
+      if (!userStore.hasPermission('agent:confirm')) throw new Error('当前账号没有审批执行权限')
+      if (!session.value.plan?.ready || session.value.plan?.analysis_status === 'pending') throw new Error('计划尚未就绪，请先补充信息并等待分析完成')
+      runLoading.value = true
+      const result = await agentsApi.confirm(sid, { execute: true, expected_plan_hash: session.value.plan.canonical_hash, confirmation_message: text, client_message_id: local.client_message_id, client_invocation_id: `chat-${local.client_message_id}` })
+      if (result.idempotent && sid === currentId.value) pendingMessages.value = pendingMessages.value.filter(item => item.id !== local.id)
+      followLatest.value = true
+      if (sid === currentId.value) { await loadSession(); await loadList(); ElMessage.success('已按对话确认提交任务，助手将持续跟进') }
+    } else await launchRuntime({ message: text, clientMessageId: local.client_message_id })
+  } catch (error) {
+    if (sid === currentId.value) {
+      const pending = pendingMessages.value.find(item => item.id === local.id)
+      if (pending) pending.delivery = 'failed'
+    }
+    ElMessage.error(error?.response?.data?.detail || error?.message || '发送失败')
+  } finally {
+    runLoading.value = false
   }
 }
 
-function inlineMarkdown(text) {
-  return text
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-}
-
-function renderMarkdown(raw) {
-  const escaped = String(raw || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  const blocks = []
-  const withCode = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
-    const token = `@@CODE${blocks.length}@@`
-    blocks.push(`<pre><code>${code.replace(/^\n|\n$/g, '')}</code></pre>`)
-    return token
-  })
-  const html = withCode
-    .split(/\n{2,}/)
-    .map((para) => {
-      const lines = para.split('\n')
-      const tableLines = lines.map((line) => line.trim()).filter(Boolean)
-      const isTable = tableLines.length >= 2 && tableLines.every((line) => line.startsWith('|') && line.endsWith('|'))
-      if (isTable) {
-        const rows = tableLines
-          .map((line) => line.slice(1, -1).split('|').map((cell) => inlineMarkdown(cell.trim())))
-          .filter((row) => !row.every((cell) => /^:?-{3,}:?$/.test(cell)))
-        if (rows.length) {
-          const head = rows[0].map((cell) => `<th>${cell}</th>`).join('')
-          const body = rows.slice(1).map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
-          return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
-        }
-      }
-      let line = inlineMarkdown(para)
-      line = line.replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>')
-      line = line.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
-      line = line.replace(/^(?:[-*] |\d+\. )(.+)$/gm, '<li>$1</li>')
-      if (line.includes('<li>')) line = `<ul>${line}</ul>`
-      return `<p>${line.replace(/\n/g, '<br>')}</p>`
-    })
-    .join('')
-  return html.replace(/@@CODE(\d+)@@/g, (_, index) => blocks[Number(index)] || '')
-}
-
-async function launchRuntime({ quiet = false, budget = null, message = '' } = {}) {
+async function launchRuntime({ quiet = false, budget = null, message = '', clientMessageId = '' } = {}) {
   if (!currentId.value || !plannerModelId.value) {
     ElMessage.warning('请选择已配置 api_url 的规划模型')
     return
   }
   runLoading.value = true
+  followLatest.value = true
   const sid = currentId.value
   const gen = sessionGen
   const nextBudget = budget == null ? Number(clarifyForm.value.token_budget || tokenBudget.value || 0) : Number(budget)
@@ -1886,10 +2023,11 @@ async function launchRuntime({ quiet = false, budget = null, message = '' } = {}
   try {
     const data = await agentsApi.startRun(sid, {
       message: text,
+      client_message_id: clientMessageId,
       provider: 'live',
       planner_model_id: plannerModelId.value,
       token_budget: nextBudget,
-      sync: true,
+      sync: false,
       max_rounds: Number(profileForm.value.max_iterations) || 10,
     })
     if (gen !== sessionGen || currentId.value !== sid) return
@@ -1908,33 +2046,7 @@ async function launchRuntime({ quiet = false, budget = null, message = '' } = {}
   }
 }
 
-async function cancelRuntime() {
-  if (!run.value?.id || cancelLoading.value) return
-  cancelLoading.value = true
-  try {
-    run.value = await agentsApi.cancelRun(run.value.id)
-    await refreshRun()
-    ElMessage.success(run.value.status === 'cancelled' ? '已取消' : '已请求取消')
-    if (!['cancelled', 'success', 'failed'].includes(run.value.status)) schedulePoll()
-  } finally {
-    cancelLoading.value = false
-  }
-}
-
-async function resumeRuntime() {
-  if (!run.value?.id || resumeLoading.value) return
-  resumeLoading.value = true
-  try {
-    run.value = await agentsApi.resumeRun(run.value.id)
-    await refreshRun()
-    await loadSession()
-    ElMessage.success(`恢复后 ${run.value.status}`)
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || e?.message || '恢复失败')
-  } finally {
-    resumeLoading.value = false
-  }
-}
+watch(() => profileForm.value.supports_stream, () => { if (run.value?.id) startEventStream() })
 
 watch(
   () => route.query.session,
@@ -2002,7 +2114,7 @@ async function saveProfile() {
       available_tools: profileForm.value.available_tools,
       max_iterations: Number(profileForm.value.max_iterations) || 10,
       supports_stream: profileForm.value.supports_stream,
-      human_in_the_loop: profileForm.value.human_in_the_loop,
+      human_in_the_loop: true,
       evaluation_spec: spec,
       timeout_seconds: Number(profileForm.value.timeout_seconds) || 120,
     })
@@ -2030,6 +2142,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopEventStream()
   document.removeEventListener('click', rememberPageClick, true)
   sessionGen += 1
   stopPoll()
@@ -2037,6 +2150,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.profile-form { margin-top: 26px; }
+.reading-actions { display: flex; gap: 14px; align-items: center; }
+.focus-reading .session-rail { display: none; }
+.focus-reading .thread { height: max(780px, calc(100vh - 210px)); }
 .agents-wb { --rail-w: 260px; }
 .profile-card { margin-bottom: 16px; }
 .skill-head { margin-top: 18px; }
@@ -2071,6 +2188,7 @@ onUnmounted(() => {
 .sess-title { font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sess-meta { font-size: 11px; color: var(--text-secondary); }
 .main-pane { flex: 1; min-width: 0; }
+.turn-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .hero-card, .plan-card, .clarify-card, .run-card, .result-card, .adv-card {
   background: var(--bg-card, #fff);
   border: 1px solid var(--border-color, #e2e8f0);
@@ -2119,16 +2237,10 @@ onUnmounted(() => {
 .msg.system { max-width: 100%; background: transparent; border-style: dashed; }
 .msg-meta { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary); }
 .msg-meta b { color: var(--text-primary, #0f172a); }
-.msg-body { line-height: 1.6; word-break: break-word; }
-.msg-body :deep(p) { margin: 0 0 6px; }
-.msg-body :deep(p:last-child) { margin-bottom: 0; }
-.msg-body :deep(ul) { margin: 4px 0; padding-left: 18px; }
-.msg-body :deep(code) { padding: 0 4px; border-radius: 4px; background: rgba(15, 23, 42, 0.06); }
-.msg-body :deep(table) { width: 100%; border-collapse: collapse; margin: 6px 0; }
-.msg-body :deep(th), .msg-body :deep(td) { border: 1px solid #e2e8f0; padding: 4px 6px; text-align: left; vertical-align: top; }
-.msg-body :deep(blockquote) { margin: 6px 0; padding-left: 8px; border-left: 3px solid #cbd5e1; color: var(--text-secondary); }
-.msg-body :deep(pre) { margin: 6px 0; padding: 8px; overflow: auto; border-radius: 6px; background: #0f172a; color: #e2e8f0; }
-.msg-body :deep(pre code) { padding: 0; background: transparent; color: inherit; }
+.msg-meta { flex-wrap: wrap; }
+.agent-origin { display: inline-flex; padding: 1px 7px; border: 1px solid var(--el-color-primary-light-7); border-radius: 5px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-size: 11px; line-height: 1.6; }
+.agent-origin.sub-agent { border-color: var(--el-color-success-light-7); background: var(--el-color-success-light-9); color: var(--el-color-success); }
+.msg-body { font-size: 14px; min-width: 0; }
 .composer { margin: 0; padding: 10px 12px 12px; background: #fff; border-top: 1px solid var(--border-color, #e2e8f0); }
 .composer-bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 8px; }
 .plan-title { font-weight: 600; margin-bottom: 8px; }
@@ -2184,10 +2296,90 @@ onUnmounted(() => {
 .hint { font-size: 12px; color: var(--text-secondary); }
 .warn, .warn-inline { color: var(--el-color-warning); font-size: 12px; }
 .link { margin-left: 6px; font-size: 12px; }
+
+/* A focused operations workspace: conversation first, evidence one tab away. */
+.agents-wb { --rail-w: 250px; --assistant-accent: #087f85; }
+.page-header { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding-bottom: 18px; border-bottom: 1px solid #e1e9eb; margin-bottom: 20px; }
+.page-title { font-size: 24px; letter-spacing: .5px; margin-bottom: 6px; color: #19313c; }
+.page-desc { max-width: 760px; line-height: 1.7; color: #657a83; font-size: 13px; }
+.session-rail { background: #f8fafb; border-color: #e0e8eb; padding: 14px 10px; }
+.rail-head { padding: 0 6px; color: #34505b; font-size: 13px; }
+.session-search { margin-bottom: 12px; }
+.new-btn { height: 38px; margin-bottom: 12px; }
+.sess-item { padding: 12px 10px; margin-bottom: 5px; border: 1px solid transparent; }
+.sess-item.active { background: #eaf6f4; border-color: #b8dbd5; box-shadow: inset 3px 0 #087f85; }
+.sess-title { font-weight: 500; line-height: 1.65; }
+.sess-meta { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 11px; }
+.state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.green { color: #24835e; } .blue { color: #177da6; } .amber { color: #ac6a13; } .red { color: #be4754; } .gray { color: #7d8990; }
+.hero-card { max-width: 960px; margin: 0 auto; padding: 28px; }
+.hero-kicker { color: #087f85; font-size: 12px; font-weight: 600; margin-bottom: 10px; letter-spacing: 2px; }
+.hero-card h3 { font-size: 25px; color: #19313c; }
+.hero-card > .hint { margin-bottom: 20px; }
+.main-head { padding: 6px 2px 14px; border-bottom: 1px solid #e1e9eb; }
+.sess-heading { font-size: 18px; line-height: 1.6; max-width: 760px; }
+.head-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px; }
+.head-actions .el-button + .el-button { margin-left: 0; }
+.workflow-steps { display: flex; gap: 6px; margin: 14px 0; overflow-x: auto; }
+.workflow-steps span { flex: 1; white-space: nowrap; font-size: 12px; color: #87989f; background: #f3f6f7; padding: 9px 14px; border-bottom: 2px solid transparent; }
+.workflow-steps .current { color: #087f85; border-bottom-color: #087f85; background: #edf7f5; }
+.workspace-tabs :deep(.el-tabs__header) { margin-bottom: 18px; }
+.workspace-tabs :deep(.el-tabs__item) { font-weight: 600; font-size: 14px; }
+.thread { height: clamp(720px, 88vh, 1100px); border-color: #dce6e9; border-radius: 10px; background: #fafcfc; }
+.thread-head { padding: 12px 20px; }
+.thread-log { padding: 22px; scroll-behavior: smooth; }
+.msg { max-width: min(900px, 96%); padding: 14px 18px; border-radius: 10px; margin-bottom: 20px; }
+.msg.main, .msg.assistant, .msg.monitor, .msg.diagnose { border-color: #e4ecee; background: white; }
+.msg.user { background: #eaf5f4; border-color: #cbe3de; max-width: 84%; }
+.msg.system { font-size: 12px; padding: 9px 12px; color: #657a83; border: 0; background: #eef3f5; }
+.msg-meta { margin-bottom: 10px; font-size: 11px; }
+.msg-meta b { font-size: 12px; }
+.composer { padding: 14px 18px; }
+.composer :deep(.el-textarea__inner) { padding: 12px 14px; line-height: 1.7; border-radius: 8px; }
+.continue-analysis { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.continue-analysis span { font-size: 11px; line-height: 1.5; color: #7b8f97; }
+.continue-analysis :deep(.el-button) { padding-left: 0; flex-shrink: 0; }
+.typing-dots { display: inline-flex; gap: 5px; padding: 8px 0; }
+.typing-dots i { width: 7px; height: 7px; background: #5c9997; border-radius: 50%; animation: assistant-dot 1.25s infinite ease-in-out; }
+.typing-dots i:nth-child(2) { animation-delay: .18s; } .typing-dots i:nth-child(3) { animation-delay: .36s; }
+@keyframes assistant-dot { 0%,60%,100% { opacity:.35; transform:translateY(0); } 30% { opacity:1; transform:translateY(-4px); } }
+@media(prefers-reduced-motion: reduce) { .typing-dots i { animation: none; } .thread-log { scroll-behavior: auto; } }
+.delivery-note { display: block; font-size: 11px; color: #718892; margin-top: 8px; }
+.delivery-note.failed { color: #be4754; }
+.round-help { font-size: 11px; color: #087f85; cursor: help; margin: 0 8px; }
+.plan-card { margin-top: 16px; }
+.plan-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 20px; list-style: none; padding-left: 0; }
+.action-dock { box-shadow: 0 4px 16px rgba(25,49,60,.05); border-color: #dce6e9; }
+@media(max-width: 700px) { .page-header { align-items: flex-start; gap: 10px; } .hero-card { padding: 18px; } .thread-log { padding: 12px; } .msg { padding: 12px; max-width: 100%; } .msg.user { max-width: 94%; } .workflow-steps span { padding: 8px; } .plan-list { grid-template-columns: 1fr; } .continue-analysis { align-items: flex-start; flex-direction: column; gap: 0; } }
 @media (max-width: 1024px) {
   .wb-layout { flex-direction: column; }
+  .main-pane { width: 100%; }
   .session-rail { position: static; width: 100%; max-height: 280px; }
-  .thread { height: min(480px, 70vh); }
+  .thread { height: max(720px, 88vh); }
   .composer-bar { flex-direction: column; align-items: stretch; }
 }
+.cap-card { border: 1px solid #b8d5d7; padding: 8px 18px; margin: 22px 0; }
+.cap-card :deep(.el-collapse-item__header), .cap-card :deep(.el-collapse-item__wrap) { background: transparent; }
+.cap-card :deep(.el-collapse-item__header) { font-weight: 600; }
+.cap-card :deep(.el-collapse-item__content) { padding: 12px 0 20px; }
+.cap-card :deep(.el-checkbox-group) { display: flex; flex-wrap: wrap; gap: 10px 12px; margin: 16px 0; }
+.cap-card :deep(.el-checkbox) { margin: 0; padding: 8px 12px; height: auto; border: 1px solid #cddde0; border-radius: 7px; background: var(--bg-card); }
+.cap-card :deep(.el-checkbox.is-checked) { border-color: #6ea9a5; background: #edf7f5; }
+.cap-card .plan-title:not(:first-child) { margin-top: 24px; }
+.agent-duty { padding: 9px 12px; margin: 6px 0; border-left: 2px solid #b8d5d7; line-height: 1.8; }
+.dark .agents-wb { --assistant-accent: #71d0c6; color: var(--text-primary); }
+.dark .agents-wb .page-title, .dark .agents-wb .hero-card h3, .dark .agents-wb .rail-head { color: #e2edf4; }
+.dark .agents-wb .page-desc, .dark .agents-wb .continue-analysis span { color: #a5b8ca; }
+.dark .agents-wb .session-rail, .dark .agents-wb .thread { background: #162235; border-color: #35485c; }
+.dark .agents-wb .thread-head, .dark .agents-wb .composer, .dark .agents-wb .msg.main, .dark .agents-wb .msg.assistant, .dark .agents-wb .msg.monitor, .dark .agents-wb .msg.diagnose { background: #1e293b; border-color: #35485c; }
+.dark .agents-wb .msg.user, .dark .agents-wb .sess-item.active { background: #173b40; border-color: #3f7777; }
+.dark .agents-wb .sess-item:hover { background: #26394c; }
+.dark .agents-wb .msg.system, .dark .agents-wb .prep, .dark .agents-wb .cap-card { background: #17283a; color: #afc1d0; border-color: #3c6270; }
+.dark .agents-wb .workflow-steps span { background: #1b2b40; color: #a1b2c7; }
+.dark .agents-wb .workflow-steps .current { background: #173b40; color: #83d8cd; }
+.dark .agents-wb .page-header, .dark .agents-wb .main-head, .dark .agents-wb .action-dock { border-color: #35485c; }
+.dark .agents-wb .green { color: #78d8aa; } .dark .agents-wb .blue { color: #82c9f4; } .dark .agents-wb .amber { color: #f2c06f; } .dark .agents-wb .red { color: #f997a4; } .dark .agents-wb .gray { color: #a6b7c7; }
+.dark .agents-wb .cap-card :deep(.el-checkbox) { border-color: #466071; }
+.dark .agents-wb .cap-card :deep(.el-checkbox.is-checked) { background: #173b40; border-color: #6fa9a6; }
+.dark .agents-wb .round-help, .dark .agents-wb .hero-kicker { color: #83d8cd; }
 </style>

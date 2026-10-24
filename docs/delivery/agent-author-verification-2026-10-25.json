@@ -1,0 +1,16 @@
+{
+  "date":"2026-10-25",
+  "scope":"Reply attribution, chapters14-19 and previous final chart validation",
+  "browser":{
+    "session20_labels":["主 Agent","子 Agent · 监控分析 Agent","子 Agent · 报告审校 Agent"],
+    "session17_additional_labels":["子 Agent · 评测方案分析 Agent","子 Agent · 参数推荐 Agent","子 Agent · 客服场景覆盖顾问"],
+    "legacy_main_role_with_delegate_tool_correctly_attributed":true,
+    "system_and_user_messages_have_no_agent_badge":true,
+    "dark_badges_visually_checked":true,
+    "leaderboard_canvas_count":{"initial":1,"dark":1,"light":1},
+    "light_preference_restored":true
+  },
+  "isolated_tests":{"combined_count":21,"combined_result":"OK","log":"backend/tests/_isolated/agent-author-regression.log","name_snapshot_test_result":"OK","name_snapshot_log":"backend/tests/_isolated/agent-author-snapshot.log","business_database_used":false},
+  "frontend":{"build":"success","log":"backend/tests/_isolated/agent-author-build.log","permission_collection_count":65},
+  "manual":{"version":"1.7","chapters":"14-19","markdown_updated":true,"word_structure_checked":true,"word_visual_render":"unavailable: LibreOffice soffice.exe missing"}
+}

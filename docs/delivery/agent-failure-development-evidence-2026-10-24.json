@@ -1,0 +1,92 @@
+{
+  "source": "real provider rejection via intentionally invalid model name; no mocked output or direct scoring writes",
+  "model_id": 11,
+  "session_id": 14,
+  "planning_run_id": 17,
+  "task_id": 38,
+  "task_status": "failed",
+  "final_run_id": 22,
+  "final_run_status": "failed",
+  "completion": {
+    "kind": "evaluation_unverified",
+    "objective_verified": false,
+    "verification_scope": "evaluation_execution",
+    "measured_results": 0,
+    "task_id": 38,
+    "task_status": "failed",
+    "report_available": true,
+    "trial_run": false,
+    "success_count": 0,
+    "fail_count": 12
+  },
+  "delegations": [
+    {
+      "id": 47,
+      "role": "report_optimizer",
+      "status": "success",
+      "run_id": 22,
+      "event_count": 8
+    },
+    {
+      "id": 46,
+      "role": "report_reviewer",
+      "status": "success",
+      "run_id": 22,
+      "event_count": 4
+    },
+    {
+      "id": 45,
+      "role": "failure_analyst",
+      "status": "success",
+      "run_id": 22,
+      "event_count": 10
+    },
+    {
+      "id": 44,
+      "role": "diagnose",
+      "status": "success",
+      "run_id": 22,
+      "event_count": 4
+    },
+    {
+      "id": 43,
+      "role": "monitor",
+      "status": "success",
+      "run_id": 22,
+      "event_count": 8
+    },
+    {
+      "id": 38,
+      "role": "monitor",
+      "status": "success",
+      "run_id": 19,
+      "event_count": 4
+    },
+    {
+      "id": 37,
+      "role": "monitor",
+      "status": "success",
+      "run_id": 19,
+      "event_count": 4
+    },
+    {
+      "id": 32,
+      "role": "param_advisor",
+      "status": "success",
+      "run_id": 17,
+      "event_count": 10
+    },
+    {
+      "id": 31,
+      "role": "plan_analyst",
+      "status": "success",
+      "run_id": 17,
+      "event_count": 8
+    }
+  ],
+  "revision_ids": [
+    4
+  ],
+  "premature_tracking_run_id": 19,
+  "followup_fix_verification": "actual terminal evidence recorded"
+}

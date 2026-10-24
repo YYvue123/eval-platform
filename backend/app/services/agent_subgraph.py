@@ -11,7 +11,7 @@ from app.services.agent_checkpointer import AgentCheckpointer
 from app.utils.jsonutil import dumps, loads
 
 # Subagents cannot change plans, create tasks or recursively delegate.
-READ_TOOLS = {"search_knowledge", "infer_dims", "search_eval_resources", "get_task_status", "call_mcp", "invoke_skill"}
+READ_TOOLS = {"get_resource_inventory", "get_task_evidence", "search_knowledge", "infer_dims", "search_eval_resources", "get_task_status", "call_mcp", "invoke_skill"}
 
 
 class SubagentState(TypedDict, total=False):
@@ -32,6 +32,8 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
     from app.api.models import _acl_allows
     from app.models import User
     from app.services.object_policy import object_is_visible
+    from app.services.agent_context import resource_inventory, task_evidence
+    from app.services.agent_trace import record_delegation
 
     parent = await db.get(AgentRun, session.active_run_id) if session.active_run_id else None
     model_id = parent.planner_model_id if parent else session.planner_model_id
@@ -56,6 +58,8 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
     # A child's skills must also have been explicitly bound to the session.
     selected_skills = set((loads(session.plan_json, {}).get("capabilities") or {}).get("skill_codes") or [])
     child_skills = selected_skills & set(spec.get("skill_codes") or [])
+    catalog = await list_catalog(db, actor)
+    child_skills &= {item["code"] for item in catalog["skills"] if item.get("enabled", True)}
     if "invoke_skill" in schemas:
         schemas["invoke_skill"] = {**schemas["invoke_skill"], "properties": {
             **schemas["invoke_skill"]["properties"], "code": {"type": "string", "enum": sorted(child_skills)},
@@ -65,10 +69,21 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
     for code in spec.get("skill_codes") or []:
         if code in child_skills:
             skill_instructions.append(await execute_skill(db, catalog, code, instruction))
-    prompt = (spec.get("system_prompt") or spec.get("description") or spec["name"]) + (
+    from app.services.agent_capabilities import ROLE_PROMPTS
+    evidence_context = await task_evidence(db, session, actor)
+    full_plan = loads(session.plan_json, {})
+    context_plan = {key: full_plan.get(key) for key in (
+        "requirement", "goal_spec", "scene", "industry", "dataset_id", "dataset_version_id",
+        "model_id", "model_version_id", "judge_resource_id", "trial_run", "token_budget",
+        "resource_gaps", "validation_errors", "clarifications",
+    )}
+    prompt = ROLE_PROMPTS.get(spec["role"], "") + "\n" + (spec.get("system_prompt") or spec.get("description") or spec["name"]) + (
         "\n只分析并给出证据，不修改计划、不创建或恢复任务，不委派其他 Agent。"
         "不得把配置提示词当作分析结果。"
-    ) + "\n绑定技能：" + dumps(skill_instructions) + "\n会话计划：" + dumps(loads(session.plan_json, {}))
+    ) + "\n绑定技能：" + dumps(skill_instructions) + "\n会话计划：" + dumps(context_plan) + "\n任务实证：" + dumps(evidence_context)
+    if not session.task_id or spec["role"] in {"plan_analyst", "param_advisor"}:
+        prompt += "\n平台授权资源：" + dumps(await resource_inventory(db, actor))
+    prompt += "\n以上是本次已读取的实际证据，足以分析时直接给出最终结论；不要重复读取相同清单或无任务证据。仅在缺少必要信息、需要验证计算或用户明确要求时补充工具调用。结论简洁，优先列阻塞、真实资源引用和建议。"
     if "\nMCP 工具目录：" in _note:
         prompt += "\nMCP 工具目录：" + _note.split("\nMCP 工具目录：", 1)[1]
     cfg = spec.get("model_config") or {}
@@ -78,6 +93,9 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
         rounds = int(state.get("rounds") or 0) + 1
         if rounds > int(spec.get("max_iterations") or 6):
             raise ValueError("subagent_max_rounds")
+        await record_delegation(db, delegation, "model.request", {"round": rounds,
+                                "messages": [{"role": "system", "content": prompt}] + state["messages"],
+                                "tools": list(schemas)})
         response = await invoke_chat_tools(
             model, [{"role": "system", "content": prompt}] + state["messages"], runtime._openai_tools(schemas),
             temperature=cfg.get("temperature"), max_tokens=cfg.get("max_tokens") or None,
@@ -96,6 +114,8 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
             runtime._validate_tool_args(tool["name"], tool["arguments"], schemas)
             pending.append(tool)
         content = (response.get("content") or "").strip()
+        await record_delegation(db, delegation, "model.response", {"round": rounds, "content": content,
+                                "tool_calls": calls, "tokens": tokens, "finish_reason": response.get("finish_reason")})
         if not pending and not content:
             raise ValueError("subagent_empty_model_response")
         messages = state["messages"] + [{"role": "assistant", "content": content, **({"tool_calls": calls} if calls else {})}]
@@ -114,7 +134,9 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
             cp = loads(parent.checkpoint_json, {})
             cp["tool_invocation_id"] = f"delegation-{delegation.id}-{tool['id']}"
             parent.checkpoint_json = dumps(cp)
+            await record_delegation(db, delegation, "tool.started", {"round": state.get("rounds"), "name": tool["name"], "arguments": tool["arguments"], "tool_call_id": tool["id"]})
             result = await runtime._execute_tool(db, parent, tool["name"], tool["arguments"], schemas)
+            await record_delegation(db, delegation, "tool.failed" if result.get("error") else "tool.completed", {"round": state.get("rounds"), "name": tool["name"], "result": result, "tool_call_id": tool["id"]})
             messages.append({"role": "tool", "tool_call_id": tool["id"], "content": dumps(redact_secrets(result))})
             completed.add(tool["id"])
         return {"messages": messages, "pending": [], "completed": sorted(completed)}

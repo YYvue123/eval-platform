@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-24",
+  "environment": "existing development services and database; authenticated UI/API operations",
+  "real_model_session_id": 17,
+  "real_run_ids": [25, 26, 27, 28, 29],
+  "task_id": null,
+  "scope": "Interaction and real planning verification; no evaluation execution was requested in session 17. Prior task execution evidence is retained separately.",
+  "observations": {
+    "new_evaluation_clears_draft": true,
+    "legacy_session_15_initial_requirement_visible_once": true,
+    "session_17_planning_delegations": 3,
+    "session_17_selected_resources_after_planning": {"dataset_id":42,"dataset_version_id":51,"model_id":9,"model_version_id":14,"judge_resource_id":"builtin/exact_match"},
+    "optimistic_send": {"real_request_delayed_ms":2500,"user_bubbles_before_response":1,"typing_indicators":1,"composer_empty":true,"user_bubbles_after_persist":1},
+    "sse": {"configuration_saved":true,"observed_status":"实时动态已连接","observed_stream_path":"/api/agents/runs/27/events/stream","token_by_token_streaming":false},
+    "history_navigation": "Navigated from run 27 to run 25; observed 3 collapsible delegation records and model decision 3/10 explanation.",
+    "stop_continue": "Confirmed stop in UI, observed stopped state and continue control; continued as run 29, completed without creating a task. Run 28 had finished by stop confirmation; active cancellation is covered by isolated tests.",
+    "desktop": {"viewport_width":1280,"page_horizontal_overflow":false},
+    "mobile_after_fix": {"viewport_width":390,"document_width":390,"main_pane_width":356},
+    "markdown": {"heading":true,"nested_lists":true,"table":true,"fenced_code":true,"unsafe_html_and_javascript_links_blocked":true},
+    "browser_console_errors":0,
+    "browser_console_warnings": "Existing Element Plus checkbox label deprecations remain."
+  },
+  "isolated_regression": {
+    "combined_tests":69,
+    "combined_result":"OK",
+    "combined_log":"backend/tests/_isolated/agent-interaction-regression.log",
+    "final_affected_tests":20,
+    "final_affected_result":"OK",
+    "final_log":"backend/tests/_isolated/agent-interaction-final.log",
+    "long_requirement_whitespace_regression":"backend/tests/_isolated/agent-interaction-last.log",
+    "business_database_used_for_automated_tests":false,
+    "mock_tests_are_not_real_model_acceptance":true
+  },
+  "frontend": {"permission_collection":"65 existing codes collected; agent:view included", "build_result":"success", "build_log":"backend/tests/_isolated/agent-interaction-build-final.log"},
+  "limitations": ["Five-minute monitoring heartbeat is verified with isolated timestamps, not a multi-hour production soak.","No production concurrency or message-queue delivery guarantee is claimed.","Word V1.5 structure checked; visual render unavailable because LibreOffice is not installed."]
+}

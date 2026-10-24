@@ -54,5 +54,5 @@ const tone = computed(() => MAP[props.phase]?.tone || 'neutral')
 .warning { color: #b45309; background: #fffbeb; border-color: #fde68a; }
 .success { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
 .danger { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
-:global(.dark) .neutral { background: #334155; color: #cbd5e1; border-color: #475569; }
+.dark .neutral { background: #334155; color: #cbd5e1; border-color: #475569; }
 </style>

@@ -25,6 +25,25 @@ class GoalSpecUnitTest(unittest.TestCase):
 
 
 class AgentApprovalApiTest(unittest.TestCase):
+    def test_explicit_chat_confirmation_uses_gated_task_service_and_deduplicates(self):
+        from unittest.mock import AsyncMock, patch
+        ds_id, model_id = self._ensure_resources()
+        session = self.client.post('/api/agents/sessions', json={'requirement':'聊天确认隔离测试','auto_plan':False}, headers=self.h).json()
+        sid = session['id']
+        plan = self.client.post(f'/api/agents/sessions/{sid}/clarify', json={'dataset_id':ds_id,'model_id':model_id,'trial_run':True,'token_budget':1000}, headers=self.h).json()['plan']
+        body = {'execute':True,'confirmation_message':'确认执行','expected_plan_hash':plan['canonical_hash'],'client_message_id':'chat-one','client_invocation_id':'chat-one'}
+        # Dispatch is deliberately not run: this verifies admission and audit, not a real-model pass.
+        with patch('app.api.agents.dispatch_queue', new=AsyncMock()):
+            first = self.client.post(f'/api/agents/sessions/{sid}/confirm', json=body, headers=self.h)
+            self.assertEqual(first.status_code,200,first.text)
+            second = self.client.post(f'/api/agents/sessions/{sid}/confirm', json=body, headers=self.h)
+            self.assertEqual(second.status_code,200,second.text)
+        self.assertEqual(first.json()['task_id'],second.json()['task_id'])
+        messages = self.client.get(f'/api/agents/sessions/{sid}/messages',headers=self.h).json()['items']
+        confirmations = [item for item in messages if item['tool_name']=='chat_confirm']
+        self.assertEqual(len(confirmations),1)
+        self.assertEqual(confirmations[0]['payload']['plan_hash'],plan['canonical_hash'])
+
     def setUp(self):
         self._cm = TestClient(app)
         self.client = self._cm.__enter__()
@@ -176,11 +195,15 @@ class AgentApprovalApiTest(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 200, created.text)
         sid = created.json()["id"]
-        self.client.post(
+        clarified = self.client.post(
             f"/api/agents/sessions/{sid}/clarify",
             json={"dataset_id": ds_id, "model_id": model_id, "trial_run": True, "objective": "acl"},
             headers=rh,
         )
+        self.assertEqual(clarified.status_code, 200, clarified.text)
+        # Resource discovery now filters inaccessible targets before approval.
+        self.assertIsNone(clarified.json()["plan"]["model_id"])
+        self.assertFalse(clarified.json()["plan"]["ready"])
         # researcher 可能无 agent:confirm — 用 admin approve then researcher confirm，或 admin confirm 会被 ACL 跳过
         # 直接用 researcher confirm（若有权限）
         conf = self.client.post(
@@ -197,7 +220,8 @@ class AgentApprovalApiTest(unittest.TestCase):
             )
             self.assertEqual(conf_admin.status_code, 200, conf_admin.text)
             return
-        self.assertEqual(conf.status_code, 403, conf.text)
+        self.assertIn(conf.status_code, (400, 403), conf.text)
+        self.assertIsNone(self.client.get(f"/api/agents/sessions/{sid}", headers=rh).json()["task_id"])
 
     def test_expired_approval(self):
         from app.database import async_session

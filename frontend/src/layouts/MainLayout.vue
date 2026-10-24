@@ -1,5 +1,5 @@
 <template>
-  <el-container class="main-layout" :class="{ 'customer-layout': isCustomer, 'leaderboard-layout': route.name === 'Leaderboard', 'board-menu-open': boardMenuOpen }">
+  <el-container class="main-layout" :class="{ 'customer-layout': isCustomer, 'leaderboard-layout': route.name === 'Leaderboard', 'assistant-layout': route.path === '/agents', 'board-menu-open': boardMenuOpen }">
     <el-aside :width="asideWidth" class="aside">
       <div class="logo">
         <el-icon><Cpu /></el-icon>
@@ -113,7 +113,7 @@ const router = useRouter()
 const route = useRoute()
 const boardMenuOpen = ref(false)
 function toggleNavigation() {
-  if (route.name === 'Leaderboard' && window.matchMedia('(max-width: 700px)').matches) boardMenuOpen.value = !boardMenuOpen.value
+  if ((route.name === 'Leaderboard' || route.path === '/agents') && window.matchMedia('(max-width: 700px)').matches) boardMenuOpen.value = !boardMenuOpen.value
   else toggleCollapsed()
 }
 watch(() => route.fullPath, () => { boardMenuOpen.value = false })
@@ -204,6 +204,15 @@ function handleUserCommand(cmd) {
 }
 .customer-layout > .el-container { min-width: 0; }
 .leaderboard-layout > .el-container { min-width: 0; }
+.assistant-layout > .el-container { min-width: 0; }
+@media (max-width: 700px) {
+  .assistant-layout .aside { position: fixed; top: 60px; bottom: 0; z-index: 2000; transform: translateX(-100%); }
+  .assistant-layout.board-menu-open .aside { transform: translateX(0); }
+  .assistant-layout .header { padding: 0 12px; }
+  .assistant-layout .header-right { gap: 8px; }
+  .assistant-layout .username, .assistant-layout .breadcrumb { display: none; }
+  .assistant-layout .main { padding: 12px; }
+}
 @media (max-width: 700px) {
   .leaderboard-layout .aside { position: fixed; top: 60px; bottom: 0; z-index: 2000; transform: translateX(-100%); }
   .leaderboard-layout.board-menu-open .aside { transform: translateX(0); }

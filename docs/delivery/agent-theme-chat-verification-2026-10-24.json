@@ -1,0 +1,51 @@
+{
+  "date":"2026-10-24",
+  "scope":"Existing development UI and authenticated API; no replacement database",
+  "interface":{
+    "chat_default_min_height_px":720,
+    "focus_reading_observed":{"rail_hidden":true,"thread_width_px":989.6,"thread_height_px":781.6,"message_log_height_px":537.2},
+    "settings_prompt_form_gap_px":26,
+    "capabilities":{"border":true,"padding":"8px 18px","choice_gap":"10px 12px","light_and_dark_checked":true},
+    "dark_theme":{"assistant_background":"rgb(30, 41, 59)","conversation_background":"rgb(22, 34, 53)","heading_color":"rgb(226, 237, 244)","leaderboard_table_header":"rgb(36, 51, 73)","radar_and_heatmap_visually_checked":true},
+    "original_light_preference_restored":true
+  },
+  "chat_execution":{
+    "session_id":20,
+    "planning_run_id":32,
+    "method":"Sent resource IDs, trial mode and budget in conversation; real model called propose_resources. Then sent 确认执行 through composer, without clarify/approve buttons.",
+    "task_id":41,
+    "plan_hash":"786d8393536722d6ef1f15dfdd84c6d55ced122fbae87ad6dbe016ad23af776c",
+    "approval_status":"consumed",
+    "confirmation_user_message_stored":true,
+    "task_status":"success",
+    "trial_run":true,
+    "total":12,
+    "success_count":12,
+    "fail_count":0,
+    "measured_scores":12,
+    "execution_statuses":["ok"],
+    "task_tokens_used":738,
+    "report_path":"uploads/reports/task-41.json",
+    "followup_run_id":34,
+    "followup_status":"success",
+    "followup_delegations":[{"id":68,"role":"monitor","status":"success"},{"id":69,"role":"monitor","status":"success"},{"id":70,"role":"report_reviewer","status":"success"}],
+    "objective_verified":false,
+    "formal_admission_claimed":false
+  },
+  "failure_retained":{
+    "session_id":19,
+    "run_id":31,
+    "observation":"Planning completed specialist work, then a database-locked commit interrupted progress. Stop requested through API; original records retained.",
+    "repair":"SSE serializes events and releases read transaction before network yield or sleep. Isolated regression asserts no open transaction at yield; independent session20 completed the full flow."
+  },
+  "verification":{
+    "isolated_combined_tests":58,
+    "isolated_combined_result":"OK",
+    "isolated_final_approval_interaction_tests":18,
+    "isolated_final_result":"OK",
+    "logs":["backend/tests/_isolated/agent-theme-chat-regression.log","backend/tests/_isolated/agent-chat-final.log"],
+    "frontend_build":"backend/tests/_isolated/agent-theme-chat-build.log",
+    "permission_collection":"65 codes; reused agent:view and agent:confirm",
+    "word_v16":"Structure checked; LibreOffice unavailable, page layout not verified"
+  }
+}

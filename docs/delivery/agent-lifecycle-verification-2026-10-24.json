@@ -1,0 +1,215 @@
+{
+  "verified_at": "2026-10-24T12:29:04.630550+00:00",
+  "environment": "existing E:/eval-platform/backend/eval_platform.db via development APIs",
+  "tasks": [
+    {
+      "id": 35,
+      "status": "success",
+      "samples": 12,
+      "measured_non_simulated": 12,
+      "failed_execution": 0,
+      "simulated": 0,
+      "result_facts_hash": "b75bd7bacabd409c2740a211467b092b80b3e78c809740cbd077f84145ae14ca"
+    },
+    {
+      "id": 36,
+      "status": "success",
+      "samples": 12,
+      "measured_non_simulated": 12,
+      "failed_execution": 0,
+      "simulated": 0,
+      "result_facts_hash": "a4695f2ad2d4b04fb0961cf4fc9be027ac354b56a73e319ce571e12b8ea0862f"
+    },
+    {
+      "id": 37,
+      "status": "success",
+      "samples": 12,
+      "measured_non_simulated": 12,
+      "failed_execution": 0,
+      "simulated": 0,
+      "result_facts_hash": "0f34892660c9e1aa26949c2b0de603140591e49a9de94346b92aad7e55b68baa"
+    },
+    {
+      "id": 38,
+      "status": "failed",
+      "samples": 12,
+      "measured_non_simulated": 0,
+      "failed_execution": 12,
+      "simulated": 0,
+      "result_facts_hash": "41dabab6a3d00ca5f149eb850698f0750295bf26c67e6ead3e2157853e3f1a7d"
+    },
+    {
+      "id": 39,
+      "status": "success",
+      "samples": 12,
+      "measured_non_simulated": 12,
+      "failed_execution": 0,
+      "simulated": 0,
+      "result_facts_hash": "10c89aee3495f9eaabbc58dc397c487a7af7d675eec849b963d0e58873ab31b0"
+    },
+    {
+      "id": 40,
+      "status": "success",
+      "samples": 12,
+      "measured_non_simulated": 12,
+      "failed_execution": 0,
+      "simulated": 0,
+      "result_facts_hash": "ddb9effe29d6f099e03178187d3f2992cee629991f529fad838c01bf0465f772"
+    }
+  ],
+  "sessions": [
+    {
+      "id": 11,
+      "task_id": 35,
+      "last_run_id": 14,
+      "run_count": 2,
+      "delegations": 7,
+      "roles": [
+        "coverage_auditor",
+        "customer_coverage",
+        "monitor",
+        "param_advisor",
+        "plan_analyst",
+        "report_optimizer",
+        "report_reviewer"
+      ],
+      "revisions": [
+        {
+          "id": 1,
+          "status": "revoked",
+          "source_hash": "6e4745cb125286218e56faee0ec834940cc0023b7d51462567e3ed65716f6758"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "task_id": 36,
+      "last_run_id": 15,
+      "run_count": 2,
+      "delegations": 6,
+      "roles": [
+        "finance_verifier",
+        "monitor",
+        "param_advisor",
+        "plan_analyst",
+        "report_optimizer",
+        "report_reviewer"
+      ],
+      "revisions": [
+        {
+          "id": 2,
+          "status": "draft",
+          "source_hash": "db456e10ce07afd4dafd6ef89fa171c9a83cc80eb95beba0f1570f2f2f8b7680"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "task_id": 37,
+      "last_run_id": 18,
+      "run_count": 3,
+      "delegations": 7,
+      "roles": [
+        "coverage_auditor",
+        "monitor",
+        "param_advisor",
+        "plan_analyst",
+        "report_optimizer",
+        "report_reviewer"
+      ],
+      "revisions": [
+        {
+          "id": 3,
+          "status": "draft",
+          "source_hash": "9c6ab4248bf7605ac8b432e41c8ee0404924d6a2def3878c650b13a6cfb6dbcb"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "task_id": 38,
+      "last_run_id": 22,
+      "run_count": 3,
+      "delegations": 9,
+      "roles": [
+        "diagnose",
+        "failure_analyst",
+        "monitor",
+        "param_advisor",
+        "plan_analyst",
+        "report_optimizer",
+        "report_reviewer"
+      ],
+      "revisions": [
+        {
+          "id": 4,
+          "status": "draft",
+          "source_hash": "e0b2ba4860b73a3fcdcde5bb2cdd165495a20a0bf8165b2100b88488855fef29"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "task_id": 39,
+      "last_run_id": 23,
+      "run_count": 3,
+      "delegations": 7,
+      "roles": [
+        "monitor",
+        "param_advisor",
+        "plan_analyst",
+        "report_optimizer",
+        "report_reviewer"
+      ],
+      "revisions": [
+        {
+          "id": 5,
+          "status": "draft",
+          "source_hash": "c03607ece4ffe2ef24cc6aa9ccd91b9c484c167116dce70ef8e062bed2aa7c6f"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "task_id": 40,
+      "last_run_id": 24,
+      "run_count": 1,
+      "delegations": 8,
+      "roles": [
+        "coverage_auditor",
+        "customer_coverage",
+        "monitor",
+        "param_advisor",
+        "plan_analyst",
+        "report_optimizer",
+        "report_reviewer"
+      ],
+      "revisions": [
+        {
+          "id": 6,
+          "status": "draft",
+          "source_hash": "efff1682452922b08e58c73ce4d5c80fbf658a22309118abd445792cf3ff2089"
+        }
+      ]
+    }
+  ],
+  "browser_checks": {
+    "previous_next_turns_preserve_separate_delegations": true,
+    "expand_child_public_inputs_tools_results": true,
+    "report_revision_1_published_then_revoked": true,
+    "console_errors_observed": 0
+  },
+  "limits": [
+    "AI-generated small question sets; not industry acceptance",
+    "Isolated scripted-provider tests are infrastructure checks, not real-model evidence",
+    "No production load or high-concurrency acceptance",
+    "Word visual rendering unavailable: LibreOffice missing"
+  ],
+  "totals": {
+    "successful_tasks": 5,
+    "failed_tasks": 1,
+    "result_rows": 72,
+    "measured_non_simulated": 60,
+    "delegations": 44
+  }
+}

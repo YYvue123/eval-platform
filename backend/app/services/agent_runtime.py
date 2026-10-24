@@ -86,6 +86,8 @@ def run_out(run: AgentRun) -> dict:
         "provider": run.provider,
         "planner_model_id": run.planner_model_id,
         "graph_version": run.graph_version,
+        "purpose": cp.get("purpose", "dialogue"),
+        "input": cp.get("input") or "",
         "checkpoint": cp,
         "checkpoint_thread_id": run.checkpoint_thread_id,
         "lease_owner": run.lease_owner or "",
@@ -138,8 +140,11 @@ async def create_run(
     token_budget: int = 0,
     client_message_id: str = "",
     planner_model_id: int | None = None,
+    purpose: str = "dialogue",
+    record_message: bool = True,
 ) -> AgentRun:
     """创建 run；若已有 active run 则 409。禁止 mock provider。"""
+    message = message.strip()
     if session.active_run_id:
         active = await db.get(AgentRun, session.active_run_id)
         if active and active.status in {"queued", "running", "waiting"}:
@@ -151,6 +156,8 @@ async def create_run(
         raise HTTPException(400, "provider 仅支持 live")
 
     mid = planner_model_id or getattr(session, "planner_model_id", None)
+    if purpose == "followup" and not session.task_id:
+        raise HTTPException(400, "执行跟踪需要已关联的实际任务")
     if not mid:
         raise HTTPException(400, "planner_model_id_required:请指定已配置 api_url 的规划模型")
     from app.models import EvalModel
@@ -172,10 +179,17 @@ async def create_run(
         if not content:
             continue
         role = "assistant" if item.role in {"main", "monitor", "diagnose"} else "user"
-        history.append({"role": role, "content": content[:2000]})
-    history.append({"role": "user", "content": message})
+        history.append({"role": role, "content": content if not record_message and role == "user" and content == message else content[:2000]})
+    if record_message or not any(item["role"] == "user" and item["content"] == message for item in history):
+        history.append({"role": "user", "content": message})
     checkpoint = _default_checkpoint(message)
     checkpoint["messages"] = history
+    checkpoint["input"] = message
+    checkpoint["purpose"] = purpose
+    if purpose == "planning":
+        checkpoint["phase"] = "prepare"
+    elif purpose == "followup":
+        checkpoint["phase"] = "verify"
     thread = f"sess-{session.id}-{uuid.uuid4().hex[:12]}"
     run = AgentRun(
         session_id=session.id,
@@ -195,7 +209,8 @@ async def create_run(
     session.planner_model_id = int(mid)
     session.row_version = int(session.row_version or 0) + 1
     session.updated_at = datetime.utcnow()
-    db.add(AgentMessage(session_id=session.id, role="user", content=message, tool_name="", payload_json=dumps({"client_message_id": client_message_id})))
+    if record_message:
+        db.add(AgentMessage(session_id=session.id, role="system" if purpose == "followup" else "user", content=message, tool_name="", payload_json=dumps({"client_message_id": client_message_id, "run_id": run.id, "purpose": purpose})))
     await append_event(db, run, "run.created", {"provider": "live", "planner_model_id": int(mid), "message": message[:200]})
     await db.flush()
     return run
@@ -234,6 +249,11 @@ async def claim_run(db: AsyncSession, run_id: int, *, owner: str | None = None) 
 
 async def _clear_active(db: AsyncSession, run: AgentRun) -> None:
     session = await db.get(AgentSession, run.session_id)
+    if session and run.status in {"failed", "paused_budget", "cancelled"}:
+        plan = loads(session.plan_json, {})
+        if plan.get("analysis_status") == "pending" and plan.get("planning_run_id") == run.id:
+            plan["analysis_status"] = "failed"
+            session.plan_json = dumps(plan)
     if session and session.active_run_id == run.id:
         session.active_run_id = None
         session.row_version = int(session.row_version or 0) + 1
@@ -242,7 +262,13 @@ async def _clear_active(db: AsyncSession, run: AgentRun) -> None:
 async def request_cancel(db: AsyncSession, run: AgentRun) -> AgentRun:
     if run.status in {"success", "failed", "cancelled", "paused_budget"}:
         raise HTTPException(400, "run 已结束")
-    run.cancel_requested = True
+    # Wait for the current writer, then refresh its event cursor before appending.
+    # A stale ORM instance must not overwrite events committed by an in-flight node.
+    await db.execute(update(AgentRun).where(AgentRun.id == run.id, AgentRun.status.in_(["queued", "running", "waiting"]))
+                     .values(cancel_requested=True).execution_options(synchronize_session=False))
+    await db.refresh(run)
+    if run.status in {"success", "failed", "cancelled", "paused_budget"}:
+        return run
     if run.status in {"queued", "waiting"}:
         run.status = "cancelled"
         run.finished_at = datetime.utcnow()
@@ -313,6 +339,8 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
         "additionalProperties": False,
     }
     schemas["get_task_status"] = {"type": "object", "properties": {}, "additionalProperties": False}
+    schemas["get_resource_inventory"] = {"type": "object", "properties": {}, "additionalProperties": False}
+    schemas["get_task_evidence"] = {"type": "object", "properties": {"max_samples": {"type": "integer", "minimum": 1, "maximum": 50}}, "additionalProperties": False}
     schemas["request_task_execution"] = {"type": "object", "properties": {}, "additionalProperties": False}
     schemas["propose_resources"] = {
         "type": "object",
@@ -320,6 +348,8 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
             "dataset_id": {"type": "integer"},
             "model_id": {"type": "integer"},
             "judge_resource_id": {"type": "string"},
+            "trial_run": {"type": "boolean"},
+            "token_budget": {"type": "integer", "minimum": 0},
             "scene": {"type": "string"},
         },
         "additionalProperties": False,
@@ -337,7 +367,7 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
         f"被测模型 id={plan.get('model_id') or '未选'}，打分工具 {plan.get('judge_resource_id') or '未选'}。"
         + (f"规划模型 id={planner_id} 只能用来编排，不能写入被测模型。" if planner_id else "")
         + "用户补充评测对象、数据集、被测模型或打分工具时，先调用 search_eval_resources 找到真实 ID，再调用 propose_resources 写进计划。"
-        "未调用 propose_resources 时，不要声称计划已经改好。"
+        "用户补充试跑/正式模式或Token预算时，也通过propose_resources的trial_run、token_budget写入；不要只口头确认。未调用 propose_resources 时，不要声称计划已经改好。"
         "专项分析调用 delegate_agent。异常诊断只返回建议，不能执行恢复或补测。"
         "技能调用 invoke_skill。MCP 只能调用已启用连接上的工具。"
         "MCP 工具参数见下方目录，调用时必须填写 arguments。"
@@ -347,6 +377,15 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
         "不得读取系统凭证；外部调用只走已授权工具。"
     )
     note = f"{profile.get('system_prompt') or ''}\n\n{binding}".strip()
+    from app.services.agent_context import resource_inventory
+    from app.services.agent_capabilities import list_catalog
+
+    actor = await runtime_actor(db, run)
+    inventory = loads(run.checkpoint_json, {}).get("resource_inventory") or await resource_inventory(db, actor, limit=24)
+    note += "\n平台授权资源（真实ID、名称、状态与版本）：" + dumps(inventory)
+    catalog = await list_catalog(db, actor)
+    note += "\n已启用角色用途与阶段：" + dumps([{k: spec.get(k) for k in ("role", "name", "description", "evaluation_spec")} for spec in catalog["subagents"] if spec["role"] in roles])
+    note += "\n监控、诊断、报告审校和报告优化在任务开始后由平台跟进触发；规划阶段不要对无任务角色空调用。首次计划请核对授权资源并按需用propose_resources选择真实ID，汇总已有子Agent分析后再给计划摘要。"
     if mcps:
         from app.models import BaseResource, ResourceEvent
         from app.services.object_policy import object_is_visible
@@ -445,6 +484,8 @@ async def _live_select_tool(db: AsyncSession, run: AgentRun, checkpoint: dict, s
             }
         )
     cfg = model_config or {}
+    from app.services.agent_capabilities import redact_secrets
+    await append_event(db, run, "llm.request", {"messages": redact_secrets(messages), "tools": list(schemas), "round": run.rounds_used})
     llm = await invoke_chat_tools(
         model,
         messages,
@@ -469,6 +510,13 @@ async def _live_select_tool(db: AsyncSession, run: AgentRun, checkpoint: dict, s
 async def _execute_tool(db: AsyncSession, run: AgentRun, name: str, args: dict, schemas: dict) -> dict:
     _validate_tool_args(name, args, schemas)
     actor = await runtime_actor(db, run)
+    if name == "get_resource_inventory":
+        from app.services.agent_context import resource_inventory
+        return await resource_inventory(db, actor)
+    if name == "get_task_evidence":
+        from app.services.agent_context import task_evidence
+        session = await db.get(AgentSession, run.session_id)
+        return await task_evidence(db, session, actor, max_samples=int(args.get("max_samples") or 20))
     if name == "search_knowledge":
         from app.services.agent_tools import search_knowledge
 
@@ -577,6 +625,10 @@ async def _execute_tool(db: AsyncSession, run: AgentRun, name: str, args: dict, 
             raise ValueError("plan_not_ready")
         if not actor.has_permission("agent:confirm"):
             raise ValueError("agent_confirm_forbidden")
+        if loads(run.checkpoint_json, {}).get("purpose") == "planning":
+            plan["analysis_status"] = "complete"
+            plan["planning_run_id"] = run.id
+            session.plan_json = dumps(plan)
         return {"approval_required": True, "plan_hash": canonical_plan_hash(plan)}
     raise ValueError(f"unknown_tool:{name}")
 
@@ -637,7 +689,8 @@ async def _select_tool_node(db: AsyncSession, run: AgentRun, cp: dict) -> AgentR
         run.error_code = "budget_exceeded"
         run.error_message = "超过 token 预算"
         run.finished_at = datetime.utcnow()
-        await append_event(db, run, "run.paused_budget", {"tokens_used": run.tokens_used})
+        await append_event(db, run, "run.paused_budget", {"tokens_used": run.tokens_used,
+                           "response_text": llm_meta.get("content") or "", "tool_calls": llm_meta.get("tool_calls") or []})
         await _clear_active(db, run)
         await db.flush()
         return run
@@ -653,6 +706,8 @@ async def _select_tool_node(db: AsyncSession, run: AgentRun, cp: dict) -> AgentR
             "has_tool": bool(tools),
             "tools": [item.get("name") for item in tools],
             "preview": (llm_meta.get("content") or "")[:240],
+            "response_text": llm_meta.get("content") or "",
+            "tool_calls": llm_meta.get("tool_calls") or [],
         },
         step_id=f"r{run.rounds_used}",
     )
@@ -780,6 +835,13 @@ async def _reply_node(db: AsyncSession, run: AgentRun, cp: dict) -> AgentRun:
         await db.flush()
         return run
     cp["final_reply"] = reply
+    if cp.get("purpose") == "planning":
+        session = await db.get(AgentSession, run.session_id)
+        plan = loads(session.plan_json, {})
+        plan["analysis_status"] = "complete"
+        plan["planning_run_id"] = run.id
+        plan["analysis_summary"] = reply
+        session.plan_json = dumps(plan)
     cp["phase"] = "verify"
     run.checkpoint_json = dumps(cp)
     await append_event(db, run, "llm.reply", {"reply": reply[:500], "clipped": clipped})
@@ -834,6 +896,7 @@ async def start_and_run(
     max_rounds: int = 8,
     token_budget: int = 0,
     planner_model_id: int | None = None,
+    purpose: str = "dialogue",
 ) -> AgentRun:
     run = await create_run(
         db,
@@ -843,6 +906,7 @@ async def start_and_run(
         max_rounds=max_rounds,
         token_budget=token_budget,
         planner_model_id=planner_model_id,
+        purpose=purpose,
     )
     claimed, token = await claim_run(db, run.id)
     if not claimed:
@@ -850,7 +914,7 @@ async def start_and_run(
     return await execute_until_idle(db, run.id, fencing_token=token)
 
 
-async def resume_run(db: AsyncSession, run: AgentRun) -> AgentRun:
+async def resume_run(db: AsyncSession, run: AgentRun, *, execute: bool = True) -> AgentRun:
     if run.status in {"success", "cancelled"}:
         raise HTTPException(400, "run 已结束，无法恢复")
     if run.status == "paused_budget":
@@ -875,6 +939,8 @@ async def resume_run(db: AsyncSession, run: AgentRun) -> AgentRun:
         session.active_run_id = run.id
     await append_event(db, run, "run.resume", {"checkpoint_phase": loads(run.checkpoint_json, {}).get("phase")})
     await db.flush()
+    if not execute:
+        return run
     claimed, token = await claim_run(db, run.id)
     if not claimed:
         return run

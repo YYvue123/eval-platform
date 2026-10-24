@@ -145,6 +145,24 @@ class AgentApproval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AgentReportRevision(Base):
+    __tablename__ = "agent_report_revisions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, index=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    task_id: Mapped[int] = mapped_column(Integer, index=True)
+    delegation_id: Mapped[int] = mapped_column(Integer, unique=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, index=True)
+    creator_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    source_hash: Mapped[str] = mapped_column(String(64))
+    evidence_hash: Mapped[str] = mapped_column(String(64))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class AgentDelegation(Base):
     __tablename__ = "agent_delegations"
 

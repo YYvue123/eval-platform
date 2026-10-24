@@ -2,6 +2,7 @@
   "agent:confirm",
   "agent:invoke",
   "agent:list",
+  "agent:view",
   "audit:list",
   "dashboard:view",
   "dataset:audit",

@@ -33,7 +33,17 @@
         </template>
         <el-table-column prop="name" label="名称" min-width="160">
           <template #default="{ row }">
-            <el-button link type="primary" @click="$router.push(`/tasks/${row.id}`)">{{ row.name }}</el-button>
+            <el-tooltip :visible="nameTipId === row.id" :content="row.name" placement="top" :show-after="0">
+              <button
+                type="button"
+                class="task-name"
+                @mouseenter="showNameTip($event, row.id)"
+                @mouseleave="nameTipId = null"
+                @focus="showNameTip($event, row.id)"
+                @blur="nameTipId = null"
+                @click="$router.push(`/tasks/${row.id}`)"
+              >{{ row.name }}</button>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column prop="task_type" label="类型" width="100" />
@@ -220,6 +230,13 @@ function emptyForm() {
 function formatRate(v) {
   if (v == null) return '—'
   return `${(v * 100).toFixed(1)}%`
+}
+
+const nameTipId = ref(null)
+
+function showNameTip(event, id) {
+  const el = event.currentTarget
+  nameTipId.value = el && el.scrollWidth > el.clientWidth + 1 ? id : null
 }
 
 const STATUS_CN = {
@@ -448,4 +465,21 @@ onUnmounted(() => clearInterval(pollTimer))
 .field-note { margin-top: 6px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .warn { display: block; margin-top: 4px; color: var(--el-color-warning); }
 .muted { color: var(--el-text-color-secondary); font-size: 12px; }
+.task-name {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--el-color-primary);
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.task-name:hover { color: var(--el-color-primary-light-3); }
 </style>

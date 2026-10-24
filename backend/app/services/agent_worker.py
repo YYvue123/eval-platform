@@ -52,17 +52,26 @@ async def dispatch_agent_once(*, run_id: int | None = None) -> bool:
             return False
         run_id = claimed.id
 
-    # A committed lease is visible to other workers and cancel requests.
-    async with async_session() as db:
-        run = await db.get(AgentRun, run_id)
-        if run.status != "running" or run.fencing_token != token:
-            return False
-        await runtime.step_once(db, run, fencing_token=token)
-        if run.status == "running":
-            run.status = "queued"
-            run.lease_owner = ""
-            run.lease_until = None
-        await db.commit()
+    # A graceful reload releases its own lease after the node transaction rolls back.
+    try:
+        async with async_session() as db:
+            run = await db.get(AgentRun, run_id)
+            if run.status != "running" or run.fencing_token != token:
+                return False
+            await runtime.step_once(db, run, fencing_token=token)
+            if run.status == "running":
+                run.status = "queued"
+                run.lease_owner = ""
+                run.lease_until = None
+            await db.commit()
+    except asyncio.CancelledError:
+        async with async_session() as recovery:
+            await recovery.execute(update(AgentRun).where(
+                AgentRun.id == run_id, AgentRun.fencing_token == token,
+                AgentRun.status == "running",
+            ).values(status="queued", lease_owner="", lease_until=None))
+            await recovery.commit()
+        raise
     return True
 
 

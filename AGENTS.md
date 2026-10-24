@@ -43,3 +43,5 @@ Permission code format: `resource:action`. Keep resource aligned with modules su
 | M4 handoff / open gaps | `docs/delivery/MILESTONE-M4.md` |
 | Ops runbook | `docs/operations/` |
 | Design / acceptance | `docs/implementation-plan-2026-09-28/` |
+
+Agent 生命周期、记录和报告修订接口见 `docs/delivery/AGENT-LIFECYCLE.md`；真实开发演示须通过API，不可将其当作隔离回归测试或改写评分事实。

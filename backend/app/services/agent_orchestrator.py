@@ -28,10 +28,13 @@ def infer_dims(text: str) -> tuple[str, str]:
     return scene, industry
 
 
-async def _pick_dataset(db: AsyncSession, scene: str, industry: str) -> tuple[Dataset | None, list[str]]:
+async def _pick_dataset(db: AsyncSession, scene: str, industry: str, *, actor=None) -> tuple[Dataset | None, list[str]]:
     """硬过滤：优先 industry/scene 匹配，禁止随意取「最新无关」资源冒充。"""
     gaps: list[str] = []
     q = select(Dataset).where(Dataset.status != "deleted")
+    if actor is not None:
+        from app.services.object_policy import apply_object_scope
+        q = apply_object_scope(q, Dataset, actor)
     preferred = None
     if industry and industry != "general":
         preferred = (
@@ -67,14 +70,23 @@ async def _pick_model(
     industry: str,
     *,
     exclude_ids: set[int] | None = None,
+    actor=None,
 ) -> tuple[EvalModel | None, list[str]]:
     gaps: list[str] = []
     blocked = exclude_ids or set()
     q = select(EvalModel).where(EvalModel.status.notin_(["deleted", "disabled", "archived"]))
+    if actor is not None:
+        from app.services.object_policy import apply_object_scope
+        q = apply_object_scope(q, EvalModel, actor)
     rows = [
         m for m in (await db.execute(q.order_by(EvalModel.id.desc()).limit(30))).scalars().all()
         if m.id not in blocked and not _is_planner_model(m)
     ]
+    if actor is not None:
+        from app.api.models import _acl_allows
+        from app.models import User
+        user = await db.get(User, actor.user_id)
+        rows = [m for m in rows if await _acl_allows(db, m.id, user)]
     matched = []
     for m in rows:
         wl = loads(m.scene_white_list or "[]", []) or []
@@ -108,12 +120,16 @@ async def draft_plan(
 ) -> dict:
     scene, industry = infer_dims(requirement)
     ov = overrides or {}
+    actor = None
+    if user is not None and getattr(user, "tenant_id", None):
+        from app.services.actor_context import build_actor
+        actor = await build_actor(db, user)
     if ov.get("scene"):
         scene = ov["scene"]
     if ov.get("industry"):
         industry = ov["industry"]
 
-    knowledge = await search_knowledge(db, requirement[:40])
+    knowledge = await search_knowledge(db, requirement[:40], tenant_id=actor.tenant_id if actor else None)
     tpls = await retrieve_templates(db, scene=scene, industry=industry)
     code = ""
     if "幻觉" in requirement:
@@ -135,7 +151,7 @@ async def draft_plan(
             ds = None
             resource_gaps.append("指定数据集不可用")
     else:
-        ds, g1 = await _pick_dataset(db, scene, industry)
+        ds, g1 = await _pick_dataset(db, scene, industry, actor=actor)
         resource_gaps.extend(g1)
 
     exclude = set()
@@ -153,8 +169,18 @@ async def draft_plan(
             model = None
             resource_gaps.append("规划模型不能作为被测模型")
     else:
-        model, g2 = await _pick_model(db, scene, industry, exclude_ids=exclude)
+        model, g2 = await _pick_model(db, scene, industry, exclude_ids=exclude, actor=actor)
         resource_gaps.extend(g2)
+
+    if actor is not None:
+        from app.services.object_policy import object_is_visible
+        from app.api.models import _acl_allows
+        if ds and not object_is_visible(ds, actor):
+            ds = None
+            resource_gaps.append("指定数据集不存在或无权访问")
+        if model and (not object_is_visible(model, actor) or not await _acl_allows(db, model.id, user)):
+            model = None
+            resource_gaps.append("指定模型不存在或无调用权限")
 
     trial = bool(ov.get("trial_run")) if "trial_run" in ov else False
     if ds and ds.quality_status in {"failed", "check_failed", "unchecked", "checking", "needs_clean"}:
@@ -285,6 +311,20 @@ async def apply_resource_proposal(db: AsyncSession, session, args: dict, *, acto
     plan = loads(session.plan_json, {})
     from app.services.object_policy import object_is_visible
     changed = []
+    if session.task_id:
+        raise ValueError("plan_locked:已有评测任务，请新建会话设计另一任务")
+    if "trial_run" in args:
+        if not isinstance(args["trial_run"], bool):
+            raise ValueError("trial_run_must_be_boolean")
+        plan["trial_run"] = args["trial_run"]
+        changed.append("试跑模式" if args["trial_run"] else "正式模式")
+    if "token_budget" in args:
+        budget = args["token_budget"]
+        if isinstance(budget, bool) or not isinstance(budget, int) or budget < 0:
+            raise ValueError("invalid_token_budget")
+        plan["token_budget"] = budget
+        plan["goal_spec"] = {**(plan.get("goal_spec") or {}), "token_budget": budget}
+        changed.append(f"Token预算 {budget}")
     if args.get("dataset_id") not in (None, ""):
         ds = await db.get(Dataset, int(args["dataset_id"]))
         if not ds or ds.status == "deleted" or (actor is not None and not object_is_visible(ds, actor)):
