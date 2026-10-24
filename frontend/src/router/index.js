@@ -5,6 +5,7 @@ import { safeHomePath } from '@/utils/navigation'
 const APP_TITLE = '大模型智能评测平台'
 
 const routes = [
+  { path: '/leaderboard/public/:token', name: 'LeaderboardPublic', component: () => import('@/views/LeaderboardPublic.vue'), meta: { public: true, title: '已发布模型榜单' } },
   {
     path: '/login',
     name: 'Login',
@@ -32,6 +33,7 @@ const routes = [
       { path: 'resources', name: 'Resources', component: () => import('@/views/Resources.vue'), meta: { permission: 'resource:list', title: '工具底座' } },
       { path: 'tasks', name: 'Tasks', component: () => import('@/views/Tasks.vue'), meta: { permission: 'task:list', title: '任务管理' } },
       { path: 'task-templates', name: 'TaskTemplates', component: () => import('@/views/TaskTemplates.vue'), meta: { permission: 'task:list', title: '任务模板' } },
+      { path: 'safety', name: 'Safety', component: () => import('@/views/Safety.vue'), meta: { permission: 'task:list', title: '安全可信' } },
       { path: 'tasks/:id', name: 'TaskDetail', component: () => import('@/views/TaskDetail.vue'), meta: { permission: 'task:view', title: '任务详情' } },
       { path: 'leaderboard', name: 'Leaderboard', component: () => import('@/views/Leaderboard.vue'), meta: { permission: 'leaderboard:view', title: '模型榜单' } },
       { path: 'services', name: 'EvalServices', component: () => import('@/views/EvalServices.vue'), meta: { permission: 'service:list', title: '评测服务' } },

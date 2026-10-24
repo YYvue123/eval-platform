@@ -1,327 +1,149 @@
 <template>
-  <div class="leaderboard-page">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">模型榜单</h2>
-        <p class="page-desc">只收录正式评测成功的结果。同一比较组内的分数才能互相排名；缺指标留空，不补 0。</p>
-      </div>
-      <div class="ops">
-        <el-button @click="exportCsv">导出 CSV</el-button>
-      </div>
-    </div>
+  <main class="board-page">
+    <header class="board-header">
+      <div><div class="kicker">FLAGSHIP MODEL EVALUATION</div><h1>大模型榜单<span>以真实评测，发现适合的模型</span></h1></div>
+      <div class="header-actions"><el-switch v-model="demoMode" active-text="模拟演示" inactive-text="真实评测" @change="changeDataMode" /><span class="update-time">{{ latestTime }}</span><el-button v-if="user.hasPermission('leaderboard:view')" :loading="loading" @click="load">刷新</el-button><el-button v-if="canManage && !demoMode" @click="manage('publications')">榜单管理</el-button></div>
+    </header>
 
-    <el-alert v-if="stale" type="warning" show-icon :closable="false" title="数据更新异常，正在展示上次快照" class="block" />
+    <el-alert v-if="demoMode" title="模拟演示数据：模型、分数、时延、费用和趋势均为虚构，不是正式评测结果。" type="warning" :closable="false" show-icon class="demo-notice" /><nav class="category-grid" aria-label="榜单分类">
+      <button v-permission="'leaderboard:view'" v-for="c in categories" :key="c.id" class="category" :class="{active:category===c.id}" :disabled="Boolean(c.id) && !data.categories?.[c.id]" @click="setCategory(c.id)"><span class="category-icon">{{ c.icon }}</span><span><b>{{ c.name }}</b><small>{{ c.id ? data.categories?.[c.id] ? `${data.categories[c.id]} ${demoMode?'个示例':'次实测'}` : '暂无正式结果' : `${data.overview?.models || 0} 个模型配置` }}</small></span></button>
+    </nav>
 
-    <el-card shadow="never" class="block">
-      <div class="toolbar">
-        <el-radio-group v-model="board" @change="switchBoard">
-          <el-radio-button v-for="b in boards" :key="b.value" :value="b.value">{{ b.label }}</el-radio-button>
-        </el-radio-group>
-        <el-select v-model="cohortFilter" clearable filterable placeholder="比较组（自动）" style="width: 280px" @change="loadData">
-          <el-option v-for="c in cohorts" :key="c.id" :label="cohortLabel(c)" :value="c.id" />
-        </el-select>
-        <el-select v-model="industry" clearable filterable placeholder="全部行业" style="width: 160px" @change="onDimChange">
-          <el-option v-for="s in industries" :key="s.value" :label="s.label" :value="s.value" />
-        </el-select>
-        <el-select v-model="scene" clearable filterable placeholder="全部场景" style="width: 180px" @change="onDimChange">
-          <el-option v-for="s in scenes" :key="s.value" :label="s.label" :value="s.value" />
-        </el-select>
+    <section class="leaderboard-shell">
+      <div class="board-nav"><nav aria-label="榜单类型"><button v-permission="'leaderboard:view'" v-for="b in boards" :key="b.id" :class="{active:board===b.id}" @click="switchBoard(b.id)">{{ b.name }}<em v-if="b.id==='ability'">TOP 10</em></button></nav><el-button v-if="user.hasPermission('leaderboard:edit')" link :disabled="isSnapshot || demoMode" @click="manage('weights')">综合权重设置</el-button></div>
+
+      <div class="protocol-row"><span class="filter-label">评测套件</span><el-select v-model="cohort" filterable class="protocol-select" placeholder="选择可比较的评测套件" :disabled="isSnapshot || demoMode" @change="changeCohort"><el-option v-for="c in data.cohorts || []" :key="c.id" :value="c.id" :label="`${datasetLabel(c.dataset_name || c.label)} · ${judgeLabel(c.judge,c.judge_name)} · ${c.count} 个配置`" /></el-select><span class="filter-label period-label">评测期数</span><el-select v-model="publicationId" :disabled="demoMode" class="period-select" @change="load"><el-option label="实时结果" value="live" /><el-option v-for="p in publications" :key="p.id" :label="`${p.title}${p.status==='withdrawn'?' · 已撤回':''}`" :value="p.id" :disabled="p.status==='withdrawn'&&!user.hasPermission('leaderboard:publish')" /></el-select><el-tag :type="isSnapshot?'success':'info'" effect="plain" size="small">{{ demoMode?'模拟演示':isSnapshot?'已冻结快照':'实时评测' }}</el-tag></div>
+
+      <div class="filter-row" :class="{locked:isSnapshot}">
+        <el-select v-model="modelIds" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="全部模型" aria-label="模型筛选" :disabled="isSnapshot || demoMode" @change="changeModels"><el-option v-for="m in data.model_options || []" :key="m.id" :label="m.name" :value="m.id" /></el-select>
+        <el-select v-model="versionId" clearable placeholder="全部版本" aria-label="模型版本筛选" :disabled="isSnapshot || demoMode" @change="load"><el-option v-for="v in versions" :key="v.id" :label="`${v.code} · ${modelName(v.model_id)}`" :value="v.id" /></el-select>
+        <el-select v-model="industry" clearable filterable placeholder="全部行业" aria-label="行业筛选" :disabled="isSnapshot || demoMode" @change="resetProtocol"><el-option v-for="i in data.industries || []" :key="i.value" :value="i.value" :label="i.label" /></el-select>
+        <el-select v-model="scene" clearable placeholder="全部场景" aria-label="场景筛选" :disabled="isSnapshot || demoMode" @change="resetProtocol"><el-option v-for="s in data.scenes || []" :key="s.value" :value="s.value" :label="s.label" /></el-select>
+        <el-date-picker v-model="dateRange" type="datetimerange" start-placeholder="评测开始" end-placeholder="评测结束" range-separator="至" :disabled="isSnapshot || demoMode" @change="load" />
+        <el-button v-if="user.hasPermission('leaderboard:view')" link :disabled="isSnapshot || demoMode" @click="clearFilters">重置</el-button>
       </div>
-      <p class="meta">
-        比较组是同一套评测条件下的结果：同一数据版本、同一裁判、同一工具版本、同一指标权重、同一场景。条件不同的分数不能直接比高低。不选比较组时，展示结果最多的一组。
-      </p>
-      <p class="meta">
-        榜单 {{ boardLabel }} · 当前比较组 {{ activeCohortLabel }} · 未入榜 {{ excludedTotal }}
-      </p>
-      <PageAsyncState
-        v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(listState)"
-        :state="listState"
-        :errorMessage="loadError"
-      />
-      <template v-else>
-        <el-row v-if="podium.length" :gutter="12" class="block">
-          <el-col v-for="(row, idx) in podium" :key="row.model_id + '-' + idx" :span="8">
-            <el-card shadow="never" class="clickable" @click="toggleSelect(row)">
-              <div class="stat-label">第 {{ formatRank(row.rank) }}</div>
-              <div class="stat-value">{{ row.model_name }}</div>
-              <p class="meta">{{ formatScore(row.norm_score) }} · {{ row.scene || '—' }} · {{ ((row.pass_rate || 0) * 100).toFixed(0) }}% 通过</p>
-            </el-card>
-          </el-col>
-        </el-row>
-        <el-table :data="items" stripe @row-click="toggleSelect">
-          <template #empty>
-            <EmptyState type="default" title="当前比较组暂无可比正式结果" description="完成正式评测后会自动出现在这一组里。" :show-action="false" />
-          </template>
-          <el-table-column width="40">
-            <template #default="{ row }">
-              <span class="sel-dot" :class="{ on: isSelected(row) }" />
-            </template>
-          </el-table-column>
-          <el-table-column label="排名" width="80">
-            <template #default="{ row }">{{ formatRank(row.rank) }}<span v-if="row.tied">=</span></template>
-          </el-table-column>
-          <el-table-column prop="model_name" label="模型" min-width="140" />
-          <el-table-column prop="industry" label="行业" width="100">
-            <template #default="{ row }">{{ row.industry || '—' }}</template>
-          </el-table-column>
-          <el-table-column prop="scene" label="场景" width="110">
-            <template #default="{ row }">{{ row.scene || '—' }}</template>
-          </el-table-column>
-          <el-table-column label="平均分" width="100">
-            <template #default="{ row }">{{ formatScore(row.avg_score) }}</template>
-          </el-table-column>
-          <el-table-column label="归一化" width="100">
-            <template #default="{ row }">{{ formatScore(row.norm_score) }}</template>
-          </el-table-column>
-          <el-table-column v-if="board === 'value'" label="成本" width="100">
-            <template #default="{ row }">{{ formatScore(row.cost) }}</template>
-          </el-table-column>
-          <el-table-column label="通过率" width="100">
-            <template #default="{ row }">{{ row.pass_rate == null ? '—' : ((row.pass_rate || 0) * 100).toFixed(1) + '%' }}</template>
-          </el-table-column>
-          <el-table-column prop="task_name" label="来源任务" min-width="140" show-overflow-tooltip />
+
+      <div v-if="error" class="error-banner"><span>{{ error }}</span><el-button v-if="user.hasPermission('leaderboard:view')" link @click="load">重试</el-button></div>
+      <div v-if="isSnapshot" class="snapshot-banner"><b>{{ snapshotInfo.title }}</b><span>{{ snapshotInfo.status==='withdrawn'?'已撤回，仅供管理审计':'已发布内容保持不变' }} · {{ localDate(snapshotInfo.created_at) }}</span><a v-if="snapshotInfo.public_path" :href="snapshotInfo.public_path" target="_blank" rel="noopener">打开公开页面</a></div>
+
+      <div class="ranking-toolbar"><div class="ranking-caption"><h2>{{ boardLabel }}</h2><span>{{ boardDescription }}</span></div><div class="view-options"><el-radio-group v-model="viewMode" size="small"><el-radio-button value="table">表格</el-radio-button><el-radio-button value="cards">模型卡片</el-radio-button><el-radio-button value="profiles">能力档案</el-radio-button></el-radio-group></div></div>
+      <div class="table-filter-row"><el-input v-model="search" clearable placeholder="搜索模型名称、机构" aria-label="搜索模型" class="search-input" /><el-select v-model="source" clearable placeholder="全部开闭源" class="source-select"><el-option label="开源" value="open" /><el-option label="闭源" value="closed" /><el-option label="未标注" value="unknown" /></el-select><el-select v-if="board==='ability'" v-model="metric" :disabled="isSnapshot" placeholder="选择单项能力" aria-label="单项指标" class="metric-select" @change="load"><el-option v-for="d in data.dimensions || []" :key="d" :label="d" :value="d" /></el-select><el-select v-else v-model="visibleDims" multiple collapse-tags collapse-tags-tooltip placeholder="展示指标" aria-label="展示指标" class="metric-select"><el-option v-for="d in data.dimensions || []" :key="d" :label="d" :value="d" /></el-select><span class="result-count">{{ filtered.length }} 个配置<span v-if="board==='ability'"> · Top10</span></span><el-button v-if="user.hasPermission('leaderboard:view')" :disabled="!(viewMode==='profiles'?profileRows.length:filtered.length)" @click="exportCsv">导出结果 ↓</el-button></div>
+
+      <div v-loading="loading" class="ranking-content">
+        <el-table v-if="viewMode==='table'" :data="filtered" row-key="key" stripe max-height="590" @sort-change="sortTable" class="rank-table">
+          <el-table-column fixed width="48"><template #header><span class="column-hint">对比</span></template><template #default="{row}"><el-checkbox :model-value="selectedKeys.includes(row.key)" :aria-label="`对比 ${row.model_name}`" @change="toggle(row)" /></template></el-table-column>
+          <el-table-column fixed label="排名" width="66"><template #default="{row}"><span class="rank-number" :class="{first:row.rank===1,top:row.rank&&row.rank<=3}">{{ row.rank==null?'—':String(row.rank).padStart(2,'0') }}</span></template></el-table-column>
+          <el-table-column fixed label="模型" min-width="230"><template #default="{row}"><el-button v-if="user.hasPermission('leaderboard:view')" link class="model-link" @click="showDetail(row)">{{ row.model_name }}</el-button><div class="model-subline"><span>{{ row.company || '机构未标注' }}</span><i>·</i><span>{{ row.version }}</span><el-tag v-if="row.demo_alias" size="small" type="warning" effect="plain">演示</el-tag></div></template></el-table-column>
+          <el-table-column label="开闭源" width="90"><template #default="{row}"><span class="source-dot" :class="row.source_type" />{{ sourceName(row.source_type) }}</template></el-table-column>
+          <el-table-column :label="mainScoreLabel" prop="ranking_score" sortable="custom" min-width="126"><template #default="{row}"><span class="main-score">{{ scoreText(row.ranking_score,board!=='value') }}</span></template></el-table-column>
+          <el-table-column v-for="d in visibleDims" :key="d" :label="d" min-width="120"><template #default="{row}"><el-tooltip :content="`${row.dimensions[d]?.count || 0} / ${row.dimensions[d]?.expected || 0} 个实测样本`"><span class="dimension-score" :class="{best:row.dimensions[d]?.score===dimensionMax(d)}">{{ scoreText(row.dimensions[d]?.score) }}</span></el-tooltip></template></el-table-column>
+          <el-table-column label="通过率" min-width="105"><template #default="{row}">{{ number(row.pass_rate*100,1) }}%</template></el-table-column>
+          <el-table-column label="平均时延 / ms" prop="latency_ms" sortable="custom" width="145"><template #default="{row}">{{ number(row.latency_ms,0) }}</template></el-table-column>
+          <el-table-column label="样本" prop="sample_count" width="76" />
+          <el-table-column v-if="board==='value'" label="每样本估算费用" width="155"><template #default="{row}">{{ number(row.cost_per_sample,6) }}</template></el-table-column>
+          <template #empty><div class="empty-state"><span>◌</span><h3>当前条件下暂无可比结果</h3><p>{{ board==='special'?'专项榜仅收录行业、场景和安全专项任务，请选择相应评测套件。':'调整筛选，或完成同一评测协议下的正式任务。' }}</p></div></template>
         </el-table>
-      </template>
-    </el-card>
+        <div v-else-if="viewMode==='cards'" class="model-cards"><article v-for="r in filtered" :key="r.key" class="model-card" :class="{selected:selectedKeys.includes(r.key)}"><div class="card-top"><span class="rank-number top">{{ r.rank==null?'—':`#${r.rank}` }}</span><el-checkbox :model-value="selectedKeys.includes(r.key)" :aria-label="`对比 ${r.model_name}`" @change="toggle(r)">加入对比</el-checkbox></div><el-button v-if="user.hasPermission('leaderboard:view')" link class="model-link" @click="showDetail(r)">{{ r.model_name }}</el-button><p>{{ r.company || '机构未标注' }} · {{ r.version }}</p><div class="card-score"><strong>{{ scoreText(r.ranking_score,board!=='value') }}</strong><span>{{ mainScoreLabel }}</span></div><div v-for="d in visibleDims.slice(0,6)" :key="d" class="card-dimension"><span>{{ d }}</span><div class="mini-track"><i :style="{width:`${data.scale?(r.dimensions[d]?.score||0)*100:0}%`}" /></div><b>{{ scoreText(r.dimensions[d]?.score) }}</b></div><footer>{{ r.sample_count }} 个样本 · {{ number(r.latency_ms,0) }} ms</footer></article><div v-if="!filtered.length" class="empty-state">暂无符合条件的模型</div></div>
+        <el-table v-else :data="profileRows" stripe class="rank-table"><el-table-column fixed prop="model_name" label="模型配置" min-width="240" /><el-table-column v-for="c in data.cohorts || []" :key="c.id" :label="datasetLabel(c.dataset_name || c.label)" min-width="230"><template #default="{row}"><el-button v-if="row.cells[c.id] && user.hasPermission('leaderboard:view')" link @click="cohort=c.id;viewMode='table';publicationId='live';load()">{{ number(row.cells[c.id].score,3) }}<span class="cell-protocol">{{ judgeLabel(c.judge,c.judge_name) }} · {{ row.cells[c.id].samples }} 样本</span></el-button><span v-else class="unmeasured">— 未测</span></template></el-table-column></el-table>
+      </div>
+      <footer class="table-footer"><span><i class="live-dot" />{{ demoMode?'模拟展示 · 不参与正式评测与发布':data.scale?'已知评分尺度 · 分数以百分制展示，原始结果不变':'未知评分尺度 · 仅展示原始分，不混合排名' }}</span><span>{{ data.overview?.runs || 0 }} 次真实完整运行 · {{ data.excluded_total || 0 }} 次未纳入</span></footer>
+    </section>
 
-    <el-row v-if="listState === 'success' || listState === 'empty'" :gutter="16">
-      <el-col :md="14">
-        <el-card shadow="never">
-          <template #header>雷达对比（选 2–5 个模型 · 缺场景为 null）</template>
-          <div ref="radarEl" class="radar" />
-        </el-card>
-      </el-col>
-      <el-col v-if="userStore.hasPermission('leaderboard:edit')" :md="10">
-        <el-card shadow="never">
-          <template #header>成本表（可复算账单）</template>
-          <el-table :data="costs" size="small" max-height="300">
-            <el-table-column prop="model_name" label="模型" min-width="120" />
-            <el-table-column label="Token/千" min-width="120">
-              <template #default="{ row }">
-                <el-input-number v-model="row.token_price_per_1k" :step="0.001" size="small" @change="saveCost(row)" />
-              </template>
-            </el-table-column>
-            <el-table-column label="时延/秒" min-width="120">
-              <template #default="{ row }">
-                <el-input-number v-model="row.latency_price_per_sec" :step="0.001" size="small" @change="saveCost(row)" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
-  </div>
+    <section ref="comparePanel" class="comparison-panel">
+      <header><div><span class="kicker">MODEL COMPARISON</span><h2>模型对比<span>同一协议，看清差异</span></h2></div><div class="chart-actions"><el-button v-if="user.hasPermission('leaderboard:view')" link @click="fullscreen=true">放大查看 ⤢</el-button><el-button v-if="user.hasPermission('leaderboard:view')" link @click="chartRef?.saveImage()">保存图片 ↓</el-button></div></header>
+      <div class="chart-tabs" role="tablist" aria-label="对比图表"><button v-permission="'leaderboard:view'" v-for="t in chartTabs" :key="t.id" role="tab" :aria-selected="chartTab===t.id" :class="{active:chartTab===t.id}" @click="chartTab=t.id">{{ t.name }}</button></div>
+      <div class="comparison-legend"><button v-permission="'leaderboard:view'" v-for="(r,i) in chosen" :key="r.key" :class="{muted:hiddenKeys.includes(r.key)}" @click="toggleLegend(r.key)"><i :style="{background:colors[i]}" />{{ r.model_name }}<b>{{ scoreText(r.score) }}</b></button><span v-if="chosen.length" class="legend-hint">点击切换显示</span></div>
+      <div class="chart-stage"><LeaderboardChart v-if="activeOption && chosen.length" :key="chartTab" ref="chartRef" :option="activeOption" :height="chartTab==='heat'?`${Math.max(390,chartRows.length*65+120)}px`:'410px'" :label="`模型对比-${chartTabs.find(t=>t.id===chartTab)?.name}`" /><div v-else class="empty-state"><span>◎</span><h3>{{ chosen.length?'当前维度不足以绘制此图':'选择模型，开始比较' }}</h3><p>{{ chosen.length?'雷达图需要至少三个共同完整维度，以及已确认的分数尺度。可切换条形图查看。':'在表格或模型卡片中勾选最多五个配置，图表会实时更新。' }}</p></div></div>
+      <div class="comparison-details" v-if="chosen.length"><div class="comparison-note"><b>{{ demoMode?'合成示例 · 用于展示图表交互':chartNotes[chartTab] }}</b><p>{{ protocolCaption }}</p></div><el-select v-model="visibleDims" multiple collapse-tags placeholder="对比维度" aria-label="对比维度"><el-option v-for="d in data.dimensions || []" :key="d" :label="d" :value="d" /></el-select></div>
+    </section>
+
+    <section class="method-panel"><el-collapse><el-collapse-item title="评测口径与榜单说明" name="method"><p>{{ data.rules }}</p><p>综合分按当前维度权重加权；单项榜按选定指标展示前十；专项榜仅纳入专项任务；性价比为综合原始分除以每样本估算费用，不等于供应商实际账单。</p><p>各能力来自评测集标签，不同套件不能直接横比。公开榜单必须经过正式发布。小样本与同源演示配置均不代表通用能力认证。</p><p>异常排除：{{ exclusionText }}。{{ hasAliases?'带演示标签的条目使用同一底层模型，名称仅代表接入配置。':'' }}</p></el-collapse-item></el-collapse></section>
+
+    <div class="compare-dock" v-if="chosen.length"><div class="dock-label"><b>模型对比</b><span>{{ chosen.length }} / 5</span></div><div class="dock-models"><el-tag v-for="(r,i) in chosen" :key="r.key" closable effect="plain" @close="toggle(r)"><i :style="{background:colors[i]}" />{{ r.model_name }}</el-tag></div><el-button v-if="user.hasPermission('leaderboard:view')" link @click="selectedKeys=[]">清空</el-button><el-button v-if="user.hasPermission('leaderboard:view')" type="primary" @click="comparePanel?.scrollIntoView({behavior:'smooth',block:'start'})">查看对比 ↑</el-button></div>
+
+    <el-dialog v-model="fullscreen" title="模型多维对比" width="min(1200px, 96vw)" destroy-on-close><div class="full-legend"><span v-for="(r,i) in chartRows" :key="r.key"><i :style="{background:colors[i]}" />{{ r.model_name }}</span></div><LeaderboardChart v-if="activeOption" :option="activeOption" height="65vh" label="放大模型对比图" /></el-dialog>
+    <el-drawer :model-value="!!detail" title="模型评测卡片" size="min(560px, 95vw)" @close="detail=null"><template v-if="detail"><div class="detail-model"><div class="kicker">MODEL PROFILE</div><h2>{{ detail.model_name }}</h2><p>{{ detail.company || '机构未标注' }} · {{ detail.version }} · {{ detail.parameter_scale || '参数规模未标注' }}</p><strong>{{ scoreText(detail.score) }}</strong><span>综合得分</span></div><p class="detail-description">{{ detail.description }}</p><el-descriptions :column="1" border><el-descriptions-item label="来源任务">#{{ detail.task_id }} · {{ detail.task_name }}</el-descriptions-item><el-descriptions-item label="有效样本">{{ detail.sample_count }}</el-descriptions-item><el-descriptions-item label="P95 实测时延">{{ number(detail.p95_latency_ms,0) }} ms</el-descriptions-item><el-descriptions-item label="实际 Token">{{ detail.tokens ?? '未返回' }}</el-descriptions-item><el-descriptions-item label="任务结束时间">{{ localDate(detail.updated_at) }}</el-descriptions-item></el-descriptions><div class="detail-actions"><el-button v-if="user.hasPermission('task:view') && detail.task_id" @click="router.push('/tasks/'+detail.task_id)">查看任务证据</el-button><el-button v-if="user.hasPermission('leaderboard:review') && !isSnapshot && detail.task_id" type="warning" plain @click="manage('reviews',detail.task_id);detail=null">提交异常复核</el-button></div></template></el-drawer>
+    <LeaderboardGovernance ref="governance" :data="data" :context="context" @refresh="load" @snapshot="openSnapshot" />
+  </main>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import * as echarts from 'echarts'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { leaderboardApi } from '@/api'
 import { useUserStore } from '@/stores/user'
-import EmptyState from '@/components/EmptyState.vue'
-import PageAsyncState from '@/components/PageAsyncState.vue'
-import { deriveAsyncState } from '@/utils/asyncState.js'
-
-const userStore = useUserStore()
-const items = ref([])
-const costs = ref([])
-const industry = ref('')
-const scene = ref('')
-const industries = ref([])
-const scenes = ref([])
-const board = ref('overall')
-const stale = ref(false)
-const cohortFilter = ref('')
-const activeCohortId = ref('')
-const cohorts = ref([])
-const excludedTotal = ref(0)
-const selected = ref([])
-const radarEl = ref(null)
-const loading = ref(false)
-const loadError = ref('')
-const createdOnce = ref(false)
-let chart
-
-const boards = [
-  { value: 'overall', label: '综合' },
-  { value: 'ability', label: '单项' },
-  { value: 'special', label: '专项' },
-  { value: 'value', label: '性价比' },
-]
-
-const boardLabel = computed(() => boards.find((b) => b.value === board.value)?.label || board.value)
-const activeCohortLabel = computed(() => {
-  const hit = cohorts.value.find((c) => c.id === activeCohortId.value)
-  return hit ? cohortLabel(hit) : (activeCohortId.value || '—')
-})
-
-function cohortLabel(c) {
-  const sceneName = scenes.value.find((s) => s.value === c.scene)?.label
-  if (!sceneName || !c.scene) return c.label || c.id
-  return String(c.label || c.id).replace(c.scene, sceneName)
-}
-const podium = computed(() => items.value.filter((r) => r.rank != null).slice(0, 3))
-const listState = computed(() => deriveAsyncState({
-  loading: loading.value && !createdOnce.value,
-  error: loadError.value,
-  forbidden: false,
-  items: items.value,
-  createdOnce: createdOnce.value,
-}))
-
-function loadErr(e, fallback) {
-  const d = e?.response?.data
-  const msg = d?.message || d?.detail || e?.message
-  return typeof msg === 'string' && msg ? msg : fallback
-}
-
-function formatRank(r) {
-  return r == null ? '—' : String(r).padStart(2, '0')
-}
-function formatScore(v) {
-  return v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(3)
-}
-function isSelected(row) {
-  return selected.value.some((s) => s.model_id === row.model_id)
-}
-function toggleSelect(row) {
-  if (isSelected(row)) selected.value = selected.value.filter((s) => s.model_id !== row.model_id)
-  else if (selected.value.length < 5) selected.value = [...selected.value, row]
-  drawRadar()
-}
-
-async function switchBoard(v) {
-  board.value = v
-  await loadData()
-}
-
-function onDimChange() {
-  cohortFilter.value = ''
-  loadData()
-}
-
-async function loadData() {
-  loading.value = true
-  loadError.value = ''
-  try {
-    const res = await leaderboardApi.list({
-      board: board.value,
-      industry: industry.value,
-      scene: scene.value,
-      cohort_id: cohortFilter.value,
-    })
-    items.value = res.items || []
-    stale.value = !!res.stale
-    scenes.value = res.scenes || scenes.value
-    industries.value = res.industries || industries.value
-    cohorts.value = res.cohorts || []
-    activeCohortId.value = res.cohort_id || cohortFilter.value || ''
-    excludedTotal.value = res.excluded_total || 0
-    selected.value = []
-    createdOnce.value = true
-    await nextTick()
-    await drawRadar()
-  } catch (e) {
-    loadError.value = loadErr(e, '榜单加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function exportCsv() {
-  const blob = await leaderboardApi.export({ board: board.value, industry: industry.value, scene: scene.value })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `leaderboard-${board.value}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-async function saveCost(row) {
-  await leaderboardApi.putCost(row.model_id, {
-    token_price_per_1k: row.token_price_per_1k,
-    latency_price_per_sec: row.latency_price_per_sec,
-    gpu_hour_price: row.gpu_hour_price || 0,
-  })
-}
-
-function themeColor(name, fallback) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
-}
-
-async function drawRadar() {
-  if (!chart) return
-  if (selected.value.length < 2) {
-    chart.clear()
-    return
-  }
-  const ids = selected.value.slice(0, 5).map((r) => r.model_id).join(',')
-  const data = await leaderboardApi.radar({ model_ids: ids })
-  const indicators = (data.scenes || []).map((s) => ({ name: s, max: 1 }))
-  const ink = themeColor('--text-secondary', '#64748b')
-  const primary = themeColor('--el-color-primary', '#6366f1')
-  chart.setOption({
-    backgroundColor: 'transparent',
-    textStyle: { color: ink },
-    legend: { data: (data.series || []).map((s) => s.model_name), textStyle: { color: ink }, top: 0 },
-    radar: {
-      indicator: indicators.length ? indicators : [{ name: 'n/a', max: 1 }],
-      axisName: { color: ink },
-      splitLine: { lineStyle: { color: themeColor('--border-color', '#e2e8f0') } },
-      splitArea: { areaStyle: { color: [themeColor('--bg-card', '#fff'), 'transparent'] } },
-      axisLine: { lineStyle: { color: themeColor('--border-color', '#e2e8f0') } },
-    },
-    series: [{
-      type: 'radar',
-      data: (data.series || []).map((s) => ({
-        name: s.model_name,
-        value: (s.values || []).map((v) => (v == null ? 0 : v)),
-        lineStyle: { width: 2 },
-        areaStyle: { opacity: 0.1 },
-      })),
-    }],
-    color: [primary, ink],
-  })
-}
-
-onMounted(async () => {
-  await loadData()
-  if (userStore.hasPermission('leaderboard:edit')) {
-    try {
-      const c = await leaderboardApi.costs()
-      costs.value = c.items || []
-    } catch (e) {
-      if (!loadError.value) loadError.value = loadErr(e, '成本表加载失败')
-    }
-  }
-  await nextTick()
-  if (radarEl.value) chart = echarts.init(radarEl.value)
-})
-onUnmounted(() => chart?.dispose())
+import { judgeLabel, datasetLabel } from '@/utils/evaluationLabels'
+import LeaderboardChart from '@/components/LeaderboardChart.vue'
+import LeaderboardGovernance from '@/components/LeaderboardGovernance.vue'
+import { barOption, colors, csvCell, heatOption, number, radarOption, scatterOption, trendOption } from '@/utils/leaderboardChartsV2'
+const user=useUserStore(),route=useRoute(),router=useRouter()
+const data=ref({}),error=ref(''),loading=ref(false),cohort=ref(String(route.query.cohort || '')),board=ref(String(route.query.board || 'overall')),category=ref(String(route.query.category ?? 'language'))
+const demoMode=ref(route.query.demo==='1')
+const metric=ref(''),industry=ref(''),scene=ref(''),modelIds=ref([]),versionId=ref(null),dateRange=ref([]),search=ref(''),source=ref(''),visibleDims=ref([]),sort=ref(null),viewMode=ref('table')
+const publications=ref([]),publicationId=ref(route.query.release?Number(route.query.release):'live'),snapshotInfo=ref({}),detail=ref(null),governance=ref(null),selectedKeys=ref([]),hiddenKeys=ref([]),chartTab=ref('radar'),chartRef=ref(null),comparePanel=ref(null),fullscreen=ref(false)
+const boards=[{id:'overall',name:'综合得分榜'},{id:'ability',name:'单项能力榜'},{id:'special',name:'专项评测榜'},{id:'value',name:'性价比榜'}]
+const categories=[{id:'',name:'全部模型',icon:'◈'},{id:'language',name:'语言能力',icon:'Aa'},{id:'vision',name:'视觉语言',icon:'▧'},{id:'video',name:'视频模型',icon:'▷'},{id:'audio',name:'语音模型',icon:'≋'},{id:'k12',name:'K12 学科',icon:'学'},{id:'finance',name:'金融专项',icon:'¥'},{id:'safety',name:'安全可信',icon:'◇'}]
+const chartTabs=[{id:'radar',name:'能力雷达'},{id:'bars',name:'得分对照'},{id:'heat',name:'能力矩阵'},{id:'trend',name:'历史趋势'},{id:'efficiency',name:'质量与效率'}]
+const chartNotes={radar:'统一尺度 · 共同完整维度 · 不用最高分拉伸',bars:'同一评测协议下的得分对照',heat:'颜色越深分数越高，空白表示未测',trend:'真实任务时间序列，滚动或拖动滑块缩放',efficiency:'越靠左时延越低，越靠上得分越高'}
+let generation=0
+const isSnapshot=computed(()=>publicationId.value!=='live')
+const canManage=computed(()=>['leaderboard:edit','leaderboard:publish','leaderboard:review','leaderboard:withdraw'].some(p=>user.hasPermission(p)))
+const boardLabel=computed(()=>boards.find(b=>b.id===board.value)?.name || '模型榜单')
+const boardDescription=computed(()=>({overall:'按可配置维度权重汇总',ability:'选定能力维度的前十名',special:'行业与专项任务独立排名',value:'基于真实用量与配置价格'}[board.value]))
+const mainScoreLabel=computed(()=>board.value==='ability'?metric.value || '单项得分':board.value==='value'?'性价比指数':'综合得分')
+const protocol=computed(()=>data.value.cohorts?.find(c=>c.id===data.value.cohort_id))
+const latestTime=computed(()=>protocol.value?.updated_at?`更新于 ${localDate(protocol.value.updated_at)}`:'实时评测结果')
+const protocolCaption=computed(()=>`${datasetLabel(protocol.value?.dataset_name) || '当前评测套件'} · ${judgeLabel(protocol.value?.judge,protocol.value?.judge_name)} · 工具 ${protocol.value?.tool_version || '版本未标注'}`)
+const versions=computed(()=>(data.value.version_options || []).filter(v=>!modelIds.value.length || modelIds.value.includes(v.model_id)))
+const filtered=computed(()=>{const rows=(data.value.items || []).filter(r=>(!search.value || `${r.model_name} ${r.company}`.toLowerCase().includes(search.value.toLowerCase()))&&(!source.value || (r.source_type||'unknown')===source.value));if(sort.value?.order){const {prop,order}=sort.value;rows.sort((a,b)=>a[prop]==null?b[prop]==null?0:1:b[prop]==null?-1:(a[prop]-b[prop])*(order==='ascending'?1:-1))}return rows})
+const profileRows=computed(()=>(data.value.profiles || []).filter(r=>(!search.value || r.model_name.toLowerCase().includes(search.value.toLowerCase()))&&(!source.value || (r.source_type||'unknown')===source.value)))
+const chosen=computed(()=>selectedKeys.value.map(k=>(data.value.items || []).find(r=>r.key===k)).filter(Boolean))
+const chartRows=computed(()=>chosen.value.map((r,i)=>({...r,chart_color:colors[i]})).filter(r=>!hiddenKeys.value.includes(r.key)))
+const activeOption=computed(()=>{const r=chartRows.value,d=visibleDims.value,s=data.value.scale;if(!r.length)return null;return {radar:()=>radarOption(r,d,s),bars:()=>barOption(r,'ranking_score',mainScoreLabel.value,board.value==='value'?null:s),heat:()=>heatOption(r,d,s),trend:()=>trendOption(r,data.value.history || [],s),efficiency:()=>scatterOption(r,s)}[chartTab.value]()})
+const hasAliases=computed(()=>data.value.items?.some(r=>r.demo_alias))
+const exclusionText=computed(()=>Object.entries(data.value.excluded || {}).map(([k,v])=>`${k} ${v} 次`).join('；') || '无')
+const context=computed(()=>({cohort_id:data.value.cohort_id || cohort.value,board:board.value,metric:metric.value,industry:industry.value,scene:scene.value,category:category.value,model_ids:modelIds.value.length?modelIds.value:null,version_id:versionId.value || null,since:dateRange.value?.[0]?.toISOString(),as_of:dateRange.value?.[1]?.toISOString()}))
+const scoreText=(v,percent=true)=>v==null?'—':number(v*(percent&&data.value.scale?100:1),percent?1:3)
+const sourceName=s=>({open:'开源',closed:'闭源'}[s] || '未标注')
+const modelName=id=>data.value.model_options?.find(m=>m.id===id)?.name || ''
+const localDate=v=>v?new Date(v.endsWith('Z')?v:`${v}Z`).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'
+const dimensionMax=d=>Math.max(...filtered.value.map(r=>r.dimensions[d]?.score).filter(v=>v!=null))
+function toggle(row){if(selectedKeys.value.includes(row.key))selectedKeys.value=selectedKeys.value.filter(k=>k!==row.key);else if(selectedKeys.value.length<5)selectedKeys.value.push(row.key);else ElMessage.info('最多选择五个模型配置');hiddenKeys.value=hiddenKeys.value.filter(k=>selectedKeys.value.includes(k))}
+function toggleLegend(key){hiddenKeys.value=hiddenKeys.value.includes(key)?hiddenKeys.value.filter(k=>k!==key):[...hiddenKeys.value,key]}
+function sortTable(value){sort.value=value}
+function manage(tab,taskId=null){governance.value?.open(tab,taskId)}
+function changeCohort(){metric.value='';load()}
+function resetProtocol(){cohort.value='';metric.value='';load()}
+function changeModels(){if(versionId.value&&!versions.value.some(v=>v.id===versionId.value))versionId.value=null;load()}
+function showDetail(row){if(demoMode.value){ElMessage.info('模拟模型没有真实任务证据');return}detail.value=row}
+function changeDataMode(){category.value=demoMode.value?'vision':'language';publicationId.value='live';clearFilters()}
+function clearFilters(){metric.value='';industry.value='';scene.value='';modelIds.value=[];versionId.value=null;dateRange.value=[];search.value='';source.value='';cohort.value='';load()}
+function setCategory(value){category.value=value;publicationId.value='live';clearFilters()}
+function switchBoard(value){board.value=value;publicationId.value='live';sort.value=null;if(value==='special'&&!demoMode.value){cohort.value='';category.value=''}load()}
+function openSnapshot(id){publicationId.value=id;load()}
+async function load(){const id=++generation;loading.value=true;error.value='';try{
+  const old=data.value.cohort_id
+  let result
+  if(demoMode.value){result=await leaderboardApi.demo({category:category.value || 'vision',board:board.value,metric:metric.value})}
+  else if(isSnapshot.value){const release=await leaderboardApi.publication(publicationId.value);if(id!==generation)return;snapshotInfo.value=release;result=release.payload;board.value=result.board;category.value=result.category || '';const saved=result.filter_context || {};industry.value=saved.industry || '';scene.value=saved.scene || '';modelIds.value=saved.model_ids || [];versionId.value=saved.version_id || null;dateRange.value=saved.since || saved.as_of?[saved.since?new Date(`${saved.since}Z`):null,saved.as_of?new Date(`${saved.as_of}Z`):null]:[]}
+  else {const q={...context.value,cohort_id:cohort.value,model_ids:modelIds.value.join(',')};result=await leaderboardApi.insights(q)}
+  if(id!==generation)return
+  data.value=result;cohort.value=result.cohort_id;metric.value=result.metric || '';visibleDims.value=visibleDims.value.filter(d=>result.dimensions?.includes(d));if(!visibleDims.value.length)visibleDims.value=[...(result.dimensions || [])]
+  selectedKeys.value=old!==result.cohort_id || !old?result.items.slice(0,2).map(r=>r.key):selectedKeys.value.filter(k=>result.items.some(r=>r.key===k));hiddenKeys.value=[]
+  const periods=demoMode.value?[]:(await leaderboardApi.publications({cohort_id:result.cohort_id})).items
+  if(id!==generation)return
+  publications.value=periods
+  await router.replace({query:{...(demoMode.value?{demo:1}:{}),board:board.value,category:category.value,...(cohort.value?{cohort:cohort.value}:{}),...(isSnapshot.value?{release:publicationId.value}:{})}})
+}catch(e){if(id===generation){error.value=e.response?.data?.detail || e.message;data.value={...data.value,items:[],history:[]};selectedKeys.value=[]}}finally{if(id===generation)loading.value=false}}
+function exportCsv(){const dims=visibleDims.value,headers=['模型','模型版本','排名',mainScoreLabel.value,...dims,'样本数','实测均延ms','Token','来源任务','比较组'];let rows=filtered.value.map(r=>[r.model_name,r.version,r.rank,scoreText(r.ranking_score,board.value!=='value'),...dims.map(d=>scoreText(r.dimensions[d]?.score)),r.sample_count,r.latency_ms,r.tokens,r.task_id,data.value.cohort_id]);if(viewMode.value==='profiles'){headers.splice(0,headers.length,'模型配置',...(data.value.cohorts||[]).map(c=>c.label));rows=profileRows.value.map(r=>[r.model_name,...(data.value.cohorts||[]).map(c=>r.cells[c.id]?.score)])}const url=URL.createObjectURL(new Blob(['\uFEFF'+[headers,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`leaderboard-${data.value.cohort_id}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+watch(chartTab,async()=>{await nextTick();chartRef.value?.resize()})
+onMounted(load)
 </script>
 
 <style scoped>
-.leaderboard-page { color: var(--text-primary); }
-.page-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-.ops { display: flex; flex-wrap: wrap; gap: 8px; }
-.block { margin-bottom: 16px; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-.meta { margin: 0 0 12px; font-size: 13px; color: var(--text-secondary); }
-.stat-label { color: var(--text-secondary); font-size: 13px; }
-.stat-value { margin-top: 8px; font-size: 18px; font-weight: 600; color: var(--text-primary); }
-.clickable { cursor: pointer; background: var(--bg-card); }
-.radar { height: 300px; }
-.sel-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-  border: 1px solid var(--el-border-color);
-  background: var(--bg-card);
-}
-.sel-dot.on {
-  background: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-}
+.demo-notice{margin-bottom:18px}.board-page{--blue:#2563eb;--soft-blue:#eff5ff;--ink:#253858;--muted:#8190a6;max-width:1660px;margin:0 auto;padding-bottom:96px;color:var(--text-primary,#253858)}.board-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:4px 0 22px}.kicker{font-size:9px;letter-spacing:2.1px;font-weight:650;color:#8b9bb3}.board-header h1{font-size:27px;font-weight:650;letter-spacing:-.7px;margin:7px 0 0;display:flex;align-items:baseline;gap:20px}.board-header h1 span{font-size:12px;font-weight:400;letter-spacing:0;color:var(--text-secondary)}.header-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.update-time{font-size:11px;color:var(--text-secondary);margin-right:8px}.category-grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px;margin-bottom:24px}.category{position:relative;display:flex;align-items:center;gap:12px;text-align:left;padding:17px 14px;border:1px solid var(--border-color,#e1e8f3);border-radius:9px;background:var(--bg-card,#fff);color:var(--text-primary);cursor:pointer;transition:border-color .2s,background .2s;min-width:0}.category.active{border-color:#8fb3ff;background:linear-gradient(115deg,#edf4ff,#f8fbff);box-shadow:0 2px 7px #2a66d607}.category:hover:enabled{border-color:#8fb3ff}.category:disabled{cursor:default;opacity:.5}.category-icon{font-size:21px;color:#4077d2;font-weight:500;width:24px}.category b{font-size:12px;font-weight:600;display:block;white-space:nowrap}.category small{display:block;font-size:10px;color:var(--text-secondary);margin-top:7px;white-space:nowrap}.category-arrow{margin-left:auto;align-self:flex-start;color:#9aabc4;font-size:12px}.leaderboard-shell,.comparison-panel,.method-panel{background:var(--bg-card,#fff);border:1px solid var(--border-color,#e2e9f3);border-radius:12px;overflow:hidden;margin-bottom:22px}.board-nav{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border-color,#edf1f6);padding:0 24px;gap:10px}.board-nav nav{display:flex;gap:28px;overflow-x:auto}.board-nav nav button{border:0;background:none;position:relative;padding:21px 0;color:var(--text-secondary);font-size:14px;white-space:nowrap;cursor:pointer}.board-nav nav button.active{color:var(--blue);font-weight:650}.board-nav nav button.active:after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;border-radius:3px;background:var(--blue)}.board-nav em{font-size:8px;font-style:normal;font-weight:700;border:1px solid #d4e3ff;color:#7195d4;padding:2px 4px;margin-left:6px;border-radius:3px;vertical-align:middle}.protocol-row{display:flex;align-items:center;gap:12px;padding:20px 24px 14px}.filter-label{font-size:12px;color:var(--text-secondary);white-space:nowrap}.protocol-select{flex:1;max-width:590px}.period-label{margin-left:auto}.period-select{width:205px}.filter-row{display:flex;align-items:center;gap:10px;padding:0 24px 20px;flex-wrap:wrap;border-bottom:1px solid var(--border-color,#edf1f6)}.filter-row>.el-select{width:145px;flex:1;min-width:125px;max-width:200px}.filter-row :deep(.el-date-editor){width:310px;flex:1.7;min-width:270px}.filter-row.locked{opacity:.65}.ranking-toolbar{padding:21px 24px 14px;display:flex;align-items:center;justify-content:space-between;gap:16px}.ranking-caption{display:flex;align-items:baseline;gap:14px}.ranking-caption h2{font-size:18px;font-weight:650;margin:0}.ranking-caption>span{font-size:11px;color:var(--text-secondary)}.table-filter-row{display:flex;align-items:center;gap:10px;padding:0 24px 18px}.search-input{max-width:235px}.source-select{width:135px}.metric-select{width:190px}.result-count{font-size:11px;white-space:nowrap;color:var(--text-secondary);margin-left:auto}.ranking-content{min-height:170px}.rank-table{--el-table-header-bg-color:var(--bg-page,#f7f9fd);--el-table-row-hover-bg-color:#edf4ff;--el-fill-color-lighter:color-mix(in srgb,#eaf2ff 35%,var(--bg-card,#fff))}.rank-table :deep(th){height:48px;color:#65758e;font-size:12px;font-weight:500}.rank-table :deep(td){height:77px;font-size:12px;border-bottom-color:var(--border-color,#eef2f8)}.rank-table :deep(.cell){padding-left:14px;padding-right:14px}.column-hint{font-size:10px;color:#9aa8bc}.rank-number{font-variant-numeric:tabular-nums;color:#8190a6;font-size:15px}.rank-number.top{font-weight:650;color:#4776c4}.rank-number.first{color:#bf913d}.model-link{font-weight:650;font-size:13px;white-space:normal;height:auto;padding:0;text-align:left;color:#245dcc}.model-subline{display:flex;align-items:center;gap:6px;font-size:10px;color:#8a98af;margin-top:7px;line-height:1.5}.model-subline i{font-style:normal}.model-subline :deep(.el-tag){font-size:9px;height:16px;padding:0 4px}.main-score{font-size:17px;font-weight:650;color:var(--blue);font-variant-numeric:tabular-nums}.dimension-score{font-size:12px;color:var(--text-primary);font-variant-numeric:tabular-nums}.dimension-score.best{color:#225ebd;font-weight:650}.source-dot{display:inline-block;width:5px;height:5px;background:#b7c1cf;border-radius:50%;margin-right:7px}.source-dot.open{background:#36b9a3}.source-dot.closed{background:#6e97e4}.table-footer{padding:15px 24px;display:flex;justify-content:space-between;gap:12px;border-top:1px solid var(--border-color,#edf1f6);font-size:10px;color:#8b99ad}.live-dot{display:inline-block;width:5px;height:5px;background:#5bb49f;border-radius:50%;margin-right:7px}.cell-protocol{display:block;font-size:10px;color:#91a0b5;margin-left:10px}.unmeasured{color:#a8b4c5;font-size:12px}.model-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;padding:4px 24px 24px}.model-card{border:1px solid var(--border-color,#e2e9f4);border-radius:10px;padding:20px}.model-card.selected{border-color:#b8cffb;background:color-mix(in srgb,#f3f7ff 40%,var(--bg-card,#fff))}.card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.model-card p,.model-card footer{font-size:11px;color:var(--text-secondary)}.card-score{display:flex;align-items:baseline;gap:10px;margin:21px 0}.card-score strong{font-size:32px;color:var(--blue);font-weight:600;letter-spacing:-1px}.card-score>span{font-size:11px;color:#8c9bb1}.card-dimension{display:grid;grid-template-columns:70px 1fr 38px;gap:12px;align-items:center;margin:12px 0;font-size:11px;color:#7e8da3}.card-dimension b{font-size:11px;color:#536783;text-align:right}.mini-track{height:4px;background:#eaf0fa;border-radius:4px;overflow:hidden}.mini-track i{display:block;height:100%;background:#88b1f3;border-radius:4px}.model-card footer{margin-top:20px;padding-top:14px;border-top:1px solid var(--border-color,#edf1f6)}.comparison-panel{padding:24px 28px;scroll-margin-top:18px}.comparison-panel>header{display:flex;justify-content:space-between;align-items:center;gap:16px}.comparison-panel h2{font-size:20px;font-weight:650;margin:8px 0 0}.comparison-panel h2 span{font-size:11px;font-weight:400;color:var(--text-secondary);margin-left:16px}.chart-actions{display:flex;gap:12px}.chart-tabs{display:flex;gap:24px;border-bottom:1px solid var(--border-color,#edf1f6);margin-top:21px;overflow-x:auto}.chart-tabs button{background:transparent;border:0;cursor:pointer;color:#8a98ac;font-size:12px;white-space:nowrap;padding:12px 1px 15px;position:relative}.chart-tabs button.active{color:var(--blue);font-weight:600}.chart-tabs button.active:after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--blue)}.comparison-legend{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:22px 5px 0;min-height:35px}.comparison-legend button{display:flex;align-items:center;gap:7px;background:none;border:0;padding:0;font-size:12px;color:var(--text-primary);cursor:pointer}.comparison-legend button.muted{opacity:.35}.comparison-legend b{font-size:11px;color:#8b9ab0;font-weight:400;margin-left:3px}.comparison-legend i,.dock-models i,.full-legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}.legend-hint{font-size:10px;color:#a2aec0;margin-left:auto}.chart-stage{max-width:1000px;margin:0 auto}.comparison-details{border-top:1px solid var(--border-color,#edf1f6);padding:17px 3px 0;display:flex;justify-content:space-between;align-items:center;gap:20px}.comparison-note b{font-size:11px;font-weight:500;color:#667a99}.comparison-note p{font-size:10px;color:#9aa8bb;margin:7px 0 0}.comparison-details>.el-select{width:210px}.method-panel{padding:0 25px}.method-panel p{font-size:12px;line-height:1.9;color:var(--text-secondary)}.method-panel :deep(.el-collapse){border:0}.method-panel :deep(.el-collapse-item__header){color:#7889a2;font-size:12px;border:0}.method-panel :deep(.el-collapse-item__wrap){border:0}.compare-dock{position:sticky;bottom:0;z-index:20;border:1px solid #dce6f5;border-radius:10px;padding:13px 18px;display:flex;align-items:center;gap:15px;background:var(--bg-card,#fff);box-shadow:0 -3px 22px #254c8c0b;margin-top:14px}.dock-label{display:flex;flex-direction:column;gap:5px;min-width:60px}.dock-label b{font-size:11px;font-weight:600}.dock-label span{font-size:10px;color:#92a0b6}.dock-models{display:flex;flex-wrap:wrap;gap:8px;flex:1}.dock-models :deep(.el-tag){--el-tag-text-color:#526b90;--el-tag-bg-color:var(--bg-card,#fff);--el-tag-border-color:#e0e8f4;height:28px;font-size:11px}.full-legend{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;font-size:12px;padding:10px 0 20px}.empty-state{text-align:center;padding:55px 20px;color:#95a3b7;font-size:13px}.empty-state>span{display:block;font-size:38px;color:#c4d5f1;margin-bottom:15px}.empty-state h3{font-size:14px;font-weight:500;color:#7386a2}.empty-state p{font-size:12px;line-height:1.9}.error-banner,.snapshot-banner{padding:12px 24px;font-size:12px;display:flex;align-items:center;gap:15px;flex-wrap:wrap}.error-banner{background:#fff3ef;color:#ba634d}.snapshot-banner{background:#f0f8f5;color:#5c8a79}.snapshot-banner a{margin-left:auto;color:#287765}.detail-model{padding:20px 0}.detail-model h2{font-size:23px;margin:12px 0}.detail-model p{font-size:12px;color:var(--text-secondary)}.detail-model strong{display:inline-block;font-size:42px;color:var(--blue);font-weight:600;margin:18px 12px 0 0}.detail-model>span{font-size:12px;color:#90a0b7}.detail-description{font-size:12px;line-height:1.9;color:var(--text-secondary);margin:0 0 20px}.detail-actions{display:flex;gap:12px;margin-top:24px}
+@media(max-width:1200px){.category-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.board-header h1 span,.update-time{display:none}.board-nav nav{gap:20px}.ranking-caption>span{display:none}.filter-row>.el-select{max-width:none}.protocol-select{max-width:none}.model-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.board-header{margin-top:8px}.board-header h1{font-size:22px}.kicker{font-size:8px;letter-spacing:1.5px}.category-grid{display:flex;overflow-x:auto;gap:8px;margin-bottom:16px}.category{min-width:136px;padding:12px}.category-arrow{display:none}.board-nav{padding:0 14px;display:block}.board-nav>.el-button{display:none}.board-nav nav{justify-content:space-between;gap:14px}.board-nav nav button{font-size:12px;padding:17px 0}.board-nav em{display:none}.protocol-row{padding:15px;flex-wrap:wrap;gap:10px}.protocol-select{width:calc(100% - 65px);flex:auto}.period-label{margin-left:0}.period-select{flex:1}.filter-row{padding:0 15px 15px;gap:8px}.filter-row>.el-select{min-width:130px}.filter-row :deep(.el-date-editor){min-width:250px}.ranking-toolbar{padding:17px 15px 12px;flex-wrap:wrap}.ranking-caption h2{font-size:16px}.table-filter-row{padding:0 15px 14px;flex-wrap:wrap;gap:8px}.search-input{max-width:none;flex:1;min-width:160px}.source-select{width:120px}.metric-select{width:165px}.table-filter-row>.el-button{font-size:11px;padding:6px}.result-count{font-size:10px}.table-footer{padding:12px 15px;flex-wrap:wrap;font-size:9px}.comparison-panel{padding:19px 15px}.comparison-panel h2 span{display:none}.comparison-panel h2{font-size:18px}.chart-actions{gap:8px}.chart-actions :deep(.el-button){font-size:10px}.chart-tabs{gap:21px}.chart-tabs button{font-size:11px}.comparison-legend{gap:12px}.comparison-legend button{font-size:10px}.legend-hint{display:none}.comparison-details{align-items:flex-start;flex-direction:column;gap:12px}.comparison-details>.el-select{width:100%}.model-cards{grid-template-columns:1fr;padding:0 15px 15px}.compare-dock{padding:10px;gap:8px;flex-wrap:wrap}.dock-label{min-width:45px}.dock-models{max-width:calc(100% - 60px);overflow-x:auto;flex-wrap:nowrap}.dock-models :deep(.el-tag){flex-shrink:0;max-width:180px;overflow:hidden}.compare-dock>.el-button{margin-left:auto}.compare-dock>.el-button+ .el-button{margin-left:0}.demo-notice{margin-bottom:18px}.board-page{padding-bottom:20px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 </style>

@@ -13,12 +13,14 @@
         <el-button v-if="userStore.hasPermission('service:admit')" link type="primary" @click="inspect(row)">成员与记录</el-button>
         <el-button v-if="userStore.hasPermission('service:admit')" link @click="open('company', row)">编辑</el-button>
         <el-button v-if="userStore.hasPermission('service:admit')" link :disabled="row.status !== 'active'" @click="$emit('grant', row)">交付数据集</el-button>
+        <el-button v-if="userStore.hasPermission('service:admit')" link @click="inspect(row, 'models')">模型授权</el-button>
         <el-button v-if="userStore.hasPermission('service:admit')" link type="danger" @click="removeCompany(row)">删除</el-button>
       </template></el-table-column>
     </el-table>
     <el-drawer v-model="drawer" :title="company?.name || '企业管理'" size="min(1100px, 96vw)" @closed="clearDrawer">
       <el-alert v-if="drawerError" :title="drawerError" type="error" :closable="false" />
       <el-tabs v-model="detailTab">
+        <el-tab-pane v-if="userStore.hasPermission('service:admit')" label="模型授权" name="models"><ServiceModelGrants v-if="drawer && company && detailTab === 'models'" :tenant-id="company.id" :disabled="company.status !== 'active'" /></el-tab-pane>
         <el-tab-pane label="企业成员" name="members">
           <div class="heading"><p>密码以加密摘要存储。可重置密码，账号名固定用于登录和历史追踪。</p><el-button v-if="userStore.hasPermission('service:admit')" :disabled="company?.status !== 'active'" @click="open('member')">添加成员</el-button></div>
           <el-table v-loading="detailLoading" :data="companyMembers" stripe>
@@ -54,6 +56,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { servicePortalApi as api } from '@/api'
 import { useUserStore } from '@/stores/user'
 import ServiceRecords from './ServiceRecords.vue'
+import ServiceModelGrants from './ServiceModelGrants.vue'
 const userStore = useUserStore()
 defineEmits(['onboard', 'grant', 'quota'])
 const companies = ref([]), keyword = ref(''), status = ref(''), loading = ref(false), error = ref('')
@@ -80,7 +83,7 @@ async function loadDetails() {
   catch (e) { if (run === detailGeneration) drawerError.value = message(e) }
   finally { if (run === detailGeneration) detailLoading.value = false }
 }
-function inspect(row) { company.value = row; detailTab.value = 'members'; companyMembers.value = []; companyClients.value = []; drawer.value = true; loadDetails() }
+function inspect(row, initialTab = 'members') { company.value = row; detailTab.value = initialTab; companyMembers.value = []; companyClients.value = []; drawer.value = true; loadDetails() }
 function clearDrawer() { detailGeneration++; company.value = null; companyMembers.value = []; companyClients.value = [] }
 function clearForm() { form.value = {}; formError.value = '' }
 function open(type, row = null) { kind.value = type; selected.value = row; formError.value = ''; form.value = type === 'company' ? { name: row.name, status: row.status } : type === 'editMember' ? { nickname: row.nickname, email: row.email, phone: row.phone, status: row.status } : { username: '', password: '' }; dialog.value = true }

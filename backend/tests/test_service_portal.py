@@ -436,6 +436,96 @@ class ExternalServicesTest(unittest.TestCase):
         history = self.client.get(P + '/records', headers=self.h, params={'page_size': 100}).json()
         self.assertFalse(any(r['detail'] == 'foreign trace fixture' for r in history['items']))
 
+    def platform_model(self):
+        async def seed():
+            from app.services.model_access import bump_version_and_freeze
+            async with async_session() as db:
+                operator = await db.scalar(select(User).where(User.username == 'admin_' + self.suffix))
+                m = EvalModel(name='Platform model ' + self.suffix, tenant_id=operator.tenant_id,
+                    creator_id=operator.id, status='active', visibility='private',
+                    api_url=f'http://127.0.0.1:{self.provider.server_port}',
+                    api_key='original-platform-secret', served_model_name='fixture')
+                db.add(m)
+                await db.flush()
+                v = ModelVersion(model_id=m.id, version_code='V1.0')
+                db.add(v)
+                await db.flush()
+                m.current_version_id = v.id
+                await insert_access_snapshot(db, m)
+                m.api_key = 'new-platform-secret'
+                v2 = await bump_version_and_freeze(db, m, operator.id)
+                await db.commit()
+                return m.id, v.id, v2.id
+        return asyncio.run(seed())
+
+    def test_platform_model_delivery_execution_revoke_and_regrant(self):
+        mid, vid, vid2 = self.platform_model()
+        tid = self.customer['tenant_id']
+        base = f'{P}/customers/{tid}/model-grants'
+        options = self.client.get(P + '/model-grant-options', headers=self.admin)
+        self.assertEqual(options.status_code, 200, options.text)
+        self.assertIn(mid, [m['id'] for m in options.json()['items']])
+        self.assertNotIn('platform-secret', options.text)
+        grant = self.client.post(base, headers=self.admin, json={'model_id': mid, 'version_ids': [vid]})
+        self.assertEqual(grant.status_code, 200, grant.text)
+        target = grant.json()['model_id']
+        repeated = self.client.post(base, headers=self.admin, json={'model_id': mid, 'version_ids': [vid]})
+        self.assertEqual(repeated.json(), grant.json())
+        second = self.client.post(base, headers=self.admin, json={'model_id': mid, 'version_ids': [vid2]})
+        self.assertEqual(second.json()['model_id'], target)
+        listing = self.client.get(base, headers=self.admin).json()['items']
+        self.assertEqual(len(listing), 2)
+        target_version = next(g['version_id'] for g in listing if g['id'] == grant.json()['ids'][0])
+        assets = self.client.get(P + '/assets', headers=self.h)
+        self.assertIn(target, [m['id'] for m in assets.json()['models']])
+        self.assertNotIn('platform-secret', assets.text)
+        async def check_snapshot():
+            from app.models import ModelAccessConfig
+            async with async_session() as db:
+                cfg = await db.scalar(select(ModelAccessConfig).where(ModelAccessConfig.version_id == target_version))
+                self.assertIn('original-platform-secret', cfg.auth_config)
+                self.assertNotIn('new-platform-secret', cfg.auth_config)
+        asyncio.run(check_snapshot())
+        self.assertNotIn(target, [m['id'] for m in self.client.get(P + '/assets', headers=self.other_h).json()['models']])
+        release = self.client.post(f'{P}/routes/{self.rid}/versions', headers=self.h,
+            json={'version': 'platform-v1', 'model_id': target, 'model_version_id': target_version})
+        self.assertEqual(release.status_code, 200, release.text)
+        self.set_traffic(release.json()['id'])
+        call = self.submit('granted-platform')
+        self.assertEqual(call.status_code, 200, call.text)
+        self.execute_task(call.json()['task_id'])
+        revoke = self.client.delete(base + f'/{grant.json()["ids"][0]}', headers=self.admin)
+        self.assertEqual(revoke.status_code, 200, revoke.text)
+        self.assertEqual(self.submit('revoked-platform').status_code, 400)
+        routes = self.client.get(P + '/routes', headers=self.h, params={'workspace_id': self.ws}).json()['items']
+        self.assertFalse(next(r for r in routes if r['id'] == self.rid)['available'])
+        history = self.client.get(P + '/records', headers=self.admin, params={'tenant_id': tid, 'action': 'model_grant'}).json()
+        self.assertEqual(history['total'], 2)
+        self.assertNotIn('platform-secret', str(history))
+        restored = self.client.post(base, headers=self.admin, json={'model_id': mid, 'version_ids': [vid]})
+        self.assertEqual(restored.json(), grant.json())
+        self.assertEqual(self.submit('restored-platform').status_code, 200)
+
+    def test_platform_model_grants_permission_scope_and_atomic_validation(self):
+        mid, vid, _ = self.platform_model()
+        tid = self.customer['tenant_id']
+        base = f'{P}/customers/{tid}/model-grants'
+        body = {'model_id': mid, 'version_ids': [vid]}
+        self.assertEqual(self.client.get(P + '/model-grant-options', headers=self.h).status_code, 403)
+        self.assertEqual(self.client.post(base, headers=self.h, json=body).status_code, 403)
+        self.assertEqual(self.client.get(base, headers=self.other_h).status_code, 403)
+        self.assertEqual(self.client.post(base, headers=self.admin,
+            json={'model_id': self.mid, 'version_ids': [self.vid]}).status_code, 404)
+        self.assertEqual(self.client.post(base, headers=self.admin,
+            json={'model_id': mid, 'version_ids': [vid, self.vid]}).status_code, 400)
+        self.assertEqual(self.client.get(base, headers=self.admin).json()['items'], [])
+        grant = self.client.post(base, headers=self.admin, json=body).json()
+        gid = grant['ids'][0]
+        self.assertEqual(self.client.delete(base + f'/{gid}', headers=self.h).status_code, 403)
+        self.assertEqual(self.client.delete(f'{P}/customers/{self.other["tenant_id"]}/model-grants/{gid}', headers=self.admin).status_code, 404)
+        self.assertEqual(self.client.delete(base + f'/{gid}', headers=self.admin).status_code, 200)
+        self.assertNotIn(grant['model_id'], [m['id'] for m in self.client.get(P + '/assets', headers=self.h).json()['models']])
+
     def test_cross_tenant_report_and_injected_client(self):
         cid = self.submit().json()['id']
         self.assertEqual(self.client.get(f'{P}/evaluations/{cid}/report', headers=self.other_h).status_code, 404)

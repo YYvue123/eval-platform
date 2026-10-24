@@ -63,6 +63,9 @@
       <el-col :span="6"><el-card><div class="stat-label">平均分</div><div class="stat-value">{{ task.avg_score == null ? '—' : Number(task.avg_score).toFixed(3) }}</div></el-card></el-col>
     </el-row>
     <el-descriptions :column="3" border class="block">
+      <el-descriptions-item label="被测模型">{{ task.model_name || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="数据集">{{ task.dataset_name || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="评测工具">{{ task.judge_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="模板">{{ task.template_code || '-' }}</el-descriptions-item>
       <el-descriptions-item label="场景">{{ task.scene }}</el-descriptions-item>
       <el-descriptions-item label="行业">{{ task.industry }}</el-descriptions-item>

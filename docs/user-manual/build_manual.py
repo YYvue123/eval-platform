@@ -12,7 +12,7 @@ from docx.oxml.ns import qn
 ROOT = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source', type=Path, default=ROOT / '大模型智能评测平台用户使用手册.md')
-parser.add_argument('--output', type=Path, default=ROOT / '大模型智能评测平台用户使用手册_V1.2.docx')
+parser.add_argument('--output', type=Path, default=ROOT / '大模型智能评测平台用户使用手册_V1.3.docx')
 args = parser.parse_args()
 SOURCE, OUTPUT = args.source.resolve(), args.output.resolve()
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,11 @@
+{
+  "source_chars": 10553,
+  "main_sections": 7,
+  "subsections": 27,
+  "tables": 11,
+  "paragraphs": 153,
+  "output": "E:\\eval-platform\\docs\\user-manual\\评测服务用户手册_运营方与客户方_V1.1.docx",
+  "visual_render": "blocked: LibreOffice soffice.exe unavailable; no page images",
+  "body_coverage": "all source body text present",
+  "business_tests": "not run; documentation only"
+}

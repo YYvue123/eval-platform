@@ -1,0 +1,624 @@
+{
+  "database": "E:\\eval-platform\\backend\\eval_platform.db",
+  "backup": "E:\\eval-platform\\backend\\backups\\before-leaderboard-staging-20261024-073426-811085.db",
+  "preservation": {
+    "users": {
+      "before": 5,
+      "after": 5,
+      "original_ids_preserved": true
+    },
+    "tenants": {
+      "before": 4,
+      "after": 4,
+      "original_ids_preserved": true
+    },
+    "tenant_memberships": {
+      "before": 8,
+      "after": 8,
+      "original_ids_preserved": true
+    },
+    "notifications": {
+      "before": 1,
+      "after": 1,
+      "original_ids_preserved": true
+    },
+    "notification_reads": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "roles": {
+      "before": 3,
+      "after": 3,
+      "original_ids_preserved": true
+    },
+    "permissions": {
+      "before": 72,
+      "after": 72,
+      "original_ids_preserved": true
+    },
+    "audit_logs": {
+      "before": 118,
+      "after": 187,
+      "original_ids_preserved": true
+    },
+    "datasets": {
+      "before": 35,
+      "after": 38,
+      "original_ids_preserved": true,
+      "original_content_unchanged": true
+    },
+    "data_tags": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "dataset_logs": {
+      "before": 12,
+      "after": 35,
+      "original_ids_preserved": true
+    },
+    "eval_models": {
+      "before": 2,
+      "after": 5,
+      "original_ids_preserved": true
+    },
+    "model_costs": {
+      "before": 2,
+      "after": 4,
+      "original_ids_preserved": true
+    },
+    "model_health_samples": {
+      "before": 337,
+      "after": 342,
+      "original_ids_preserved": true
+    },
+    "model_call_logs": {
+      "before": 16,
+      "after": 124,
+      "original_ids_preserved": true
+    },
+    "prompt_templates": {
+      "before": 6,
+      "after": 6,
+      "original_ids_preserved": true
+    },
+    "prompt_call_logs": {
+      "before": 9,
+      "after": 9,
+      "original_ids_preserved": true
+    },
+    "prompt_test_runs": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "prompt_experiments": {
+      "before": 3,
+      "after": 3,
+      "original_ids_preserved": true
+    },
+    "base_resources": {
+      "before": 19,
+      "after": 19,
+      "original_ids_preserved": true
+    },
+    "resource_call_logs": {
+      "before": 44,
+      "after": 152,
+      "original_ids_preserved": true
+    },
+    "resource_events": {
+      "before": 17,
+      "after": 17,
+      "original_ids_preserved": true
+    },
+    "resource_versions": {
+      "before": 16,
+      "after": 16,
+      "original_ids_preserved": true
+    },
+    "idempotency_records": {
+      "before": 43,
+      "after": 151,
+      "original_ids_preserved": true
+    },
+    "batch_snapshots": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "batch_jobs": {
+      "before": 1,
+      "after": 1,
+      "original_ids_preserved": true
+    },
+    "batch_shard_results": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "usage_reservations": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "usage_ledgers": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "eval_tasks": {
+      "before": 5,
+      "after": 19,
+      "original_ids_preserved": true,
+      "original_content_unchanged": true
+    },
+    "eval_lineages": {
+      "before": 5,
+      "after": 19,
+      "original_ids_preserved": true
+    },
+    "quality_reports": {
+      "before": 14,
+      "after": 17,
+      "original_ids_preserved": true
+    },
+    "quality_rules": {
+      "before": 8,
+      "after": 8,
+      "original_ids_preserved": true
+    },
+    "quality_issues": {
+      "before": 21,
+      "after": 21,
+      "original_ids_preserved": true
+    },
+    "eval_service_requests": {
+      "before": 1,
+      "after": 1,
+      "original_ids_preserved": true
+    },
+    "eval_workspaces": {
+      "before": 6,
+      "after": 6,
+      "original_ids_preserved": true
+    },
+    "leaderboard_weights": {
+      "before": 41,
+      "after": 41,
+      "original_ids_preserved": true
+    },
+    "leaderboard_snapshots": {
+      "before": 12,
+      "after": 12,
+      "original_ids_preserved": true
+    },
+    "leaderboard_releases": {
+      "before": 7,
+      "after": 7,
+      "original_ids_preserved": true
+    },
+    "report_jobs": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "task_templates": {
+      "before": 33,
+      "after": 33,
+      "original_ids_preserved": true
+    },
+    "benchmark_suites": {
+      "before": 10,
+      "after": 10,
+      "original_ids_preserved": true
+    },
+    "task_events": {
+      "before": 25,
+      "after": 137,
+      "original_ids_preserved": true
+    },
+    "task_subtasks": {
+      "before": 5,
+      "after": 19,
+      "original_ids_preserved": true
+    },
+    "alert_policies": {
+      "before": 5,
+      "after": 5,
+      "original_ids_preserved": true
+    },
+    "knowledge_entries": {
+      "before": 13,
+      "after": 13,
+      "original_ids_preserved": true
+    },
+    "agent_sessions": {
+      "before": 5,
+      "after": 5,
+      "original_ids_preserved": true
+    },
+    "agent_messages": {
+      "before": 73,
+      "after": 73,
+      "original_ids_preserved": true
+    },
+    "agent_suggestions": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "agent_runs": {
+      "before": 6,
+      "after": 6,
+      "original_ids_preserved": true
+    },
+    "agent_events": {
+      "before": 55,
+      "after": 55,
+      "original_ids_preserved": true
+    },
+    "agent_approvals": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "agent_delegations": {
+      "before": 12,
+      "after": 12,
+      "original_ids_preserved": true
+    },
+    "agent_monitor_states": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "knowledge_candidates": {
+      "before": 1,
+      "after": 1,
+      "original_ids_preserved": true
+    },
+    "ops_tickets": {
+      "before": 1,
+      "after": 1,
+      "original_ids_preserved": true
+    },
+    "ops_drill_records": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "data_authorizations": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "role_permissions": {
+      "before": 134,
+      "after": 134,
+      "original_ids_preserved": true
+    },
+    "dataset_versions": {
+      "before": 43,
+      "after": 46,
+      "original_ids_preserved": true,
+      "original_content_unchanged": true
+    },
+    "model_metas": {
+      "before": 2,
+      "after": 5,
+      "original_ids_preserved": true
+    },
+    "model_versions": {
+      "before": 3,
+      "after": 6,
+      "original_ids_preserved": true
+    },
+    "model_access_configs": {
+      "before": 3,
+      "after": 6,
+      "original_ids_preserved": true
+    },
+    "model_acls": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "prompt_versions": {
+      "before": 11,
+      "after": 11,
+      "original_ids_preserved": true
+    },
+    "eval_results": {
+      "before": 14,
+      "after": 122,
+      "original_ids_preserved": true,
+      "original_content_unchanged": true
+    },
+    "dataset_items": {
+      "before": 79,
+      "after": 99,
+      "original_ids_preserved": true,
+      "original_content_unchanged": true
+    },
+    "agent_definitions": {
+      "before": 1,
+      "after": 1,
+      "original_ids_preserved": true
+    },
+    "orchestration_skills": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "orchestration_recipes": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "orchestration_profiles": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "service_clients": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "service_routes": {
+      "before": 2,
+      "after": 2,
+      "original_ids_preserved": true
+    },
+    "service_releases": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "service_calls": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "service_gateway_audits": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    },
+    "agent_graph_checkpoints": {
+      "before": 0,
+      "after": 0,
+      "original_ids_preserved": true
+    }
+  },
+  "real_provider_calls": true,
+  "alias_notice": "All aliases use the same configured underlying model.",
+  "tasks": [
+    {
+      "id": 6,
+      "name": "客户演示20261024-3-36-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 810,
+      "simulation": false
+    },
+    {
+      "id": 7,
+      "name": "客户演示20261024-4-36-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 806,
+      "simulation": false
+    },
+    {
+      "id": 8,
+      "name": "客户演示20261024-5-36-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 849,
+      "simulation": false
+    },
+    {
+      "id": 9,
+      "name": "客户演示20261024-3-36-exact_match-R2",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 782,
+      "simulation": false
+    },
+    {
+      "id": 10,
+      "name": "客户演示20261024-4-36-exact_match-R2",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 799,
+      "simulation": false
+    },
+    {
+      "id": 11,
+      "name": "客户演示20261024-5-36-exact_match-R2",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 866,
+      "simulation": false
+    },
+    {
+      "id": 12,
+      "name": "客户演示20261024-3-36-fuzzy-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 786,
+      "simulation": false
+    },
+    {
+      "id": 13,
+      "name": "客户演示20261024-4-37-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 285,
+      "simulation": false
+    },
+    {
+      "id": 14,
+      "name": "客户演示20261024-3-38-fuzzy-R1",
+      "status": "success",
+      "avg_score": 0.4589,
+      "tokens_used": 1042,
+      "simulation": false
+    },
+    {
+      "id": 15,
+      "name": "客户演示20261024-4-38-fuzzy-R1",
+      "status": "success",
+      "avg_score": 0.4343,
+      "tokens_used": 1162,
+      "simulation": false
+    },
+    {
+      "id": 16,
+      "name": "客户演示20261024-5-38-fuzzy-R1",
+      "status": "success",
+      "avg_score": 0.4403,
+      "tokens_used": 1110,
+      "simulation": false
+    },
+    {
+      "id": 17,
+      "name": "客户演示20261024-3-38-fuzzy-R2",
+      "status": "success",
+      "avg_score": 0.4276,
+      "tokens_used": 1038,
+      "simulation": false
+    },
+    {
+      "id": 18,
+      "name": "客户演示20261024-4-38-fuzzy-R2",
+      "status": "success",
+      "avg_score": 0.4558,
+      "tokens_used": 1034,
+      "simulation": false
+    },
+    {
+      "id": 19,
+      "name": "客户演示20261024-5-38-fuzzy-R2",
+      "status": "success",
+      "avg_score": 0.4424,
+      "tokens_used": 1076,
+      "simulation": false
+    }
+  ],
+  "overview": {
+    "models": 5,
+    "protocols": 8,
+    "runs": 18,
+    "samples": 118
+  },
+  "cohorts": [
+    {
+      "id": "c-b099661ff61d0ab9",
+      "label": "客户演示20261024 · 文本相似度示例（非能力认证） · fuzzy",
+      "count": 3,
+      "runs": 6,
+      "dataset_version_id": 46,
+      "judge": "builtin/fuzzy",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:36:55.592122"
+    },
+    {
+      "id": "c-812c4b469538b393",
+      "label": "客户演示20261024 · 四维能力 · exact_match",
+      "count": 3,
+      "runs": 6,
+      "dataset_version_id": 44,
+      "judge": "builtin/exact_match",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:35:24.985924"
+    },
+    {
+      "id": "c-a0672e8099ff1deb",
+      "label": "客户演示20261024 · 双维覆盖 · exact_match",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 45,
+      "judge": "builtin/exact_match",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:35:39.173671"
+    },
+    {
+      "id": "c-b7f988e768e99165",
+      "label": "客户演示20261024 · 四维能力 · fuzzy",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 44,
+      "judge": "builtin/fuzzy",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:35:34.418596"
+    },
+    {
+      "id": "c-970dc679f36e9655",
+      "label": "pack:industry.construction · contains",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 27,
+      "judge": "builtin/contains",
+      "tool_version": "1.0.0",
+      "scene": "chat",
+      "industry": "construction",
+      "prompt_version_id": null,
+      "updated_at": "2026-09-29T10:36:44.834573"
+    },
+    {
+      "id": "c-b234ff1c1ff6ed79",
+      "label": "pack:industry.finance · contains",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 16,
+      "judge": "builtin/contains",
+      "tool_version": "1.0.0",
+      "scene": "chat",
+      "industry": "finance",
+      "prompt_version_id": null,
+      "updated_at": "2026-09-29T09:36:59.340693"
+    },
+    {
+      "id": "c-abaac3827724d39e",
+      "label": "real02-a37c008e · fuzzy",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 34,
+      "judge": "builtin/fuzzy",
+      "tool_version": "1.0.0",
+      "scene": "language",
+      "industry": "general",
+      "prompt_version_id": 2,
+      "updated_at": "2026-09-29T07:55:19.848488"
+    },
+    {
+      "id": "c-f3ad822c85d5cacf",
+      "label": "pack:safety.hallucination · fuzzy",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 33,
+      "judge": "builtin/fuzzy",
+      "tool_version": "1.0.0",
+      "scene": "chat",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-09-29T07:38:24.176462"
+    }
+  ]
+}

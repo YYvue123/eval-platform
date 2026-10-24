@@ -76,3 +76,17 @@ class ServiceGatewayAudit(Base):
     path: Mapped[str] = mapped_column(String(240))
     status_code: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ServiceModelGrant(Base):
+    __tablename__ = "service_model_grants"
+    __table_args__ = (UniqueConstraint("tenant_id", "source_version_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(Integer, index=True)
+    source_model_id: Mapped[int] = mapped_column(Integer, index=True)
+    source_version_id: Mapped[int] = mapped_column(Integer)
+    model_id: Mapped[int] = mapped_column(Integer, index=True)
+    version_id: Mapped[int] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(default=True)
+    creator_id: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,0 +1,179 @@
+{
+  "database": "backend/leaderboard_demo.db",
+  "real_provider_calls": true,
+  "alias_notice": "All aliases use the same configured underlying model.",
+  "tasks": [
+    {
+      "id": 1,
+      "name": "客户演示20261024-1-1-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 874,
+      "simulation": false
+    },
+    {
+      "id": 2,
+      "name": "客户演示20261024-2-1-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 953,
+      "simulation": false
+    },
+    {
+      "id": 3,
+      "name": "客户演示20261024-3-1-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 791,
+      "simulation": false
+    },
+    {
+      "id": 4,
+      "name": "客户演示20261024-1-1-exact_match-R2",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 828,
+      "simulation": false
+    },
+    {
+      "id": 5,
+      "name": "客户演示20261024-2-1-exact_match-R2",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 816,
+      "simulation": false
+    },
+    {
+      "id": 6,
+      "name": "客户演示20261024-3-1-exact_match-R2",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 895,
+      "simulation": false
+    },
+    {
+      "id": 7,
+      "name": "客户演示20261024-1-1-fuzzy-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 787,
+      "simulation": false
+    },
+    {
+      "id": 8,
+      "name": "客户演示20261024-2-2-exact_match-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 275,
+      "simulation": false
+    },
+    {
+      "id": 9,
+      "name": "客户演示20261024-1-3-fuzzy-R1",
+      "status": "success",
+      "avg_score": 0.4466,
+      "tokens_used": 1075,
+      "simulation": false
+    },
+    {
+      "id": 10,
+      "name": "客户演示20261024-2-3-fuzzy-R1",
+      "status": "success",
+      "avg_score": 0.4446,
+      "tokens_used": 999,
+      "simulation": false
+    },
+    {
+      "id": 11,
+      "name": "客户演示20261024-3-3-fuzzy-R1",
+      "status": "success",
+      "avg_score": 0.495,
+      "tokens_used": 1066,
+      "simulation": false
+    },
+    {
+      "id": 12,
+      "name": "客户演示20261024-1-3-fuzzy-R2",
+      "status": "success",
+      "avg_score": 0.4751,
+      "tokens_used": 1033,
+      "simulation": false
+    },
+    {
+      "id": 13,
+      "name": "客户演示20261024-2-3-fuzzy-R2",
+      "status": "success",
+      "avg_score": 0.5182,
+      "tokens_used": 1102,
+      "simulation": false
+    },
+    {
+      "id": 14,
+      "name": "客户演示20261024-3-3-fuzzy-R2",
+      "status": "success",
+      "avg_score": 0.4712,
+      "tokens_used": 1129,
+      "simulation": false
+    }
+  ],
+  "overview": {
+    "models": 3,
+    "protocols": 4,
+    "runs": 14,
+    "samples": 108
+  },
+  "cohorts": [
+    {
+      "id": "c-5162ad8bdf081988",
+      "label": "客户演示20261024 · 文本相似度示例（非能力认证） · fuzzy",
+      "count": 3,
+      "runs": 6,
+      "dataset_version_id": 3,
+      "judge": "builtin/fuzzy",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:18:21.922262"
+    },
+    {
+      "id": "c-ade50d0d3b40d07c",
+      "label": "客户演示20261024 · 四维能力 · exact_match",
+      "count": 3,
+      "runs": 6,
+      "dataset_version_id": 1,
+      "judge": "builtin/exact_match",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:15:44.681148"
+    },
+    {
+      "id": "c-3f5ca17a49ac3f3b",
+      "label": "客户演示20261024 · 双维覆盖 · exact_match",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 2,
+      "judge": "builtin/exact_match",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:15:58.150700"
+    },
+    {
+      "id": "c-88d4f14739077af1",
+      "label": "客户演示20261024 · 四维能力 · fuzzy",
+      "count": 1,
+      "runs": 1,
+      "dataset_version_id": 1,
+      "judge": "builtin/fuzzy",
+      "tool_version": "1.0.0",
+      "scene": "qa",
+      "industry": "general",
+      "prompt_version_id": null,
+      "updated_at": "2026-10-24T07:15:53.339950"
+    }
+  ]
+}

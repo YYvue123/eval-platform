@@ -1,0 +1,138 @@
+{
+  "backup": "E:\\eval-platform\\backend\\backups\\before-leaderboard-v2-20261024-084509.db",
+  "tasks": [
+    {
+      "id": 20,
+      "name": "榜单V2-3-39-R1",
+      "status": "success",
+      "avg_score": 0.4275,
+      "tokens_used": 1619,
+      "simulation": false
+    },
+    {
+      "id": 21,
+      "name": "榜单V2-4-39-R1",
+      "status": "success",
+      "avg_score": 0.482,
+      "tokens_used": 1546,
+      "simulation": false
+    },
+    {
+      "id": 22,
+      "name": "榜单V2-5-39-R1",
+      "status": "success",
+      "avg_score": 0.4871,
+      "tokens_used": 1572,
+      "simulation": false
+    },
+    {
+      "id": 23,
+      "name": "榜单V2-3-39-R2",
+      "status": "success",
+      "avg_score": 0.4784,
+      "tokens_used": 1538,
+      "simulation": false
+    },
+    {
+      "id": 24,
+      "name": "榜单V2-4-39-R2",
+      "status": "success",
+      "avg_score": 0.4854,
+      "tokens_used": 1584,
+      "simulation": false
+    },
+    {
+      "id": 25,
+      "name": "榜单V2-5-39-R2",
+      "status": "success",
+      "avg_score": 0.4791,
+      "tokens_used": 1564,
+      "simulation": false
+    },
+    {
+      "id": 26,
+      "name": "榜单V2-3-40-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 1038,
+      "simulation": false
+    },
+    {
+      "id": 27,
+      "name": "榜单V2-4-40-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 979,
+      "simulation": false
+    },
+    {
+      "id": 28,
+      "name": "榜单V2-5-40-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 980,
+      "simulation": false
+    },
+    {
+      "id": 29,
+      "name": "榜单V2-3-41-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 1057,
+      "simulation": false
+    },
+    {
+      "id": 30,
+      "name": "榜单V2-4-41-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 1020,
+      "simulation": false
+    },
+    {
+      "id": 31,
+      "name": "榜单V2-5-41-R1",
+      "status": "success",
+      "avg_score": 1.0,
+      "tokens_used": 1218,
+      "simulation": false
+    },
+    {
+      "id": 32,
+      "name": "榜单V2-3-39-R3",
+      "status": "success",
+      "avg_score": 0.4832,
+      "tokens_used": 1497,
+      "simulation": false
+    }
+  ],
+  "preservation": {
+    "datasets": {
+      "before": 38,
+      "after": 41,
+      "original_content_unchanged": true
+    },
+    "dataset_versions": {
+      "before": 46,
+      "after": 50,
+      "original_content_unchanged": true
+    },
+    "dataset_items": {
+      "before": 99,
+      "after": 143,
+      "original_content_unchanged": true
+    },
+    "eval_tasks": {
+      "before": 19,
+      "after": 32,
+      "original_content_unchanged": true
+    },
+    "eval_results": {
+      "before": 122,
+      "after": 266,
+      "original_content_unchanged": true
+    }
+  },
+  "public_access_enabled": false,
+  "review_example_task_id": 32
+}

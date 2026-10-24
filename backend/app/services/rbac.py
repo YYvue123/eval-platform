@@ -47,7 +47,7 @@ RESEARCHER_PERMISSIONS = [
     "resource:list", "resource:view", "resource:invoke",
     "quality:list", "quality:view", "quality:run", "quality:edit",
     "task:list", "task:view", "task:create", "task:edit", "task:run",
-    "leaderboard:view",
+    "leaderboard:view", "leaderboard:review",
     "service:list", "service:view", "service:create", "service:records",
     "agent:list", "agent:view", "agent:invoke", "agent:confirm",
     "ops:view", "ops:ticket",

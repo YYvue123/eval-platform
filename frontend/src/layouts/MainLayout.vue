@@ -1,5 +1,5 @@
 <template>
-  <el-container class="main-layout" :class="{ 'customer-layout': isCustomer }">
+  <el-container class="main-layout" :class="{ 'customer-layout': isCustomer, 'leaderboard-layout': route.name === 'Leaderboard', 'board-menu-open': boardMenuOpen }">
     <el-aside :width="asideWidth" class="aside">
       <div class="logo">
         <el-icon><Cpu /></el-icon>
@@ -40,7 +40,7 @@
       <el-header class="header">
         <div class="header-left">
           <el-tooltip :content="collapsed ? '展开菜单' : '收起菜单'" placement="bottom">
-            <el-button class="menu-toggle" :icon="collapsed ? Expand : Fold" circle size="small" @click="toggleCollapsed" />
+            <el-button class="menu-toggle" :icon="collapsed ? Expand : Fold" circle size="small" @click="toggleNavigation" />
           </el-tooltip>
           <el-breadcrumb v-if="breadcrumbs.length" class="breadcrumb" separator="/">
             <el-breadcrumb-item v-for="(item, i) in breadcrumbs" :key="`${item.path}-${i}`">
@@ -111,6 +111,12 @@ const userStore = useUserStore()
 const themeStore = useThemeStore()
 const router = useRouter()
 const route = useRoute()
+const boardMenuOpen = ref(false)
+function toggleNavigation() {
+  if (route.name === 'Leaderboard' && window.matchMedia('(max-width: 700px)').matches) boardMenuOpen.value = !boardMenuOpen.value
+  else toggleCollapsed()
+}
+watch(() => route.fullPath, () => { boardMenuOpen.value = false })
 const isCustomer = computed(() => userStore.roleCode === 'customer')
 
 const COLLAPSE_KEY = 'llm_sidebar_collapsed'
@@ -197,6 +203,15 @@ function handleUserCommand(cmd) {
   height: 100vh;
 }
 .customer-layout > .el-container { min-width: 0; }
+.leaderboard-layout > .el-container { min-width: 0; }
+@media (max-width: 700px) {
+  .leaderboard-layout .aside { position: fixed; top: 60px; bottom: 0; z-index: 2000; transform: translateX(-100%); }
+  .leaderboard-layout.board-menu-open .aside { transform: translateX(0); }
+  .leaderboard-layout .header { padding: 0 12px; }
+  .leaderboard-layout .header-right { gap: 8px; }
+  .leaderboard-layout .username, .leaderboard-layout .breadcrumb { display: none; }
+  .leaderboard-layout .main { padding: 12px; }
+}
 @media (max-width: 700px) {
   .customer-layout .aside, .customer-layout .menu-toggle { display: none; }
   .customer-layout .header { padding: 0 14px; }

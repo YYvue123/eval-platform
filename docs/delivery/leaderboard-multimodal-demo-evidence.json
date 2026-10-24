@@ -1,0 +1,27 @@
+{
+  "kind": "synthetic_presentation_only",
+  "target": "staging",
+  "formal_results_written": false,
+  "categories": [
+    {
+      "category": "audio",
+      "models": 3,
+      "dimensions": 6,
+      "simulation": true
+    },
+    {
+      "category": "video",
+      "models": 3,
+      "dimensions": 6,
+      "simulation": true
+    },
+    {
+      "category": "vision",
+      "models": 3,
+      "dimensions": 6,
+      "simulation": true
+    }
+  ],
+  "eval_tasks": 32,
+  "eval_results": 266
+}

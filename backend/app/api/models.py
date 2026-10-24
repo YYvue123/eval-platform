@@ -220,7 +220,8 @@ async def list_models(
         q = q.where(EvalModel.support_modal == support_modal)
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     rows = (await db.execute(q.order_by(EvalModel.updated_at.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    return {"items": [model_out(m) for m in rows], "total": total or 0}
+    metas = {meta.model_id: meta for meta in (await db.scalars(select(ModelMeta).where(ModelMeta.model_id.in_([m.id for m in rows])))).all()}
+    return {"items": [model_out(m, meta=metas.get(m.id)) for m in rows], "total": total or 0}
 
 
 @router.post("")

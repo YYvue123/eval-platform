@@ -10,6 +10,7 @@ from app.api import auth, users, dashboard, notifications, roles, audit
 from app.api import datasets, models, prompts, resources, tasks, quality, batch, agents, ops, benchmarks, safety, service_portal
 from app.database import init_db, seed_db
 from app.config import settings
+from app.api.leaderboard_governance import router as leaderboard_governance_router
 from app.exceptions import register_exception_handlers
 from app.logging_config import setup_logging
 from app.middleware.logging_middleware import LoggingMiddleware
@@ -95,6 +96,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["评测任务"])
 app.include_router(benchmarks.router, prefix="/api/benchmarks", tags=["基准套件"])
 app.include_router(safety.router, prefix="/api/safety", tags=["安全可信"])
 app.include_router(tasks.leaderboard_router, prefix="/api/leaderboard", tags=["模型榜单"])
+app.include_router(leaderboard_governance_router, prefix="/api/leaderboard", tags=["模型榜单"])
 app.include_router(tasks.service_router, prefix="/api/services", tags=["评测服务"])
 app.include_router(service_portal.router, prefix="/api/service-portal", tags=["企业评测服务"])
 app.include_router(service_portal.gateway, prefix="/api/service-gateway/v1", tags=["外部评测网关"])

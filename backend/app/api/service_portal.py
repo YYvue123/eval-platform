@@ -22,6 +22,7 @@ from app.services.object_policy import apply_object_scope, get_visible_or_404
 from app.services.service_portal import (call_out, check_admission, choose_release,
                                          client_usage, workspace_for)
 from app.api.service_customers import router as customer_router, password_hash
+from app.api.service_model_grants import router as model_grant_router
 
 class AuditedGatewayRoute(APIRoute):
     def get_route_handler(self):
@@ -55,6 +56,7 @@ async def active_tenant(db=Depends(get_db), current=Depends(get_current_user)):
 
 router = APIRouter(dependencies=[Depends(active_tenant)])
 router.include_router(customer_router)
+router.include_router(model_grant_router)
 gateway = APIRouter(route_class=AuditedGatewayRoute)
 
 
@@ -285,7 +287,12 @@ async def routes(workspace_id: int, db=Depends(get_db), current=Depends(require_
     result = []
     for row in rows:
         versions = (await db.scalars(select(ServiceRelease).where(ServiceRelease.route_id == row.id))).all()
+        stable = next((v for v in versions if v.id == row.stable_id), None)
+        model = await db.get(EvalModel, stable.model_id) if stable else None
+        model_version = await db.get(ModelVersion, stable.model_version_id) if stable else None
         result.append({"id": row.id, "name": row.name, "stable_id": row.stable_id,
+                       "available": bool(model and model.status not in {"deleted", "disabled", "archived"}
+                                         and model_version and model_version.status == "available"),
                        "candidate_id": row.candidate_id, "gray_percent": row.gray_percent,
                        "previous_id": row.previous_id,
                        "versions": [{"id": v.id, "version": v.version, "model_id": v.model_id,

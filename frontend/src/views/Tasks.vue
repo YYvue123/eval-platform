@@ -37,6 +37,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="task_type" label="类型" width="100" />
+        <el-table-column prop="model_name" label="被测模型" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="dataset_name" label="数据集" min-width="190" show-overflow-tooltip />
+        <el-table-column prop="judge_name" label="评测工具" min-width="140" show-overflow-tooltip />
         <el-table-column prop="scene" label="场景" width="110" />
         <el-table-column prop="industry" label="行业" width="90" />
         <el-table-column prop="priority" label="优先级" width="80" />

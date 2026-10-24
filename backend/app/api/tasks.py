@@ -12,6 +12,7 @@ from app.api.deps import require_permission, require_actor, get_current_user
 from app.database import get_db
 from app.models import (
     AlertPolicy,
+    BaseResource,
     Dataset,
     EvalModel,
     EvalResult,
@@ -32,6 +33,7 @@ from app.services.actor_context import ActorContext, effective_tenant_id
 from app.services.object_policy import apply_object_scope, get_visible_or_404, object_is_visible
 from app.services.audit import get_client_ip, log_audit
 from app.services.serializers import task_out
+from app.services.evaluation_labels import judge_name
 from app.services.leaderboard import (
     compute_board,
     current_release,
@@ -121,9 +123,9 @@ class WeightItem(BaseModel):
 
 
 class CostBody(BaseModel):
-    token_price_per_1k: float = 0.002
-    latency_price_per_sec: float = 0.01
-    gpu_hour_price: float = 0.0
+    token_price_per_1k: float = Field(default=0.002, ge=0, allow_inf_nan=False)
+    latency_price_per_sec: float = Field(default=0.01, ge=0, allow_inf_nan=False)
+    gpu_hour_price: float = Field(default=0.0, ge=0, allow_inf_nan=False)
 
 
 def _tpl_out(t: TaskTemplate, pack_dataset_id: int | None = None):
@@ -275,7 +277,16 @@ async def list_tasks(
         q = q.where(EvalTask.name.contains(search))
     total = await db.scalar(select(func.count()).select_from(q.subquery()))
     rows = (await db.execute(q.order_by(EvalTask.id.desc()).offset((page - 1) * page_size).limit(page_size))).scalars().all()
-    return {"items": [task_out(t) for t in rows], "total": total or 0}
+    return {"items": await task_display_rows(db, rows, actor), "total": total or 0}
+
+
+async def task_display_rows(db, rows, actor):
+    models = {m.id:m for m in (await db.scalars(apply_object_scope(select(EvalModel).where(EvalModel.id.in_([t.model_id for t in rows])), EvalModel, actor))).all()}
+    datasets = {d.id:d for d in (await db.scalars(apply_object_scope(select(Dataset).where(Dataset.id.in_([t.dataset_id for t in rows])), Dataset, actor))).all()}
+    resources = {r.resource_id:r.name for r in (await db.scalars(apply_object_scope(select(BaseResource).where(BaseResource.resource_id.in_([t.judge_resource_id for t in rows])), BaseResource, actor))).all()}
+    return [{**task_out(t), 'model_name':models[t.model_id].name if t.model_id in models else '不可访问或已删除',
+             'dataset_name':datasets[t.dataset_id].name if t.dataset_id in datasets else '不可访问或已删除',
+             'judge_name':judge_name(t.judge_resource_id) if t.judge_resource_id.startswith('builtin/') else resources.get(t.judge_resource_id,'不可访问或已删除的工具')} for t in rows]
 
 
 @router.post("")
@@ -370,7 +381,7 @@ async def get_task(
     actor: ActorContext = Depends(require_actor("task:view")),
 ):
     t = await get_visible_or_404(db, EvalTask, task_id, actor, not_found="任务不存在或无权访问")
-    return task_out(t)
+    return (await task_display_rows(db, [t], actor))[0]
 
 
 @router.post("/{task_id}/submit")
@@ -680,9 +691,9 @@ async def put_weights(
 @leaderboard_router.get("/costs")
 async def list_costs(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("leaderboard:view")),
+    actor: ActorContext = Depends(require_actor("leaderboard:view")),
 ):
-    models = (await db.execute(select(EvalModel).where(EvalModel.status != "deleted"))).scalars().all()
+    models = (await db.execute(apply_object_scope(select(EvalModel).where(EvalModel.status != "deleted"), EvalModel, actor))).scalars().all()
     costs = {c.model_id: c for c in (await db.execute(select(ModelCost))).scalars().all()}
     items = []
     for m in models:
@@ -690,9 +701,10 @@ async def list_costs(
         items.append({
             "model_id": m.id,
             "model_name": m.name,
-            "token_price_per_1k": c.token_price_per_1k if c else 0.002,
-            "latency_price_per_sec": c.latency_price_per_sec if c else 0.01,
-            "gpu_hour_price": c.gpu_hour_price if c else 0.0,
+            "token_price_per_1k": c.token_price_per_1k if c else None,
+            "latency_price_per_sec": c.latency_price_per_sec if c else None,
+            "gpu_hour_price": c.gpu_hour_price if c else None,
+            "configured": bool(c),
         })
     return {"items": items}
 
@@ -701,9 +713,11 @@ async def list_costs(
 async def put_cost(
     model_id: int,
     body: CostBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("leaderboard:edit")),
+    actor: ActorContext = Depends(require_actor("leaderboard:edit")),
 ):
+    await get_visible_or_404(db, EvalModel, model_id, actor)
     row = await db.scalar(select(ModelCost).where(ModelCost.model_id == model_id))
     if not row:
         row = ModelCost(model_id=model_id)
@@ -712,19 +726,50 @@ async def put_cost(
     row.token_price_per_1k = body.token_price_per_1k
     row.latency_price_per_sec = body.latency_price_per_sec
     row.gpu_hour_price = body.gpu_hour_price
+    await log_audit(db, 'leaderboard', 'edit', user_id=actor.user_id, username=actor.username, tenant_id=str(actor.tenant_id), target_id=model_id, ip=get_client_ip(request), detail=dumps({'cost_pricing':body.model_dump()}))
     return {"model_id": model_id, "ok": True}
 
 
 @leaderboard_router.get("/radar")
 async def leaderboard_radar(
     model_ids: str = Query(""),
+    cohort_id: str = Query(""),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("leaderboard:view")),
 ):
     ids = [int(x) for x in model_ids.split(",") if x.strip().isdigit()][:5]
     if len(ids) < 2:
         raise HTTPException(400, "雷达对比请选择 2–5 个模型")
-    return await radar_payload(db, ids)
+    return await radar_payload(db, ids, cohort_id)
+
+
+@leaderboard_router.get("/insights")
+async def leaderboard_insights(
+    cohort_id: str = Query(""),
+    industry: str = Query(""),
+    scene: str = Query(""),
+    as_of: datetime | None = Query(None),
+    since: datetime | None = Query(None),
+    board: str = Query('overall', pattern='^(overall|ability|special|value)$'),
+    metric: str = Query(''),
+    model_ids: str = Query(''),
+    version_id: int | None = Query(None, ge=1),
+    category: str = Query(''),
+    db: AsyncSession = Depends(get_db),
+    actor: ActorContext = Depends(require_actor("leaderboard:view")),
+):
+    from app.services.leaderboard_insights import insights
+    from app.api.leaderboard_governance import utc
+    as_of, since = utc(as_of), utc(since)
+    if since and as_of and since > as_of:
+        raise HTTPException(400, '开始时间不能晚于结束时间')
+    if model_ids and not all(p.strip().isdigit() for p in model_ids.split(',')):
+        raise HTTPException(400, '模型筛选参数无效')
+    payload = await insights(db, actor, cohort_id=cohort_id, industry=industry, scene=scene, as_of=as_of, since=since,
+        board=board,metric=metric,model_ids=[int(p) for p in model_ids.split(',')] if model_ids else None,version_id=version_id,category=category)
+    if board == 'ability' and metric and metric not in payload['dimensions'] and payload['items']:
+        raise HTTPException(400, '当前比较组不存在所选指标')
+    return payload
 
 
 @leaderboard_router.get("/trend")
@@ -808,17 +853,21 @@ async def export_leaderboard(
     board: str = Query("overall"),
     industry: str = Query(""),
     scene: str = Query(""),
+    cohort_id: str = Query(""),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_permission("leaderboard:view")),
 ):
-    payload = await compute_board(db, board, industry, scene)
-    lines = ["rank,model_name,industry,scene,avg_score,pass_rate,norm_score,task_id,cohort_id"]
+    payload = await compute_board(db, board, industry, scene, cohort_id=cohort_id or None)
+    import csv
+    import io
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    fields = ["rank", "model_name", "industry", "scene", "avg_score", "pass_rate", "norm_score", "task_id", "cohort_id"]
+    writer.writerow(fields)
     for row in payload.get("items") or []:
-        lines.append(
-            f"{row.get('rank')},{row.get('model_name')},{row.get('industry')},{row.get('scene')},"
-            f"{row.get('avg_score')},{row.get('pass_rate')},{row.get('norm_score')},{row.get('task_id')},{row.get('cohort_id')}"
-        )
-    data = ("\n".join(lines) + "\n").encode("utf-8-sig")
+        values = [row.get(key) for key in fields]
+        writer.writerow(["'" + v if isinstance(v, str) and v.startswith(("=", "+", "-", "@", "\t", "\r")) else v for v in values])
+    data = output.getvalue().encode("utf-8-sig")
     return StreamingResponse(iter([data]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=leaderboard-{board}.csv"})
 
 

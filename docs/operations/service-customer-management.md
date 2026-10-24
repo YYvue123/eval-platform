@@ -14,4 +14,19 @@
 
 评测任务列表支持标题和提交成员筛选；任务列表与网关访问审计独立分页。服务端继续使用 TaskService 执行任务，额度按实际用量与在途预占校验。
 
-本次不新增数据库表。权限定义和采集产物已更新；部署时重启后端加载权限配置，并发布前端构建。自定义角色需要按业务需要授予 `service:records`；企业管理继续使用 `service:admit`，客户角色不获得跨企业管理权限。
+企业与成员管理部分不新增数据库表；平台模型授权新增 `service_model_grants` 表，由应用启动的 metadata.create_all 创建。权限定义和采集产物已更新；部署时重启后端加载权限配置，并发布前端构建。自定义角色需要按业务需要授予 `service:records`；企业管理继续使用 `service:admit`，客户角色不获得跨企业管理权限。
+
+## 平台模型授权
+
+运营进入企业目录的“模型授权”，选择自己可见且有调用权的平台模型及可用冻结版本，向启用客户企业交付独立的模型与配置快照。模型共享不跨租户，未授权的企业不会自动获得平台模型。支持版本级撤销及重新授权，相同企业与源版本重复授权保持幂等。
+
+`service_model_grants` 记录源模型/版本、目标企业模型/版本、授权状态及操作者。服务端保存调用所需配置，授权选项、列表和客户门户不返回凭据。冻结交付不自动同步源模型更新或源模型停用，运营需显式撤销企业授权。撤销阻止新评测，不能作为取消在途任务的替代。
+
+| 接口 | 权限与作用 |
+| --- | --- |
+| GET /api/service-portal/model-grant-options | service:admit；列出运营可交付的模型及版本 |
+| GET /api/service-portal/customers/{tid}/model-grants | service:admit；查询指定企业授权 |
+| POST /api/service-portal/customers/{tid}/model-grants | service:admit；提交 model_id 和 version_ids 交付快照 |
+| DELETE /api/service-portal/customers/{tid}/model-grants/{gid} | service:admit；撤销指定授权 |
+
+客户通过已有 assets、服务版本关联及评测接口使用获授权快照，执行仍走 TaskService。新功能部署需重启后端创建授权表，并发布前端；不需手改业务数据。新增操作审计 model_grant 和 model_revoke 可在目标企业操作记录中查询。

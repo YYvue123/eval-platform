@@ -21,6 +21,7 @@
         </template>
         <el-table-column prop="name" label="名称" min-width="140" />
         <el-table-column prop="model_source" label="来源" width="90" />
+        <el-table-column label="开闭源" width="90"><template #default="{row}">{{ sourceTypeLabel(row.source_type) }}</template></el-table-column>
         <el-table-column prop="access_mode" label="接入" width="130" />
         <el-table-column prop="current_version" label="版本" width="80" />
         <el-table-column prop="health_status" label="健康" width="90">
@@ -67,6 +68,7 @@
         <el-tab-pane label="基础">
           <el-form :model="form" label-width="120px">
             <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
+            <el-form-item label="开闭源"><el-select v-model="form.source_type" clearable placeholder="请选择开源或闭源"><el-option label="开源" value="open_source" /><el-option label="闭源" value="closed" /><el-option v-if="['self_dev','fine_tune'].includes(form.source_type)" label="历史来源（请补充开闭源）" :value="form.source_type" /></el-select></el-form-item>
             <el-form-item label="来源">
               <el-select v-model="form.model_source">
                 <el-option label="外部企业" value="external" />
@@ -132,13 +134,6 @@
               <el-input v-model="form.company_name" placeholder="企业" />
               <el-input v-model="form.contact_name" placeholder="对接人" style="margin-top: 8px" />
             </el-form-item>
-            <el-form-item v-if="form.model_source === 'internal'" label="内部来源">
-              <el-select v-model="form.source_type">
-                <el-option label="开源" value="open_source" />
-                <el-option label="自研" value="self_dev" />
-                <el-option label="微调" value="fine_tune" />
-              </el-select>
-            </el-form-item>
             <el-form-item v-if="form.model_source === 'internal'" label="基座/集群">
               <el-input v-model="form.base_model" placeholder="base_model" />
               <el-input v-model="form.deploy_cluster" placeholder="deploy_cluster" style="margin-top: 8px" />
@@ -154,6 +149,7 @@
 
     <el-drawer v-model="showDetail" title="模型详情" size="520px">
       <template v-if="detail.id">
+        <p>开闭源：{{ sourceTypeLabel(detail.source_type) }}</p>
         <p>健康 {{ detail.health_status }} · 状态 {{ detail.status }} · 占用任务 {{ detail.in_use || 0 }}</p>
         <h4>版本</h4>
         <el-form inline>
@@ -251,6 +247,8 @@ function emptyForm() {
     company_name: '', contact_name: '', source_type: '', base_model: '', deploy_cluster: ''
   }
 }
+
+function sourceTypeLabel(value) { return ['open','open_source'].includes(value) ? '开源' : ['closed','closed_source'].includes(value) ? '闭源' : '未标注' }
 
 async function loadData() {
   loading.value = true

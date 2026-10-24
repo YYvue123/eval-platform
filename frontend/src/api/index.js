@@ -142,6 +142,20 @@ export const qualityApi = {
   download: (id) => request.get(`/quality/${id}/download`, { responseType: 'blob' })
 }
 
+export const safetyApi = {
+  categories: () => request.get('/safety/categories'),
+  getSet: (category, params) => request.get(`/safety/sets/${encodeURIComponent(category)}`, { params }),
+  score: (data) => request.post('/safety/score', data),
+  adaptiveNext: (data) => request.post('/safety/adaptive/next', data),
+  calibrate: () => request.post('/safety/calibrate'),
+  calibrateOne: (category, params) => request.post(`/safety/calibrate/${encodeURIComponent(category)}`, null, { params }),
+  reviews: (params) => request.get('/safety/reviews', { params }),
+  createReview: (data) => request.post('/safety/reviews', data),
+  resolveReview: (id, data) => request.post(`/safety/reviews/${encodeURIComponent(id)}/resolve`, data),
+  candidates: () => request.get('/safety/candidates'),
+  validateCandidate: (id) => request.post(`/safety/candidates/${encodeURIComponent(id)}/validate`),
+}
+
 export const tasksApi = {
   list: (params) => request.get('/tasks', { params }),
   get: (id) => request.get(`/tasks/${id}`),
@@ -167,6 +181,17 @@ export const tasksApi = {
 }
 
 export const leaderboardApi = {
+  policy: (data) => request.put('/leaderboard/policy', data),
+  publications: (params) => request.get('/leaderboard/publications', { params }),
+  publication: (id) => request.get(`/leaderboard/publications/${id}`),
+  publishSnapshot: (data) => request.post('/leaderboard/publications', data),
+  withdrawSnapshot: (id, data) => request.post(`/leaderboard/publications/${id}/withdraw`, data),
+  reviews: () => request.get('/leaderboard/reviews'),
+  report: (data) => request.post('/leaderboard/reviews', data),
+  resolveReview: (id, data) => request.post(`/leaderboard/reviews/${id}/resolve`, data),
+  publicSnapshot: (token) => request.get(`/leaderboard/public/${token}`),
+  insights: (params) => request.get('/leaderboard/insights', { params }),
+  demo: (params) => request.get('/leaderboard/demo', { params }),
   list: (params) => request.get('/leaderboard', { params }),
   refresh: (params) => request.post('/leaderboard/refresh', null, { params }),
   export: (params) => request.get('/leaderboard/export', { params, responseType: 'blob' }),
@@ -260,6 +285,10 @@ export const opsApi = {
 }
 
 export const servicePortalApi = {
+  modelGrantOptions: () => request.get('/service-portal/model-grant-options'),
+  modelGrants: (id) => request.get(`/service-portal/customers/${id}/model-grants`),
+  grantModels: (id, data) => request.post(`/service-portal/customers/${id}/model-grants`, data),
+  revokeModelGrant: (id, gid) => request.delete(`/service-portal/customers/${id}/model-grants/${gid}`),
   options: () => request.get('/service-portal/options'),
   customers: () => request.get('/service-portal/customers'),
   updateCustomer: (id, data) => request.put(`/service-portal/customers/${id}`, data),

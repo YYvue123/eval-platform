@@ -1,0 +1,11 @@
+{
+  "source_chars": 47751,
+  "main_sections": 31,
+  "subsections": 130,
+  "tables": 25,
+  "paragraphs": 632,
+  "output": "E:\\eval-platform\\docs\\user-manual\\大模型智能评测平台用户使用手册_V1.3.docx",
+  "visual_render": "blocked: LibreOffice soffice.exe unavailable; no page images",
+  "body_coverage": "all source body text present",
+  "business_tests": "not run; documentation only"
+}

@@ -36,7 +36,7 @@ const items = ref([]), total = ref(0), page = ref(1), dates = ref(null), loading
 const source = ref('operations')
 const filters = ref({ member_id: null, action: '' })
 let generation = 0
-const actions = { submit: '提交评测', rejected: '评测被拒绝', start: '确认执行', cancel: '取消评测', report_download: '下载报告', create: '创建任务', update: '更新任务', run: '执行任务', stop: '停止任务', retry: '重试任务', delete: '删除任务', workspace_create: '创建工作空间', customer_create: '开通企业', customer_update: '编辑企业', customer_delete: '删除企业', member_create: '添加成员', member_update: '编辑成员', member_delete: '删除成员', member_password: '重置密码', client_create: '创建接入方', client_revoke: '撤销密钥', quota: '调整配额', asset_grant: '交付数据集', route_register: '注册模型服务', version_register: '关联版本', endpoint_register: '注册模型接口', traffic: '调整灰度路由', rollback: '回滚版本' }
+const actions = { model_grant: '授权平台模型', model_revoke: '撤销模型授权', submit: '提交评测', rejected: '评测被拒绝', start: '确认执行', cancel: '取消评测', report_download: '下载报告', create: '创建任务', update: '更新任务', run: '执行任务', stop: '停止任务', retry: '重试任务', delete: '删除任务', workspace_create: '创建工作空间', customer_create: '开通企业', customer_update: '编辑企业', customer_delete: '删除企业', member_create: '添加成员', member_update: '编辑成员', member_delete: '删除成员', member_password: '重置密码', client_create: '创建接入方', client_revoke: '撤销密钥', quota: '调整配额', asset_grant: '交付数据集', route_register: '注册模型服务', version_register: '关联版本', endpoint_register: '注册模型接口', traffic: '调整灰度路由', rollback: '回滚版本' }
 function detailText(value) {
   if (!value) return ''
   try {

@@ -205,7 +205,7 @@ async def operation_records(tenant_id: int | None = None, member_id: int | None 
             (AuditLog.tenant_id == str(tid)) & (User.role != "customer") &
             (AuditLog.resource == "service") & AuditLog.action.in_([
                 "customer_create", "customer_update", "customer_delete", "member_create",
-                "member_update", "member_delete", "member_password", "quota", "asset_grant"])))
+                "member_update", "member_delete", "member_password", "quota", "asset_grant", "model_grant", "model_revoke"])))
     if member_id is not None:
         q = q.where(AuditLog.user_id == member_id)
     if action:

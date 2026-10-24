@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -35,14 +36,17 @@ def is_formal_eligible(task: EvalTask) -> tuple[bool, str]:
 
 async def task_has_score_errors(db: AsyncSession, task_id: int) -> bool:
     rows = (await db.execute(
-        select(EvalResult.score_status, EvalResult.execution_status).where(EvalResult.task_id == task_id)
+        select(EvalResult.score_status, EvalResult.execution_status, EvalResult.simulation).where(EvalResult.task_id == task_id)
     )).all()
     if not rows:
-        return False
-    for score_status, execution_status in rows:
+        return True
+    task = await db.get(EvalTask, task_id)
+    if not task or not task.total or len(rows) != task.total:
+        return True
+    for score_status, execution_status, simulation in rows:
         ss = (score_status or "").lower()
         es = (execution_status or "").lower()
-        if ss in {"error", "failed", "invalid"} or es in {"error", "failed"}:
+        if ss != "scored" or es != "ok" or simulation:
             return True
     return False
 
@@ -87,8 +91,11 @@ def cohort_id_of(task: EvalTask) -> str:
         str(task.dataset_version_id or task.dataset_id or ""),
         str(task.judge_resource_id or ""),
         str(getattr(task, "tool_version", "") or ""),
-        str(getattr(task, "metric_weights_json", "") or "{}"),
+        json.dumps(loads(getattr(task, "metric_weights_json", "") or "{}", {}), sort_keys=True),
         str(task.scene or ""),
+        str(getattr(task, "industry", "") or ""),
+        str(getattr(task, "prompt_version_id", "") or ""),
+        str(getattr(task, "prompt_id", "") or ""),
     ])
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     return f"c-{digest}"
@@ -136,20 +143,22 @@ def rank_with_ties(items: list[dict], score_key: str = "norm_score") -> list[dic
     return scored + missing
 
 
-def recalculate_cost(task: EvalTask, cost: ModelCost | None) -> dict[str, float]:
-    token_p = cost.token_price_per_1k if cost else 0.002
-    lat_p = cost.latency_price_per_sec if cost else 0.01
-    gpu_p = cost.gpu_hour_price if cost else 0.0
+def recalculate_cost(task: EvalTask, cost: ModelCost | None, latency_sec: float | None = None) -> dict:
+    token_p = cost.token_price_per_1k if cost else None
+    lat_p = cost.latency_price_per_sec if cost else None
+    gpu_p = cost.gpu_hour_price if cost else None
     tokens = int(getattr(task, "tokens_used", 0) or 0)
-    latency_sec = max(int(task.total or 0), 1) * 0.2
-    total = tokens / 1000.0 * token_p + latency_sec * lat_p + gpu_p * (latency_sec / 3600.0)
+    total = None
+    if cost and tokens > 0 and (latency_sec is not None or (lat_p == 0 and gpu_p == 0)):
+        duration = latency_sec or 0
+        total = tokens / 1000.0 * token_p + duration * lat_p + gpu_p * (duration / 3600.0)
     return {
-        "token_price_per_1k": float(token_p),
-        "latency_price_per_sec": float(lat_p),
-        "gpu_hour_price": float(gpu_p),
+        "token_price_per_1k": token_p,
+        "latency_price_per_sec": lat_p,
+        "gpu_hour_price": gpu_p,
         "tokens": float(tokens),
-        "latency_sec": float(latency_sec),
-        "total_cost": round(total, 6),
+        "latency_sec": latency_sec,
+        "total_cost": round(total, 6) if total is not None else None,
     }
 
 
@@ -169,7 +178,7 @@ async def latest_success_tasks(
     if task_types:
         q = q.where(EvalTask.task_type.in_(task_types))
     rows = (await db.execute(q.order_by(EvalTask.finished_at.desc()))).scalars().all()
-    latest: dict[int, EvalTask] = {}
+    latest: dict[tuple, EvalTask] = {}
     excluded = []
     for t in rows:
         ok, reason = is_formal_eligible(t)
@@ -179,8 +188,9 @@ async def latest_success_tasks(
         if formal_only and await task_has_score_errors(db, t.id):
             excluded.append({"task_id": t.id, "reason": "score_error"})
             continue
-        if t.model_id not in latest:
-            latest[t.model_id] = t
+        key = (t.model_id, t.model_version_id, cohort_id_of(t))
+        if key not in latest:
+            latest[key] = t
     # stash exclusions on function attribute for callers that want diagnostics
     latest_success_tasks.last_excluded = excluded  # type: ignore[attr-defined]
     return list(latest.values())
@@ -256,17 +266,17 @@ async def compute_board(
     cohort_options: list[dict] = []
 
     async def _filter_cohort(tasks: list[EvalTask]) -> list[EvalTask]:
-        nonlocal cohort_options
+        nonlocal cohort_options, release, scale_lo, scale_hi
         cohort_options = _cohort_options(tasks)
         if not tasks:
             return []
         # 默认取样本最多的 cohort；或指定 cohort
-        if cohort_id:
-            return [t for t in tasks if cohort_id_of(t) == cohort_id]
         counts: dict[str, int] = {}
         for t in tasks:
             counts[cohort_id_of(t)] = counts.get(cohort_id_of(t), 0) + 1
-        primary = max(counts, key=counts.get) if counts else ""
+        primary = cohort_id or (max(counts, key=counts.get) if counts else "")
+        if release and release.cohort_id != primary:
+            release, scale_lo, scale_hi = None, None, None
         return [t for t in tasks if cohort_id_of(t) == primary]
 
     excluded = []
@@ -301,8 +311,10 @@ async def compute_board(
         names = await _names(db, tasks)
         raw = []
         for t in tasks:
-            bill = recalculate_cost(t, costs.get(t.model_id))
-            value = (t.avg_score or 0) / max(bill["total_cost"], 1e-6)
+            durations = list((await db.scalars(select(EvalResult.latency_ms).where(EvalResult.task_id == t.id))).all())
+            elapsed = sum(durations) / 1000 if durations and all(v and v > 0 for v in durations) else None
+            bill = recalculate_cost(t, costs.get(t.model_id), elapsed)
+            value = t.avg_score / bill["total_cost"] if t.avg_score is not None and bill["total_cost"] and bill["total_cost"] > 0 else None
             raw.append((t, bill, value))
         norms = freeze_normalize([x[2] for x in raw], scale_lo, scale_hi)
         items = []
@@ -313,7 +325,7 @@ async def compute_board(
                     "board": "value",
                     "cost": bill["total_cost"],
                     "cost_breakdown": bill,
-                    "value_score": round(value, 6),
+                    "value_score": round(value, 6) if value is not None else None,
                 },
             ))
         return _board_out(board, rank_with_ties(items, "norm_score"), release, excluded, scale_lo, scale_hi, cohort_options)
@@ -327,6 +339,8 @@ async def compute_board(
         names = await _names(db, tasks)
     else:
         all_tasks = await latest_success_by_industry(db)
+        if scene:
+            all_tasks = [t for t in all_tasks if t.scene == scene]
         excluded = list(getattr(latest_success_tasks, "last_excluded", []) or [])
         # cohort: keep dominant per industry group after formal filter
         filtered = await _filter_cohort(all_tasks)
@@ -374,7 +388,7 @@ def _board_out(board, items, release, excluded, scale_lo, scale_hi, cohorts=None
 
 async def latest_success_by_industry(db: AsyncSession) -> list[EvalTask]:
     rows = (await db.execute(select(EvalTask).where(EvalTask.status == "success").order_by(EvalTask.finished_at.desc()))).scalars().all()
-    seen: set[tuple[int, str]] = set()
+    seen: set[tuple] = set()
     out = []
     excluded = []
     for t in rows:
@@ -385,7 +399,7 @@ async def latest_success_by_industry(db: AsyncSession) -> list[EvalTask]:
         if await task_has_score_errors(db, t.id):
             excluded.append({"task_id": t.id, "reason": "score_error"})
             continue
-        key = (t.model_id, t.industry or "general")
+        key = (t.model_id, t.model_version_id, cohort_id_of(t))
         if key in seen:
             continue
         seen.add(key)
@@ -394,7 +408,7 @@ async def latest_success_by_industry(db: AsyncSession) -> list[EvalTask]:
     return out
 
 
-async def radar_payload(db: AsyncSession, model_ids: list[int]) -> dict:
+async def radar_payload(db: AsyncSession, model_ids: list[int], cohort_id: str = "") -> dict:
     ids = model_ids[:5]
     q = select(EvalTask).where(EvalTask.status == "success", EvalTask.model_id.in_(ids)).order_by(EvalTask.finished_at.desc())
     rows = (await db.execute(q)).scalars().all()
@@ -403,9 +417,17 @@ async def radar_payload(db: AsyncSession, model_ids: list[int]) -> dict:
         ok, _ = is_formal_eligible(t)
         if not ok:
             continue
+        if cohort_id and cohort_id_of(t) != cohort_id:
+            continue
+        if await task_has_score_errors(db, t.id):
+            continue
         key = (t.model_id, t.scene or "chat")
         if key not in latest:
             latest[key] = t
+    # Without a chosen protocol, don't overlay unrelated evaluations.
+    groups = {cohort_id_of(t) for t in latest.values()}
+    if len(groups) > 1:
+        latest = {}
     scenes = sorted({k[1] for k in latest})
     names = {}
     for mid in ids:
@@ -418,7 +440,8 @@ async def radar_payload(db: AsyncSession, model_ids: list[int]) -> dict:
             t = latest.get((mid, sc))
             values.append(None if not t or t.avg_score is None else float(t.avg_score))
         series.append({"model_id": mid, "model_name": names.get(mid, str(mid)), "values": values})
-    return {"scenes": scenes, "series": series, "missing_as_null": True}
+    verified = bool(latest) and all(t.judge_resource_id in {"builtin/exact_match", "builtin/contains", "builtin/regex", "builtin/fuzzy"} and 0 <= t.avg_score <= 1 for t in latest.values())
+    return {"scenes": scenes, "series": series, "missing_as_null": True, "scale_verified": verified}
 
 
 async def save_snapshot(db: AsyncSession, board: str, payload: dict, status: str = "ok") -> LeaderboardSnapshot:
