@@ -110,6 +110,20 @@ class AgentEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AgentGraphCheckpoint(Base):
+    """LangGraph checkpoints share the business transaction; never store credentials here."""
+
+    __tablename__ = "agent_graph_checkpoints"
+
+    run_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(200), primary_key=True, default="")
+    checkpoint_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_id: Mapped[str] = mapped_column(String(64), default="")
+    checkpoint_json: Mapped[str] = mapped_column(Text)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    writes_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
 class AgentApproval(Base):
     __tablename__ = "agent_approvals"
 

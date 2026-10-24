@@ -40,12 +40,21 @@ async def lifespan(_app: FastAPI):
     stop = asyncio.Event()
     from app.services.health_probe import health_probe_loop
     probe_task = asyncio.create_task(health_probe_loop(stop))
+    from app.services.agent_worker import agent_worker_loop
+    agent_task = asyncio.create_task(agent_worker_loop(stop)) if settings.AGENT_WORKER_ENABLED else None
     log.info("启动完成: UPLOAD_DIR=%s, LOG_DIR=%s", settings.UPLOAD_DIR, settings.LOG_DIR)
     yield
     stop.set()
     probe_task.cancel()
+    if agent_task:
+        agent_task.cancel()
     try:
         await probe_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        if agent_task:
+            await agent_task
     except asyncio.CancelledError:
         pass
 

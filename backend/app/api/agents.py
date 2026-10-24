@@ -708,11 +708,10 @@ async def confirm_session(
     background: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_permission("agent:confirm")),
+    actor: ActorContext = Depends(require_actor("agent:confirm")),
 ):
-    s = await db.get(AgentSession, sid)
-    if not s:
-        raise HTTPException(404, "会话不存在")
+    s = await get_visible_or_404(db, AgentSession, sid, actor, not_found="会话不存在或无权访问")
+    current = await db.get(User, actor.user_id)
     plan = loads(s.plan_json, {})
     plan["canonical_hash"] = plan.get("canonical_hash") or canonical_plan_hash(plan)
 
@@ -884,11 +883,12 @@ async def start_run(
 async def get_run(
     rid: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("agent:view")),
+    actor: ActorContext = Depends(require_actor("agent:view")),
 ):
     run = await db.get(AgentRun, rid)
     if not run:
         raise HTTPException(404, "run 不存在")
+    await get_visible_or_404(db, AgentSession, run.session_id, actor)
     return runtime.run_out(run)
 
 
@@ -897,11 +897,12 @@ async def get_run_events(
     rid: int,
     after_seq: int = Query(0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("agent:view")),
+    actor: ActorContext = Depends(require_actor("agent:view")),
 ):
     run = await db.get(AgentRun, rid)
     if not run:
         raise HTTPException(404, "run 不存在")
+    await get_visible_or_404(db, AgentSession, run.session_id, actor)
     evs = await runtime.list_events(db, rid, after_seq=after_seq)
     return {"items": [runtime.event_out(e) for e in evs], "event_seq": run.event_seq}
 
@@ -911,16 +912,20 @@ async def stream_run_events(
     rid: int,
     after_seq: int = Query(0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("agent:view")),
+    actor: ActorContext = Depends(require_actor("agent:view")),
 ):
     run = await db.get(AgentRun, rid)
     if not run:
         raise HTTPException(404, "run 不存在")
+    await get_visible_or_404(db, AgentSession, run.session_id, actor)
 
     async def gen():
         cursor = after_seq
         idle = 0
         while idle < 40:
+            # Release the read transaction between SSE polls so workers can commit.
+            await db.commit()
+            await db.refresh(run)
             evs = await runtime.list_events(db, rid, after_seq=cursor)
             if evs:
                 idle = 0
@@ -943,11 +948,12 @@ async def stream_run_events(
 async def cancel_run(
     rid: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("agent:invoke")),
+    actor: ActorContext = Depends(require_actor("agent:invoke")),
 ):
     run = await db.get(AgentRun, rid)
     if not run:
         raise HTTPException(404, "run 不存在")
+    await get_visible_or_404(db, AgentSession, run.session_id, actor)
     run = await runtime.request_cancel(db, run)
     return runtime.run_out(run)
 
@@ -956,10 +962,11 @@ async def cancel_run(
 async def resume_run(
     rid: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_permission("agent:invoke")),
+    actor: ActorContext = Depends(require_actor("agent:invoke")),
 ):
     run = await db.get(AgentRun, rid)
     if not run:
         raise HTTPException(404, "run 不存在")
+    await get_visible_or_404(db, AgentSession, run.session_id, actor)
     run = await runtime.resume_run(db, run)
     return runtime.run_out(run)

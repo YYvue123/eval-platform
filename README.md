@@ -21,6 +21,7 @@
 | --- | --- |
 | 前端 | Vue 3 + Vite + Element Plus + Pinia |
 | 后端 | FastAPI + SQLAlchemy + SQLite（可演进 PostgreSQL） |
+| Agent 编排 | LangGraph StateGraph + 同事务持久化 checkpoint + 受控工具网关 |
 | 认证 | JWT + RBAC |
 
 ## 能力摘要（工程交付）
@@ -29,7 +30,7 @@
 - **数据/模型/提示词/质量**：版本冻结、正式门禁、质量工单、通道策略（生产禁 plain）
 - **工具底座**：信封 1.3、tool_gateway、幂等、MCP/Skill/`$ref`、副作用策略、batch 快照
 - **任务**：claim/lease/fencing、worker、取消重试、预算、多格式报告
-- **Agent**：GoalSpec/审批/委派/监控诊断/知识候选（不进调度主路径）
+- **Agent**：LangGraph 模型工具循环、真实自定义子 Agent、带参数 MCP、审批暂停恢复和实测结果核验；评测执行仍走 TaskService。迁移与验证见 [LangGraph 交付说明](docs/delivery/LANGGRAPH-MIGRATION.md)
 - **基准/安全/榜单/服务**：套件 readiness、安全评测、可比榜单、影子灰度与幂等结算
 - **运行支撑**：`/api/live` `/api/ready`、AdmissionRunner、备份恢复演练、故障注入、工单/授权/演练留痕、Docker/SBOM/CI
 

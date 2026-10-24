@@ -212,18 +212,23 @@ async def draft_plan(
     return plan
 
 
-async def search_eval_resources(db: AsyncSession, query: str, kind: str = "") -> dict:
+async def search_eval_resources(db: AsyncSession, query: str, kind: str = "", *, actor=None) -> dict:
     """给主 Agent 检索可写入计划的数据集、被测模型和打分工具。规划模型不出现在模型列表。"""
     text = (query or "").strip()
     out: dict = {"datasets": [], "models": [], "judges": []}
+    from app.services.object_policy import apply_object_scope
     if kind in {"", "dataset"}:
         q = select(Dataset).where(Dataset.status != "deleted")
+        if actor is not None:
+            q = apply_object_scope(q, Dataset, actor)
         if text:
             q = q.where(or_(Dataset.name.contains(text), Dataset.tags.contains(text), Dataset.task_type.contains(text)))
         rows = (await db.execute(q.order_by(Dataset.id.desc()).limit(8))).scalars().all()
         out["datasets"] = [{"id": row.id, "name": row.name, "task_type": row.task_type, "status": row.status} for row in rows]
     if kind in {"", "model"}:
         q = select(EvalModel).where(EvalModel.status.notin_(["deleted", "disabled", "archived"]))
+        if actor is not None:
+            q = apply_object_scope(q, EvalModel, actor)
         if text:
             q = q.where(or_(EvalModel.name.contains(text), EvalModel.applicable_scenario.contains(text)))
         rows = (await db.execute(q.order_by(EvalModel.id.desc()).limit(12))).scalars().all()
@@ -237,6 +242,8 @@ async def search_eval_resources(db: AsyncSession, query: str, kind: str = "") ->
         from app.services.judge_options import mcp_judge_id
 
         q = select(BaseResource).where(BaseResource.resource_type.in_(["tool", "skill", "mcp"]))
+        if actor is not None:
+            q = apply_object_scope(q, BaseResource, actor)
         rows = (await db.execute(q.order_by(BaseResource.id.asc()).limit(40))).scalars().all()
         judges = []
         for row in rows:
@@ -269,24 +276,25 @@ async def search_eval_resources(db: AsyncSession, query: str, kind: str = "") ->
     return out
 
 
-async def apply_resource_proposal(db: AsyncSession, session, args: dict) -> dict:
+async def apply_resource_proposal(db: AsyncSession, session, args: dict, *, actor=None) -> dict:
     """把对话里确认的数据集、被测模型和打分工具写进计划。规划模型不能当被测模型。"""
     from app.models import BaseResource
     from app.services.approval_service import invalidate_if_plan_changed
     from app.services.goal_spec import canonical_plan_hash
 
     plan = loads(session.plan_json, {})
+    from app.services.object_policy import object_is_visible
     changed = []
     if args.get("dataset_id") not in (None, ""):
         ds = await db.get(Dataset, int(args["dataset_id"]))
-        if not ds or ds.status == "deleted":
+        if not ds or ds.status == "deleted" or (actor is not None and not object_is_visible(ds, actor)):
             raise ValueError("dataset_not_found")
         plan["dataset_id"] = ds.id
         plan["dataset_version_id"] = ds.current_version_id
         changed.append(f"数据集 {ds.name}")
     if args.get("model_id") not in (None, ""):
         model = await db.get(EvalModel, int(args["model_id"]))
-        if not model or model.status in {"deleted", "disabled", "archived"}:
+        if not model or model.status in {"deleted", "disabled", "archived"} or (actor is not None and not object_is_visible(model, actor)):
             raise ValueError("model_not_found")
         if _is_planner_model(model) or int(model.id) == int(session.planner_model_id or 0):
             raise ValueError("planner_cannot_be_target")
@@ -310,6 +318,8 @@ async def apply_resource_proposal(db: AsyncSession, session, args: dict) -> dict
                 raise ValueError("judge_not_found")
             label = res.name
         plan["judge_resource_id"] = judge_id
+        if actor is not None and not object_is_visible(res, actor):
+            raise ValueError("judge_not_found")
         changed.append(f"打分工具 {label}")
     if args.get("scene"):
         plan["scene"] = str(args["scene"])[:40]

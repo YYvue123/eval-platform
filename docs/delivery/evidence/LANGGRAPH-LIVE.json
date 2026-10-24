@@ -1,0 +1,58 @@
+{
+  "started_at": "2026-10-24T03:53:50.145950+00:00",
+  "engine": "langgraph-v1",
+  "steps": [
+    {
+      "code": "real_model_subagent_mcp",
+      "ok": true,
+      "run_id": 5,
+      "run_status": "success",
+      "delegations": [
+        {
+          "id": 3,
+          "status": "success",
+          "engine": "langgraph",
+          "tool_calls": 1
+        }
+      ],
+      "mcp_calls": [
+        {
+          "status": "success",
+          "actor_present": true,
+          "source": "mcp_probe"
+        },
+        {
+          "status": "success",
+          "actor_present": true,
+          "source": "agent_runtime"
+        }
+      ]
+    },
+    {
+      "code": "real_model_approval_interrupt",
+      "ok": true,
+      "run_id": 6
+    },
+    {
+      "code": "formal_taskservice_execution_and_verification",
+      "ok": true,
+      "task_id": 3,
+      "confirmation_idempotent": true,
+      "completion": {
+        "kind": "evaluation_completed",
+        "objective_verified": true,
+        "verification_scope": "evaluation_execution",
+        "measured_results": 1,
+        "task_id": 3,
+        "task_status": "success",
+        "report_available": true,
+        "trial_run": false,
+        "success_count": 1,
+        "fail_count": 0
+      },
+      "run_status": "success"
+    }
+  ],
+  "ok": true,
+  "finished_at": "2026-10-24T03:54:05.945897+00:00"
+}

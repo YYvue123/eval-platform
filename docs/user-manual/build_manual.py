@@ -12,7 +12,7 @@ from docx.oxml.ns import qn
 ROOT = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source', type=Path, default=ROOT / '大模型智能评测平台用户使用手册.md')
-parser.add_argument('--output', type=Path, default=ROOT / '大模型智能评测平台用户使用手册_V1.1.docx')
+parser.add_argument('--output', type=Path, default=ROOT / '大模型智能评测平台用户使用手册_V1.2.docx')
 args = parser.parse_args()
 SOURCE, OUTPUT = args.source.resolve(), args.output.resolve()
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -173,9 +173,9 @@ while i < len(lines):
     i+=1
 
 doc.core_properties.title=title
-doc.core_properties.subject='业务操作 企业评测服务与账号管理'
+doc.core_properties.subject='业务操作 Agent编排 企业评测服务与账号管理'
 doc.core_properties.author='评测平台项目'
-doc.core_properties.keywords='评测平台,用户手册,企业,运营,客户,评测服务'
+doc.core_properties.keywords='评测平台,用户手册,Agent,子Agent,MCP,审批,企业,评测服务'
 doc.save(OUTPUT)
 # Validate archive integrity, content coverage, navigation and table shape.
 from zipfile import ZipFile

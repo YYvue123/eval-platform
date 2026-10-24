@@ -39,6 +39,8 @@ class AgentRuntimeApiTest(unittest.TestCase):
         login = self.client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
         self.assertEqual(login.status_code, 200, login.text)
         self.h = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        from app.services.agent_capabilities import MAIN_TOOLS
+        self.client.put("/api/agents/profile", headers=self.h, json={"available_tools": list(MAIN_TOOLS)})
         created = self.client.post(
             "/api/agents/sessions",
             json={"requirement": f"WP07 runtime {uuid.uuid4().hex[:6]}"},
@@ -113,7 +115,7 @@ class AgentRuntimeApiTest(unittest.TestCase):
     def test_live_tool_loop_success(self):
         calls = {"n": 0}
 
-        async def fake_invoke(model, messages, tools):
+        async def fake_invoke(model, messages, tools, **kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
                 return self._llm_tool("金融评测")
@@ -145,7 +147,7 @@ class AgentRuntimeApiTest(unittest.TestCase):
     def test_second_round_keeps_assistant_tool_calls(self):
         seen = {}
 
-        async def fake_invoke(model, messages, tools):
+        async def fake_invoke(model, messages, tools, **kwargs):
             if not seen:
                 seen["first"] = True
                 return {
@@ -219,7 +221,7 @@ class AgentRuntimeApiTest(unittest.TestCase):
         self.assertEqual(c.json()["status"], "cancelled")
 
     def test_budget_pause(self):
-        async def fake_invoke(model, messages, tools):
+        async def fake_invoke(model, messages, tools, **kwargs):
             return {**self._llm_tool(), "tokens": 100}
 
         with patch("app.services.model_client.invoke_chat_tools", new=AsyncMock(side_effect=fake_invoke)):

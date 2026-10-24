@@ -53,3 +53,4 @@ os.environ["UPLOAD_DIR"] = str(_ROOT / "uploads")
 os.environ["LOG_DIR"] = str(_ROOT / "logs")
 os.environ["BACKUP_DIR"] = str(_ROOT / "backups")
 os.environ["LOG_LEVEL"] = "WARNING"
+os.environ["AGENT_WORKER_ENABLED"] = "false"

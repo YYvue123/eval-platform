@@ -34,6 +34,8 @@ async def worker_loop(poll_seconds: float = 1.0) -> None:
                 log.info("recovered %s expired leases", n)
             await db.commit()
         await dispatch_queue()
+        from app.services.agent_worker import dispatch_agent_once
+        await dispatch_agent_once()
         await asyncio.sleep(poll_seconds)
     log.info("worker stopped")
 

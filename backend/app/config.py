@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     LOG_MAX_BYTES: int = 10 * 1024 * 1024
     LOG_BACKUP_COUNT: int = 5
     APP_ENV: str = "dev"
+    AGENT_WORKER_ENABLED: bool = True
     # Exact HTTPS host allowlist for customer-supplied model endpoints.
     SERVICE_MODEL_HOSTS: str = ""
     MTLS_CERT_FILE: str = ""

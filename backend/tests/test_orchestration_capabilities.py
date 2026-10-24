@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 import uuid
+from unittest.mock import AsyncMock, patch
 
 from tests import isolated_env  # noqa: F401
 
@@ -80,6 +81,11 @@ class OrchestrationCapabilityApiTest(unittest.TestCase):
         self.assertEqual(body["knowledge"]["role"], "experience_store")
 
     def test_bind_skill_and_reuse_recipe(self):
+        # Other CRUD tests intentionally disable this built-in; restore this fixture explicitly.
+        self.client.put("/api/agents/skills/similar_case", headers=self.h, json={
+            "code": "similar_case", "name": "相似案例", "execution_type": "workflow",
+            "entry_point": "knowledge.search", "enabled": True,
+        })
         created = self.client.post(
             "/api/agents/sessions",
             headers=self.h,
@@ -114,10 +120,14 @@ class OrchestrationCapabilityApiTest(unittest.TestCase):
             json={"role": role, "name": "覆盖检查", "system_prompt": "只报告缺口，不创建任务"},
         )
         self.assertEqual(created_agent.status_code, 200, created_agent.text)
+        planner = self.client.post("/api/models", headers=self.h, json={
+            "name": f"planner-{uuid.uuid4().hex[:8]}", "api_url": "https://example.invalid/v1",
+        })
+        self.assertEqual(planner.status_code, 200, planner.text)
         session = self.client.post(
             "/api/agents/sessions",
             headers=self.h,
-            json={"requirement": "诊断边界", "subagent_roles": [role]},
+            json={"requirement": "诊断边界", "subagent_roles": [role], "planner_model_id": planner.json()["id"]},
         )
         self.assertEqual(session.status_code, 200, session.text)
         sid = session.json()["id"]
@@ -129,11 +139,14 @@ class OrchestrationCapabilityApiTest(unittest.TestCase):
         self.assertEqual(diagnosed.status_code, 200, diagnosed.text)
         self.assertEqual(diagnosed.json()["result"]["status"], "no_failure")
         self.assertTrue(diagnosed.json()["result"]["requires_main_approval"])
-        custom = self.client.post(
-            f"/api/agents/sessions/{sid}/delegate",
-            headers=self.h,
-            json={"role": role},
-        )
+        with patch("app.services.model_client.invoke_chat_tools", new=AsyncMock(return_value={
+            "content": "已核对方案缺口，不执行恢复", "tool_calls": [], "tokens": 10,
+        })):
+            custom = self.client.post(
+                f"/api/agents/sessions/{sid}/delegate",
+                headers=self.h,
+                json={"role": role},
+            )
         self.assertEqual(custom.status_code, 200, custom.text)
         self.assertFalse(custom.json()["result"].get("executes_recovery", True))
 

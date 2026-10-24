@@ -34,6 +34,8 @@ MAIN_TOOLS = (
     "delegate_agent",
     "invoke_skill",
     "call_mcp",
+    "get_task_status",
+    "request_task_execution",
 )
 _SECRET_KEYS = {"api_key", "secret", "password", "token", "authorization", "api-key"}
 DEFAULT_MAIN_PROMPT = (
@@ -820,7 +822,7 @@ async def execute_skill(db: AsyncSession, catalog: dict, code: str, text: str) -
     raise HTTPException(400, f"未实现的 Skill 执行方式：{kind}")
 
 
-async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str) -> dict:
+async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str, *, instruction: str = "") -> dict:
     plan = loads(session.plan_json, {})
     caps = plan.get("capabilities") or {}
     allowed = caps.get("subagent_roles") or list(REQUIRED_ROLES)
@@ -828,19 +830,34 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
         raise HTTPException(400, "该子 Agent 未在本次编排中启用")
     catalog = await list_catalog(db, actor)
     spec = _agent_by_role(catalog, role)
-    if spec is None:
+    if spec is None or not spec.get("enabled", True):
         raise HTTPException(400, "未知子 Agent")
 
-    delegation = AgentDelegation(
-        session_id=session.id,
-        run_id=session.active_run_id,
-        role=role,
-        depth=1,
-        status="running",
-        tenant_id=session.tenant_id,
-        budget_slice=0,
-    )
-    db.add(delegation)
+    from app.models import AgentRun
+
+    parent_run = await db.get(AgentRun, session.active_run_id) if session.active_run_id else None
+    parent_cp = loads(parent_run.checkpoint_json, {}) if parent_run else {}
+    invocation_id = parent_cp.get("tool_invocation_id") or ""
+    delegation = await db.scalar(select(AgentDelegation).where(
+        AgentDelegation.session_id == session.id,
+        AgentDelegation.run_id == session.active_run_id,
+        AgentDelegation.context_hash == invocation_id,
+        AgentDelegation.role == role,
+    ).order_by(AgentDelegation.id.desc()).limit(1)) if invocation_id else None
+    if delegation and delegation.status == "success":
+        return {"delegation_id": delegation.id, "role": role, "result": loads(delegation.result_json, {})}
+    if delegation is None:
+        delegation = AgentDelegation(
+            session_id=session.id,
+            run_id=session.active_run_id,
+            role=role,
+            depth=1,
+            status="running",
+            tenant_id=session.tenant_id,
+            budget_slice=0,
+            context_hash=invocation_id,
+        )
+        db.add(delegation)
     await db.flush()
 
     task = await db.get(EvalTask, int(session.task_id)) if session.task_id else None
@@ -868,7 +885,9 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
                 "similar_cases": 0,
                 "applies_change": False,
             }
-        return await _custom_agent(db, spec, session.requirement or "")
+        from app.services.agent_subgraph import run_agent_subgraph
+
+        return await run_agent_subgraph(db, session, actor, spec, delegation, instruction or session.requirement or "")
 
     try:
         try:
@@ -901,7 +920,7 @@ async def run_subagent(db: AsyncSession, session: AgentSession, actor, role: str
         )
         await db.flush()
         return {"delegation_id": delegation.id, "role": role, "result": result}
-    except HTTPException:
+    except Exception:
         delegation.status = "failed"
         delegation.finished_at = datetime.utcnow()
         await db.flush()
@@ -1001,19 +1020,4 @@ async def _advise_params(db, plan: dict, requirement: str) -> dict:
         "summary": " ".join(advice),
         "similar_cases": len(hits),
         "applies_change": False,
-    }
-
-
-async def _custom_agent(db, spec: dict, requirement: str) -> dict:
-    from app.services.agent_tools import search_knowledge
-
-    tools = set(spec.get("available_tools") or [])
-    hits = []
-    if "search_knowledge" in tools:
-        hits = await search_knowledge(db, (requirement or spec.get("name") or "")[:40])
-    return {
-        "status": "analyzed",
-        "summary": spec.get("system_prompt") or spec.get("description") or spec["name"],
-        "similar_cases": [{"id": item.get("id"), "title": item.get("title")} for item in hits[:3]],
-        "executes_recovery": False,
     }

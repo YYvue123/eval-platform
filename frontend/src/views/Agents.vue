@@ -595,6 +595,12 @@
               <span v-if="eventsUpdatedAt"> · {{ eventsUpdatedAt }} 更新</span>
             </p>
             <p v-if="run.error_message" class="warn">{{ run.error_message }}</p>
+            <p v-if="run.completion" class="hint">
+              {{ run.completion.objective_verified ? '评测任务已完成，目标核验通过' :
+                run.completion.kind === 'conversation_completed' ? '本轮对话已完成，尚未核验评测目标' :
+                run.completion.kind === 'task_pending' ? '正在等待评测任务的实际执行结果' :
+                run.completion.kind === 'evaluation_unverified' ? '任务已结束，评测目标尚未核验通过' : '等待执行或核验' }}
+            </p>
             <el-timeline class="timeline">
               <el-timeline-item v-for="e in events" :key="`${run.id}-${e.seq}`" :timestamp="eventClock(e)" placement="top">
                 <div class="event-title">{{ eventLabel(e.type) }}</div>
@@ -709,6 +715,8 @@ const mainToolOptions = [
   { name: 'delegate_agent', label: '调用子 Agent' },
   { name: 'invoke_skill', label: '调用 Skill' },
   { name: 'call_mcp', label: '调用 MCP' },
+  { name: 'get_task_status', label: '查询实际任务状态' },
+  { name: 'request_task_execution', label: '请求审批执行评测' },
 ]
 const emptyCustomAgent = () => ({
   role: '',
@@ -858,7 +866,7 @@ const runStatusText = computed(() => ({
   queued: '排队',
   running: '进行中',
   waiting: '等待',
-  success: '完成',
+  success: run.value?.completion?.objective_verified ? '目标已核验' : '本轮已结束',
   failed: '失败',
   cancelled: '已取消',
   paused_budget: '预算不足',
@@ -937,6 +945,10 @@ function eventLabel(type) {
     'run.cancelled': '已取消',
     'run.paused_budget': '预算暂停',
     'run.resume': '从检查点恢复',
+    'run.waiting_approval': '等待用户审批',
+    'run.waiting_task': '等待任务结果',
+    'run.verified': '核验实际执行结果',
+    'run.yielded': '等待继续执行',
   }
   return map[type] || type
 }
