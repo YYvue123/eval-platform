@@ -28,7 +28,6 @@ export const MENU_GROUPS = [
     children: [
       { index: '/tasks', title: '任务管理', icon: 'Finished', permission: 'task:list', match: '/tasks' },
       { index: '/task-templates', title: '任务模板', icon: 'Collection', permission: 'task:list' },
-      { index: '/services', title: '评测服务', icon: 'Ticket', permission: 'service:list' },
       { index: '/agents', title: '编排Agent', icon: 'Connection', permission: 'agent:list' }
     ]
   },
@@ -37,6 +36,7 @@ export const MENU_GROUPS = [
     title: '应用服务',
     icon: 'Trophy',
     children: [
+      { index: '/services', title: '评测服务', icon: 'Ticket', permission: 'service:list' },
       { index: '/leaderboard', title: '模型榜单', icon: 'Trophy', permission: 'leaderboard:view' }
     ]
   },

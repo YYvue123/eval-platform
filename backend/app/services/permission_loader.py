@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 ACTION_NAMES = {
+    "records": "操作记录查看",
     "workspace": "企业工作空间管理",
     "credential": "接入密钥管理",
     "list": "列表",

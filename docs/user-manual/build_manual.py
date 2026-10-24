@@ -2,6 +2,7 @@
 from pathlib import Path
 import re
 import json
+import argparse
 from docx import Document
 from docx.shared import Mm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -9,8 +10,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 ROOT = Path(__file__).resolve().parent
-SOURCE = ROOT / '大模型智能评测平台用户使用手册.md'
-OUTPUT = ROOT / '大模型智能评测平台用户使用手册_V1.0.docx'
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--source', type=Path, default=ROOT / '大模型智能评测平台用户使用手册.md')
+parser.add_argument('--output', type=Path, default=ROOT / '大模型智能评测平台用户使用手册_V1.1.docx')
+args = parser.parse_args()
+SOURCE, OUTPUT = args.source.resolve(), args.output.resolve()
+OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 doc = Document()
 section = doc.sections[0]
 section.page_width, section.page_height = Mm(210), Mm(297)
@@ -110,13 +115,16 @@ def make_table(rows):
     doc.add_paragraph().paragraph_format.space_after = Pt(1)
 
 lines = SOURCE.read_text(encoding='utf-8').splitlines()
+title = next(line[2:] for line in lines if line.startswith('# '))
+audience = next(line for line in lines if line.startswith('面向'))
+version = next(line for line in lines if line.startswith('版本 '))
+intro_index = next(n for n, line in enumerate(lines) if line == '## 阅读说明')
+intro = next(line for line in lines[intro_index + 1:] if line.strip())
 doc.add_paragraph('大模型智能评测平台', 'Title')
-doc.add_paragraph('用户使用手册', 'Title')
-doc.add_paragraph('面向评测操作人员 审核人员 资源管理员与运维人员', 'Subtitle')
-doc.add_paragraph('版本 1.0\n2026年9月29日')
-doc.add_paragraph('从数据准备到真实评测与报告交付', 'Heading 2')
-doc.add_paragraph('详细介绍各业务模块的操作入口、填写方法、状态判读和异常处理，重点说明 Agent、Skill、MCP、工具与记忆的协作方式和当前使用边界。')
-doc.add_paragraph('首次使用：第1至3章\n日常评测：第4至9章\n工具和组合能力：第10至13章\nAgent与记忆：第14至19章\n专项业务与系统管理：第20至27章\n权限与实现边界：附录A至C')
+doc.add_paragraph(title.replace('大模型智能评测平台', '').strip(), 'Title')
+doc.add_paragraph(audience, 'Subtitle')
+doc.add_paragraph(version)
+doc.add_paragraph(intro)
 doc.add_page_break()
 doc.add_paragraph('目录', 'Heading 1')
 headings = [x[3:] for x in lines if x.startswith('## ')]
@@ -164,10 +172,10 @@ while i < len(lines):
     else: doc.add_paragraph(line)
     i+=1
 
-doc.core_properties.title='大模型智能评测平台用户使用手册'
-doc.core_properties.subject='业务操作与Agent Skill MCP 工具和记忆协作'
+doc.core_properties.title=title
+doc.core_properties.subject='业务操作 企业评测服务与账号管理'
 doc.core_properties.author='评测平台项目'
-doc.core_properties.keywords='评测平台,用户手册,Agent,Skill,MCP,记忆'
+doc.core_properties.keywords='评测平台,用户手册,企业,运营,客户,评测服务'
 doc.save(OUTPUT)
 # Validate archive integrity, content coverage, navigation and table shape.
 from zipfile import ZipFile
@@ -180,5 +188,7 @@ check=Document(OUTPUT)
 assert len([p for p in check.paragraphs if p.style.name=='Heading 1'])==len(headings)+1
 assert all(len(row.cells)==len(t.columns) for t in check.tables for row in t.rows)
 report={'source_chars':len(SOURCE.read_text(encoding='utf-8')),'main_sections':len(headings),'subsections':sum(s.startswith('### ') for s in lines),'tables':len(check.tables),'paragraphs':len(check.paragraphs),'output':str(OUTPUT),'visual_render':'pending'}
-(ROOT/'source-notes'/'structure-check.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+report_path = ROOT / 'source-notes' / f'{OUTPUT.stem}-structure-check.json'
+report_path.parent.mkdir(parents=True, exist_ok=True)
+report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
 print(json.dumps(report,ensure_ascii=False))

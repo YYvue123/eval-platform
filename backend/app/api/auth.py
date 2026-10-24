@@ -29,6 +29,13 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
     user = result.scalar_one_or_none()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    if user.status != "active":
+        raise HTTPException(status_code=401, detail="账号已停用或删除，请联系管理员")
+    if user.role == "customer":
+        from app.models import Tenant
+        tenant = await db.get(Tenant, user.tenant_id)
+        if not tenant or tenant.status != "active":
+            raise HTTPException(status_code=403, detail="企业已停用或删除，请联系管理员")
     token = create_access_token({"sub": user.username})
     from app.models import Role
     role = getattr(user, "role", None) or "viewer"

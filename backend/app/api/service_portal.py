@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.api.deps import require_permission, get_current_user
 from app.database import get_db, async_session
 from app.models import (Dataset, DatasetVersion, DatasetItem, EvalModel, EvalServiceRequest, EvalTask, EvalWorkspace,
-                        ModelVersion, ServiceCall, ServiceClient, ServiceRelease, ServiceRoute,
+                        ModelVersion, ModelAccessConfig, ServiceCall, ServiceClient, ServiceRelease, ServiceRoute,
                         Tenant, TenantMembership, User, ServiceGatewayAudit)
 from app.services.actor_context import build_actor
 from app.services.audit import log_audit
@@ -21,7 +21,7 @@ from app.services.model_access import get_access_for_version
 from app.services.object_policy import apply_object_scope, get_visible_or_404
 from app.services.service_portal import (call_out, check_admission, choose_release,
                                          client_usage, workspace_for)
-from app.utils.auth import get_password_hash
+from app.api.service_customers import router as customer_router, password_hash
 
 class AuditedGatewayRoute(APIRoute):
     def get_route_handler(self):
@@ -54,6 +54,7 @@ async def active_tenant(db=Depends(get_db), current=Depends(get_current_user)):
 
 
 router = APIRouter(dependencies=[Depends(active_tenant)])
+router.include_router(customer_router)
 gateway = APIRouter(route_class=AuditedGatewayRoute)
 
 
@@ -105,7 +106,7 @@ class EvaluationBody(BaseModel):
 
 class MemberBody(BaseModel):
     username: str = Field(min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=12, max_length=72)
 
 
 async def owned(db, model, rid, current):
@@ -113,6 +114,14 @@ async def owned(db, model, rid, current):
     if not row:
         raise HTTPException(404, "资源不存在或无权访问")
     return row
+
+
+@router.get("/options")
+async def portal_options(current=Depends(require_permission("service:list"))):
+    from app.config import settings
+    from app.services.task_catalog import scene_options
+    return {"scenes": [{"value": "qa", "label": "通用问答"}] + scene_options(), "endpoint_urls": [f"https://{h.strip()}/v1"
+        for h in settings.SERVICE_MODEL_HOSTS.split(",") if h.strip()]}
 
 
 @router.get("/workspaces")
@@ -127,6 +136,7 @@ async def create_workspace(body: WorkspaceBody, db=Depends(get_db), current=Depe
                       owner_id=current.id, visibility="shared")
     db.add(w)
     await db.flush()
+    await log_audit(db, "service", "workspace_create", user_id=current.id, tenant_id=str(current.tenant_id), target_id=w.id, detail=w.name)
     return {"id": w.id, "name": w.name}
 
 
@@ -140,7 +150,7 @@ async def members(db=Depends(get_db), current=Depends(require_permission("servic
 async def create_member(body: MemberBody, db=Depends(get_db), current=Depends(require_permission("service:workspace"))):
     if await db.scalar(select(User.id).where(User.username == body.username)):
         raise HTTPException(409, "用户名不可用")
-    u = User(username=body.username, password_hash=get_password_hash(body.password),
+    u = User(username=body.username, password_hash=password_hash(body.password),
              role="customer", tenant_id=current.tenant_id, created_by=current.id)
     db.add(u)
     await db.flush()
@@ -160,7 +170,7 @@ async def onboard_customer(body: CustomerBody, db=Depends(get_db), current=Depen
     tenant = Tenant(code="customer-" + secrets.token_hex(10), name=body.company)
     db.add(tenant)
     await db.flush()
-    user = User(username=body.username, password_hash=get_password_hash(body.password),
+    user = User(username=body.username, password_hash=password_hash(body.password),
                 role="customer", tenant_id=tenant.id, created_by=current.id)
     db.add(user)
     await db.flush()
@@ -168,7 +178,7 @@ async def onboard_customer(body: CustomerBody, db=Depends(get_db), current=Depen
     ws = EvalWorkspace(name=body.company, code=secrets.token_hex(12), tenant_id=tenant.id, owner_id=user.id)
     db.add(ws)
     await db.flush()
-    await log_audit(db, "service", "customer_create", user_id=current.id, target_id=user.id)
+    await log_audit(db, "service", "customer_create", user_id=current.id, tenant_id=str(tenant.id), target_id=user.id, detail=body.company)
     return {"user_id": user.id, "tenant_id": tenant.id, "workspace_id": ws.id}
 
 
@@ -211,7 +221,7 @@ async def set_quota(cid: int, body: QuotaBody, db=Depends(get_db), current=Depen
         raise HTTPException(404, "接入方不存在")
     for k, v in body.model_dump().items():
         setattr(c, k, v)
-    await log_audit(db, "service", "quota", user_id=current.id, target_id=c.id, detail=json.dumps(body.model_dump()))
+    await log_audit(db, "service", "quota", user_id=current.id, tenant_id=str(c.tenant_id), target_id=c.id, detail=json.dumps(body.model_dump()))
     return {"id": c.id, **body.model_dump()}
 
 
@@ -220,8 +230,11 @@ async def assets(db=Depends(get_db), current=Depends(require_permission("service
     actor = await build_actor(db, current)
     datasets = (await db.scalars(apply_object_scope(select(Dataset), Dataset, actor).where(Dataset.status == "published", Dataset.visibility == "shared"))).all()
     models = (await db.scalars(apply_object_scope(select(EvalModel), EvalModel, actor).where(EvalModel.status.notin_(["deleted", "disabled", "archived"]), EvalModel.visibility == "shared"))).all()
-    versions = (await db.scalars(select(ModelVersion).where(ModelVersion.model_id.in_([m.id for m in models])))).all()
-    return {"datasets": [{"id": d.id, "name": d.name} for d in datasets],
+    versions = (await db.scalars(select(ModelVersion).join(ModelAccessConfig,
+        (ModelAccessConfig.version_id == ModelVersion.id) & (ModelAccessConfig.model_id == ModelVersion.model_id))
+        .where(ModelVersion.model_id.in_([m.id for m in models]), ModelVersion.status == "available",
+               ModelAccessConfig.api_url != ""))).all()
+    return {"datasets": [{"id": d.id, "name": d.name, "grantable": d.quality_status == "passed" and bool(d.current_version_id)} for d in datasets],
             "models": [{"id": m.id, "name": m.name} for m in models],
             "versions": [{"id": v.id, "model_id": v.model_id, "version": v.version_code} for v in versions]}
 
@@ -288,6 +301,7 @@ async def register_route(body: RouteBody, db=Depends(get_db), current=Depends(re
     row = ServiceRoute(**body.model_dump(), tenant_id=current.tenant_id)
     db.add(row)
     await db.flush()
+    await log_audit(db, "service", "route_register", user_id=current.id, tenant_id=str(current.tenant_id), target_id=row.id, detail=row.name)
     return {"id": row.id}
 
 
@@ -345,6 +359,7 @@ async def register_endpoint(rid: int, body: EndpointBody, request: Request, db=D
     db.add(release)
     await db.flush()
     # Never echo upstream credentials/configuration in the customer response.
+    await log_audit(db, "service", "endpoint_register", user_id=current.id, tenant_id=str(current.tenant_id), target_id=rid, detail=body.version)
     return {"id": release.id, "version": release.version}
 
 
@@ -432,6 +447,9 @@ async def evaluate(body, request, db, current, idem, bound_client=None):
         from app.services.task_service import enqueue_task
         await enqueue_task(db, task)
     await db.flush()
+    await log_audit(db, "service", "submit", user_id=current.id, username=current.username,
+                    tenant_id=str(current.tenant_id), target_id=call.id,
+                    detail=json.dumps({"title": body.title, "task_id": task.id, "mode": body.mode}, ensure_ascii=False))
     return await call_out(db, call)
 
 
@@ -441,11 +459,13 @@ async def audited_evaluate(body, request, db, current, idem, bound_client=None):
         await db.commit()
         return result
     except HTTPException as exc:
-        tenant_id = current.tenant_id
+        tenant_id, user_id, username = current.tenant_id, current.id, current.username
         await db.rollback()
         client = await db.scalar(select(ServiceClient).where(ServiceClient.id == body.client_id, ServiceClient.tenant_id == tenant_id))
         db.add(ServiceCall(tenant_id=tenant_id, client_id=client.id if client else None,
             workspace_id=client.workspace_id if client else None, status="rejected", detail=str(exc.detail)))
+        await log_audit(db, "service", "rejected", user_id=user_id, username=username,
+                        tenant_id=str(tenant_id), detail=str(exc.detail))
         await db.commit()
         raise
 
@@ -457,17 +477,26 @@ async def submit_evaluation(body: EvaluationBody, request: Request, idempotency_
 
 
 @router.get("/evaluations")
-async def evaluations(workspace_id: int, page: int = Query(1, ge=1), db=Depends(get_db), current=Depends(require_permission("service:list"))):
+async def evaluations(workspace_id: int, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                      q: str = "", member_id: int | None = None,
+                      db=Depends(get_db), current=Depends(require_permission("service:list"))):
     await workspace_for(db, workspace_id, current.tenant_id)
-    rows = (await db.scalars(select(ServiceCall).where(ServiceCall.workspace_id == workspace_id)
-        .order_by(ServiceCall.id.desc()).offset((page - 1) * 50).limit(50))).all()
+    query = select(ServiceCall).outerjoin(EvalServiceRequest, EvalServiceRequest.id == ServiceCall.service_id).where(ServiceCall.workspace_id == workspace_id)
+    if q:
+        query = query.where(EvalServiceRequest.title.contains(q.strip()))
+    if member_id is not None:
+        query = query.where(EvalServiceRequest.creator_id == member_id)
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (await db.scalars(query.order_by(ServiceCall.id.desc()).offset((page - 1) * page_size).limit(page_size))).all()
     items = []
     for c in rows:
         data = await call_out(db, c)
         service = await db.get(EvalServiceRequest, c.service_id) if c.service_id else None
-        data.update(title=service.title if service else "调用被拒绝", mode=service.quote_mode if service else "—")
+        creator = await db.get(User, service.creator_id) if service else None
+        data.update(title=service.title if service else "调用被拒绝", mode=service.quote_mode if service else "—",
+                    username=creator.username if creator else "—")
         items.append(data)
-    return {"items": items, "page": page}
+    return {"items": items, "page": page, "total": total, "page_size": page_size}
 
 
 @router.post("/evaluations/{cid}/start")
@@ -515,7 +544,9 @@ async def download_report(db, call):
 
 @router.get("/evaluations/{cid}/report")
 async def report(cid: int, db=Depends(get_db), current=Depends(require_permission("service:view"))):
-    return await download_report(db, await owned(db, ServiceCall, cid, current))
+    response = await download_report(db, await owned(db, ServiceCall, cid, current))
+    await log_audit(db, "service", "report_download", user_id=current.id, tenant_id=str(current.tenant_id), target_id=cid)
+    return response
 
 
 async def gateway_client(request: Request, x_api_key: str = Header(default=""), db=Depends(get_db)):
@@ -555,13 +586,15 @@ async def gateway_usage(db=Depends(get_db), identity=Depends(gateway_client)):
 
 
 @router.get("/gateway-audit")
-async def gateway_audit(workspace_id: int, page: int = Query(1, ge=1), db=Depends(get_db), current=Depends(require_permission("service:view"))):
+async def gateway_audit(workspace_id: int, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                        db=Depends(get_db), current=Depends(require_permission("service:view"))):
     await workspace_for(db, workspace_id, current.tenant_id)
-    rows = (await db.scalars(select(ServiceGatewayAudit).join(ServiceClient, ServiceClient.id == ServiceGatewayAudit.client_id)
-        .where(ServiceClient.workspace_id == workspace_id, ServiceGatewayAudit.tenant_id == current.tenant_id)
-        .order_by(ServiceGatewayAudit.id.desc()).offset((page - 1) * 50).limit(50))).all()
+    query = select(ServiceGatewayAudit).join(ServiceClient, ServiceClient.id == ServiceGatewayAudit.client_id).where(
+        ServiceClient.workspace_id == workspace_id, ServiceGatewayAudit.tenant_id == current.tenant_id)
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (await db.scalars(query.order_by(ServiceGatewayAudit.id.desc()).offset((page - 1) * page_size).limit(page_size))).all()
     return {"items": [{"id": r.id, "client_id": r.client_id, "method": r.method, "path": r.path,
-                       "status_code": r.status_code, "created_at": r.created_at.isoformat()} for r in rows]}
+                       "status_code": r.status_code, "created_at": r.created_at.isoformat()} for r in rows], "total": total}
 
 
 @gateway.post("/evaluations")
@@ -586,4 +619,8 @@ async def gateway_report(cid: int, db=Depends(get_db), identity=Depends(gateway_
     call = await owned(db, ServiceCall, cid, user)
     if call.client_id != client.id:
         raise HTTPException(404, "评测调用不存在")
-    return await download_report(db, call)
+    response = await download_report(db, call)
+    await log_audit(db, "service", "report_download", user_id=user.id, tenant_id=str(user.tenant_id), target_id=cid)
+    # Gateway request auditing opens a separate transaction before dependencies exit.
+    await db.commit()
+    return response

@@ -46,6 +46,7 @@
   "service:credential",
   "service:list",
   "service:publish",
+  "service:records",
   "service:run",
   "service:view",
   "service:workspace",

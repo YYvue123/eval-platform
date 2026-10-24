@@ -16,7 +16,7 @@ from sqlalchemy import select
 from app.database import engine, Base, async_session
 from app.models import (Dataset, DatasetVersion, DatasetItem, EvalModel, EvalTask, ModelVersion, ServiceCall, ServiceClient,
                         ServiceGatewayAudit, Tenant, User)
-from app.api import service_portal, tasks
+from app.api import auth, service_portal, tasks
 from app.services.model_access import insert_access_snapshot
 from app.services.service_portal import period_starts
 from app.utils.auth import create_access_token
@@ -25,6 +25,7 @@ app = FastAPI()
 app.include_router(service_portal.router, prefix='/api/service-portal')
 app.include_router(service_portal.gateway, prefix='/api/service-gateway/v1')
 app.include_router(tasks.service_router, prefix='/api/services')
+app.include_router(auth.router, prefix='/api/auth')
 P = '/api/service-portal'
 G = '/api/service-gateway/v1'
 
@@ -300,6 +301,140 @@ class ExternalServicesTest(unittest.TestCase):
         day, month = period_starts(datetime(2026, 10, 1, 0, 1, tzinfo=timezone(timedelta(hours=8))))
         self.assertEqual(day, datetime(2026, 9, 30, 16))
         self.assertEqual(month, day)
+
+    def test_customer_directory_member_lifecycle_and_secret_redaction(self):
+        tid = self.customer['tenant_id']
+        base = f'{P}/customers/{tid}'
+        directory = self.client.get(P + '/customers', headers=self.admin)
+        self.assertEqual(directory.status_code, 200, directory.text)
+        self.assertTrue(any(c['id'] == tid for c in directory.json()['items']))
+        self.assertEqual(self.client.get(P + '/customers', headers=self.h).status_code, 403)
+        self.assertEqual(self.client.get(base + '/members', headers=self.other_h).status_code, 403)
+        password = 'New-member-password-123'
+        r = self.client.post(base + '/members', headers=self.admin,
+            json={'username': 'extra_' + self.suffix, 'password': password})
+        self.assertEqual(r.status_code, 200, r.text)
+        uid = r.json()['id']
+        self.assertNotIn('password', r.text)
+        member = {'Authorization': 'Bearer ' + create_access_token({'sub': r.json()['username']})}
+        update = {'nickname': 'Test member', 'email': 'member@example.com', 'phone': '123', 'status': 'disabled'}
+        self.assertEqual(self.client.put(base + f'/members/{uid}', headers=self.admin, json=update).status_code, 200)
+        self.assertEqual(self.client.get(P + '/workspaces', headers=member).status_code, 401)
+        self.assertEqual(self.client.post('/api/auth/login', json={'username': 'extra_' + self.suffix,
+            'password': password}).status_code, 401)
+        update['status'] = 'active'
+        self.assertEqual(self.client.put(base + f'/members/{uid}', headers=self.admin, json=update).status_code, 200)
+        reset_password = 'Reset-member-password-456'
+        self.assertEqual(self.client.post(base + f'/members/{uid}/password', headers=self.admin,
+            json={'password': reset_password}).status_code, 200)
+        async def check_password():
+            from app.utils.auth import verify_password
+            async with async_session() as db:
+                u = await db.get(User, uid)
+                self.assertTrue(verify_password(reset_password, u.password_hash))
+                self.assertFalse(verify_password(password, u.password_hash))
+        asyncio.run(check_password())
+        self.assertEqual(self.client.post('/api/auth/login', json={'username': 'extra_' + self.suffix,
+            'password': reset_password}).status_code, 200)
+        self.assertEqual(self.client.post('/api/auth/login', json={'username': 'extra_' + self.suffix,
+            'password': password}).status_code, 401)
+        self.assertEqual(self.client.put(f'{P}/customers/{self.other["tenant_id"]}/members/{uid}',
+            headers=self.admin, json=update).status_code, 404)
+        self.assertEqual(self.client.delete(base + f'/members/{uid}', headers=self.admin).status_code, 200)
+        self.assertEqual(self.client.get(P + '/workspaces', headers=member).status_code, 401)
+        rows = self.client.get(base + '/members', headers=self.admin).json()['items']
+        self.assertEqual(next(m for m in rows if m['id'] == uid)['status'], 'deleted')
+        history = self.client.get(P + '/records', headers=self.admin, params={'tenant_id': tid}).json()
+        self.assertTrue(any(r['action'] == 'member_password' for r in history['items']))
+        self.assertNotIn(reset_password, str(history))
+        self.assertNotIn(password, str(history))
+
+    def test_customer_disable_delete_and_cross_tenant_client_options(self):
+        base = f'{P}/customers/{self.customer["tenant_id"]}'
+        clients = self.client.get(base + '/clients', headers=self.admin)
+        self.assertEqual(clients.status_code, 200, clients.text)
+        self.assertEqual([c['id'] for c in clients.json()['items']], [self.cid])
+        self.assertNotIn('key_hash', clients.text)
+        self.assertEqual(self.client.get(base + '/clients', headers=self.h).status_code, 403)
+        self.assertEqual(self.client.put(base, headers=self.admin, json={'name': 'Updated company', 'status': 'disabled'}).status_code, 200)
+        self.assertEqual(self.client.get(P + '/workspaces', headers=self.h).status_code, 403)
+        self.assertEqual(self.submit('disabled').status_code, 401)
+        self.assertEqual(self.client.post('/api/auth/login', json={'username': 'client_a' + self.suffix,
+            'password': 'integration-password-123'}).status_code, 403)
+        self.assertEqual(self.client.put(base, headers=self.admin, json={'name': 'Updated company', 'status': 'active'}).status_code, 200)
+        self.assertEqual(self.client.get(P + '/workspaces', headers=self.h).status_code, 200)
+        self.assertEqual(self.client.delete(base, headers=self.admin).status_code, 200)
+        self.assertEqual(self.submit('deleted').status_code, 401)
+        self.assertEqual(self.client.get(base + '/members', headers=self.admin).status_code, 404)
+
+    def test_operation_records_filters_pagination_and_tenant_isolation(self):
+        r = self.client.post(P + '/evaluations', headers={**self.h, 'Idempotency-Key': 'portal-record'},
+            json={**self.body, 'mode': 'expert'})
+        self.assertEqual(r.status_code, 200, r.text)
+        cid = r.json()['id']
+        self.assertEqual(self.client.post(f'{P}/evaluations/{cid}/cancel', headers=self.h).status_code, 200)
+        # A rejected request must also retain the authenticated member's identity.
+        self.set_quota(0, 0)
+        self.assertEqual(self.submit('rejected-record').status_code, 429)
+        history = self.client.get(P + '/records', headers=self.h,
+            params={'member_id': self.customer['user_id'], 'page_size': 100})
+        self.assertEqual(history.status_code, 200, history.text)
+        actions = {a['action'] for a in history.json()['items']}
+        self.assertTrue({'submit', 'cancel', 'rejected'}.issubset(actions), actions)
+        page = self.client.get(P + '/records', headers=self.h, params={'page_size': 1, 'action': 'submit'}).json()
+        self.assertEqual(page['total'], 1)
+        self.assertEqual(page['items'][0]['target_id'], cid)
+        self.assertTrue(page['items'][0]['created_at'].endswith('Z'))
+        self.assertEqual(self.client.get(P + '/records', headers=self.other_h,
+            params={'tenant_id': self.customer['tenant_id']}).status_code, 403)
+        self.assertEqual(self.client.get(P + '/records', headers=self.h,
+            params={'member_id': self.other['user_id']}).status_code, 404)
+        self.assertEqual(self.client.get(P + '/records', headers=self.h,
+            params={'start': '2030-01-01T00:00:00Z', 'end': '2020-01-01T00:00:00Z'}).status_code, 400)
+        self.assertEqual(self.client.get(P + '/records', headers=self.h,
+            params={'start': '2030-01-01T00:00:00Z'}).json()['total'], 0)
+        operator_view = self.client.get(P + '/records', headers=self.admin,
+            params={'tenant_id': self.customer['tenant_id'], 'action': 'quota'}).json()
+        self.assertGreater(operator_view['total'], 0)
+
+    def test_pagination_filters_and_untrusted_audit_tenant(self):
+        r = self.submit('page-first', {**self.body, 'mode': 'expert'})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.client.post(f'{P}/evaluations/{r.json()["id"]}/cancel', headers=self.h)
+        second = self.submit('page-second', {**self.body, 'title': 'Second evaluation', 'mode': 'expert'})
+        self.assertEqual(second.status_code, 200, second.text)
+        listing = self.client.get(P + '/evaluations', headers=self.h,
+            params={'workspace_id': self.ws, 'page_size': 1})
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual(listing.json()['total'], 2)
+        self.assertEqual(len(listing.json()['items']), 1)
+        self.assertEqual(listing.json()['items'][0]['id'], second.json()['id'])
+        filtered = self.client.get(P + '/evaluations', headers=self.h,
+            params={'workspace_id': self.ws, 'q': 'Second', 'member_id': self.customer['user_id']}).json()
+        self.assertEqual(filtered['total'], 1)
+        gateway = self.client.get(P + '/gateway-audit', headers=self.h,
+            params={'workspace_id': self.ws, 'page_size': 1}).json()
+        self.assertGreaterEqual(gateway['total'], 2)
+        self.assertEqual(len(gateway['items']), 1)
+        member_gateway = self.client.get(P + '/records', headers=self.admin, params={
+            'source': 'gateway', 'tenant_id': self.customer['tenant_id'],
+            'member_id': self.customer['user_id'], 'page_size': 1}).json()
+        self.assertGreaterEqual(member_gateway['total'], 2)
+        self.assertEqual(member_gateway['items'][0]['resource'], 'gateway')
+        self.assertIn('http_status', member_gateway['items'][0]['detail'])
+        self.assertEqual(self.client.get(P + '/records', headers=self.other_h, params={
+            'source': 'gateway', 'tenant_id': self.customer['tenant_id']}).status_code, 403)
+        # Historical trace tenant headers are metadata, not authorization evidence.
+        async def forged_trace():
+            from app.models import AuditLog
+            async with async_session() as db:
+                row = AuditLog(user_id=self.other['user_id'], tenant_id=str(self.customer['tenant_id']),
+                    resource='task', action='create', detail='foreign trace fixture')
+                db.add(row)
+                await db.commit()
+        asyncio.run(forged_trace())
+        history = self.client.get(P + '/records', headers=self.h, params={'page_size': 100}).json()
+        self.assertFalse(any(r['detail'] == 'foreign trace fixture' for r in history['items']))
 
     def test_cross_tenant_report_and_injected_client(self):
         cid = self.submit().json()['id']

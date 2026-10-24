@@ -1,5 +1,6 @@
 {
   "permissions": [
+    {"resource": "service", "action": "records", "name": "企业评测操作记录查看"},
     {"resource": "service", "action": "workspace", "name": "企业工作空间管理"},
     {"resource": "service", "action": "credential", "name": "接入密钥管理"},
     {"resource": "service", "action": "publish", "name": "模型服务版本发布"},

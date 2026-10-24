@@ -48,7 +48,7 @@ RESEARCHER_PERMISSIONS = [
     "quality:list", "quality:view", "quality:run", "quality:edit",
     "task:list", "task:view", "task:create", "task:edit", "task:run",
     "leaderboard:view",
-    "service:list", "service:view", "service:create",
+    "service:list", "service:view", "service:create", "service:records",
     "agent:list", "agent:view", "agent:invoke", "agent:confirm",
     "ops:view", "ops:ticket",
 ]
@@ -64,7 +64,7 @@ VIEWER_PERMISSIONS = [
     "quality:list", "quality:view",
     "task:list", "task:view",
     "leaderboard:view",
-    "service:list", "service:view",
+    "service:list", "service:view", "service:records",
     "agent:list", "agent:view",
     "ops:view",
 ]
@@ -73,6 +73,7 @@ USER_SELF_PERMISSIONS = ["user:view"]
 
 # External customers never inherit platform research, operations or administration roles.
 CUSTOMER_PERMISSIONS = [
+    "service:records",
     "service:list", "service:view", "service:create", "service:run",
     "service:workspace", "service:credential", "service:publish", "user:view",
 ]

@@ -10,6 +10,7 @@
 | `docs/delivery/STATUS.md` | WP00–WP16 交付追踪（追加，不覆写原始差距矩阵） |
 | `docs/delivery/MILESTONE-M4.md` | M4 收口：已交付 vs 待 L3/L4 |
 | `docs/operations/` | 值班/变更/发布回滚/FAQ/基准生态 TBD |
+| [用户手册索引](docs/user-manual/README.md) | 平台总手册与评测服务运营方、客户方专项手册 |
 | `CONTRIBUTING.md` / `LICENSE` / `docs/licenses/` | 贡献与许可 |
 
 旧文 `docs/大模型智能评测平台-完整设计与续建规格.md` 中部分「现状」已过时，以设计包与交付报告为准。

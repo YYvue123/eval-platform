@@ -1,0 +1,11 @@
+{
+  "source_chars": 8981,
+  "main_sections": 7,
+  "subsections": 25,
+  "tables": 10,
+  "paragraphs": 137,
+  "output": "E:\\eval-platform\\docs\\user-manual\\评测服务用户手册_运营方与客户方_V1.0.docx",
+  "visual_render": "blocked: bundled LibreOffice unavailable; renderer FileNotFoundError",
+  "body_coverage": "all source text present in paragraphs or tables",
+  "business_tests": "not run; documentation only"
+}
