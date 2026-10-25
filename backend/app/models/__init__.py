@@ -141,3 +141,4 @@ __all__ = [
     "OpsDrillRecord",
     "DataAuthorization",
 ]
+from app.models.safety import SafetyRecord

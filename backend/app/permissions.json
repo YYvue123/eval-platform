@@ -1,5 +1,9 @@
 {
   "permissions": [
+    {"resource": "safety", "action": "view", "name": "安全可信查看"},
+    {"resource": "safety", "action": "create", "name": "安全评测配置"},
+    {"resource": "safety", "action": "edit", "name": "安全裁判校准"},
+    {"resource": "safety", "action": "review", "name": "安全专家复核"},
     {"resource": "service", "action": "records", "name": "企业评测操作记录查看"},
     {"resource": "service", "action": "workspace", "name": "企业工作空间管理"},
     {"resource": "service", "action": "credential", "name": "接入密钥管理"},

@@ -376,6 +376,16 @@
               </li>
               <li>模式：{{ session.plan.trial_run ? '试跑' : '正式' }} · 计划预算 {{ session.plan.token_budget ?? 0 }}</li>
               <li>打分工具 {{ judgeLabel }}</li>
+              <li v-if="session.plan.safety_config">
+                安全协议：{{ session.plan.safety_config.set_type === 'explore' ? '探索集' : '固定集' }}，
+                最多 {{ session.plan.safety_config.max_turns }} 轮，
+                {{ session.plan.safety_config.adaptive ? '难度自适应' : '固定难度' }}，
+                {{ session.plan.safety_config.turn_aggregation === 'worst' ? '最差轮次融合' : '均值融合' }}，
+                {{ session.plan.safety_config.perspective_evaluation ? '启用情境对照' : '关闭情境对照' }}。
+                规则占比 {{ Math.round(session.plan.safety_config.rule_weight * 100) }}%，
+                裁判模型 {{ session.plan.safety_config.judge_model_id || '未选择' }}
+                <el-collapse><el-collapse-item title="安全指标权重与冻结配置"><pre>{{ JSON.stringify(session.plan.safety_config, null, 2) }}</pre></el-collapse-item></el-collapse>
+              </li>
               <li>子 Agent：{{ capabilityLabels.roles }}</li>
               <li>Skill：{{ capabilityLabels.skills }}</li>
               <li>MCP：{{ capabilityLabels.mcps }}</li>

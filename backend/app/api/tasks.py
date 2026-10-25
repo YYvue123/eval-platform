@@ -49,6 +49,7 @@ from app.services.task_events import emit_event
 from app.services.task_queue import dispatch_queue, enqueue_task
 from app.services.task_service import detect_dependency_cycle, request_cancel, retry_task
 from app.utils.jsonutil import dumps, iso, loads
+from app.services.safety_protocol import SafetyConfig
 
 router = APIRouter()
 async def internal_service_operator(current: User = Depends(get_current_user)):
@@ -80,6 +81,7 @@ class TaskCreate(BaseModel):
     window_start: datetime | None = None
     window_end: datetime | None = None
     metric_weights: dict | None = None
+    safety_config: SafetyConfig | None = None
 
 
 class AuditBody(BaseModel):
@@ -323,6 +325,34 @@ async def create_task(
             raise HTTPException(400, "正式评测要求提示词已发布，或勾选仅测试(trial_run)")
     data = body.model_dump()
     weights = data.pop("metric_weights", None)
+    safety_config = data.pop("safety_config", None)
+    if body.safety_config:
+        if not actor.is_admin and "safety:create" not in actor.permissions:
+            raise HTTPException(403, "需要权限: safety:create")
+        from app.models import DatasetItem, DatasetVersion
+        from app.services.safety_protocol import sample_of, validate_sample
+        version_id = body.dataset_version_id or ds.current_version_id
+        version = await db.get(DatasetVersion, version_id) if version_id else None
+        if not version or version.dataset_id != ds.id:
+            raise HTTPException(400, "安全基准版本不属于所选数据集")
+        samples = (await db.scalars(select(DatasetItem).where(DatasetItem.version_id == version_id, DatasetItem.status == "active"))).all()
+        if not samples:
+            raise HTTPException(400, "安全基准不能为空")
+        try:
+            for item in samples:
+                validate_sample(sample_of(item))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if body.safety_config.judge_model_id:
+            judge = await get_visible_or_404(db, EvalModel, body.safety_config.judge_model_id, actor)
+            if judge.status in {"deleted", "disabled", "archived"} or not judge.api_url or not await _acl_allows(db, judge.id, current):
+                raise HTTPException(403, "安全裁判模型不可调用")
+            safety_config["judge_version_id"] = judge.current_version_id
+        data.update(task_type="security", judge_resource_id="builtin/safety_protocol", template_code="")
+        weights = body.safety_config.dimension_weights
+    data["safety_config_json"] = dumps(safety_config or {})
+    if body.judge_resource_id == "builtin/safety_protocol" and not body.safety_config:
+        raise HTTPException(400, "安全协议裁判必须同时配置 safety_config")
     claimed = data.pop("tenant_id", None) if "tenant_id" in data else None
     if body.prompt_id and not data.get("prompt_version_id"):
         prompt = await db.get(PromptTemplate, body.prompt_id)

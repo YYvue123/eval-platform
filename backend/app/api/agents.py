@@ -131,6 +131,7 @@ class DelegateIn(BaseModel):
 
 
 class ClarifyIn(BaseModel):
+    safety_config: dict | None = None
     objective: str = ""
     token_budget: int | None = None
     dataset_id: int | None = None
@@ -768,7 +769,16 @@ async def clarify_session(
     if body.token_budget is not None:
         plan["token_budget"] = body.token_budget
         plan["goal_spec"] = {**(plan.get("goal_spec") or {}), "token_budget": body.token_budget, "objective": body.objective or (plan.get("goal_spec") or {}).get("objective")}
+    safety_config = body.safety_config if body.safety_config is not None else previous.get("safety_config")
+    if safety_config:
+        from app.services.agent_safety import prepare_safety_plan
+        plan["safety_config"] = safety_config
+        try:
+            await prepare_safety_plan(db, plan, actor, freeze=True)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     plan["validation_errors"] = await validate_eval_config(db, plan, current)
+    plan["ready"] = not plan["validation_errors"] and not plan.get("clarifications") and not plan.get("resource_gaps") and bool(plan.get("dataset_id") and plan.get("model_id"))
     if plan["validation_errors"]:
         plan["ready"] = False
     plan["canonical_hash"] = canonical_plan_hash(plan)

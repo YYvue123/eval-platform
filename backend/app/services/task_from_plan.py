@@ -40,23 +40,33 @@ async def create_task_from_plan(
     if whitelist and scene not in whitelist:
         raise HTTPException(400, f"场景 {scene} 不在模型白名单中")
 
+    from app.services.agent_safety import prepare_safety_plan
+    from app.services.actor_context import build_actor
+    safety = None
+    if plan.get("safety_config") or plan.get("task_type") == "security" or plan.get("judge_resource_id") == "builtin/safety_protocol":
+        try:
+            safety = await prepare_safety_plan(db, plan, await build_actor(db, user))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     t = EvalTask(
         name=plan.get("name") or "编排任务",
-        task_type=plan.get("task_type") or "capability",
+        task_type="security" if safety else plan.get("task_type") or "capability",
         scene=scene,
         industry=plan.get("industry") or "general",
         dataset_id=ds.id,
         dataset_version_id=plan.get("dataset_version_id") or ds.current_version_id,
         model_id=model.id,
         model_version_id=plan.get("model_version_id") or model.current_version_id,
-        judge_resource_id=plan.get("judge_resource_id") or "builtin/exact_match",
-        template_code=plan.get("template_code") or "",
+        judge_resource_id="builtin/safety_protocol" if safety else plan.get("judge_resource_id") or "builtin/exact_match",
+        template_code="" if safety else plan.get("template_code") or "",
         trial_run=trial,
         token_quota=int(plan.get("token_budget") or 0),
         creator_id=user.id,
         tenant_id=tenant_id if tenant_id is not None else getattr(user, "tenant_id", None),
         visibility="private",
-        metric_weights_json=dumps(plan.get("metric_weights") or {}),
+        metric_weights_json=dumps(safety["dimension_weights"] if safety else plan.get("metric_weights") or {}),
+        safety_config_json=dumps(safety or {}),
     )
     db.add(t)
     await db.flush()

@@ -1,6 +1,8 @@
 {
-  "ok": true,
-  "errors": [],
+  "ok": false,
+  "errors": [
+    "EvalServices.vue 未收敛办理动作"
+  ],
   "warnings": [],
   "route_permission_samples": [
     {
@@ -67,5 +69,5 @@
     "/audit",
     "/profile"
   ],
-  "checked_at": "2026-09-29T06:51:15.762Z"
+  "checked_at": "2026-10-24T18:13:15.223Z"
 }

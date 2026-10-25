@@ -1,340 +1,182 @@
-﻿<template>
+<template>
   <div>
     <div class="page-header">
-      <div>
-        <h2 class="page-title">安全可信评测</h2>
-        <p class="page-desc">风险 / 标识 / 对齐 / 幻觉四类正式裁判；空输出与缺证据不得判真；探索集不入固定比较；不做自动法律结论。</p>
-      </div>
-      <el-button type="primary" :loading="calLoading" v-if="userStore.hasPermission('task:edit')" @click="runCalibrate">重新校准</el-button>
+      <div><h2 class="page-title">安全可信评测</h2><p class="page-desc">配置安全基准、指标权重与专家复核。任务管理统一执行、监控并生成报告。</p></div>
+      <el-button v-if="userStore.hasPermission('safety:view')" :loading="loading" @click="load">刷新</el-button>
     </div>
-
-    <PageAsyncState
-      v-if="['loading', 'error', 'forbidden', 'uncreated'].includes(pageState)"
-      :state="pageState"
-      :errorMessage="loadError"
-    />
-    <el-row v-else :gutter="16">
-      <el-col :span="14">
-        <el-card>
-          <template #header>类别表现（人工金标一致率）</template>
-          <el-table v-loading="loading" :data="categories" stripe>
-            <template #empty>
-              <EmptyState type="default" title="暂无安全类别" description="加载成功后将显示风险/标识/对齐/幻觉类别。" :show-action="false" />
-            </template>
-            <el-table-column prop="category" label="类别" width="120" />
-            <el-table-column prop="rule_version" label="规则版本" min-width="140" />
-            <el-table-column label="固定/探索" width="100">
-              <template #default="{ row }">{{ row.fixed_count }}/{{ row.explore_count }}</template>
-            </el-table-column>
-            <el-table-column label="一致率" width="100">
-              <template #default="{ row }">{{ ((row.agreement || 0) * 100).toFixed(1) }}%</template>
-            </el-table-column>
-            <el-table-column label="校准" width="90">
-              <template #default="{ row }">
-                <el-tag :type="row.calibrated ? 'success' : 'danger'" size="small">{{ row.calibrated ? '通过' : '未过' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200">
-              <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="openSet(row.category, 'fixed')">固定集</el-button>
-                <el-button link type="primary" size="small" @click="openSet(row.category, 'explore')">探索集</el-button>
-                <el-button link type="primary" size="small" @click="openTryScore(row)">试评</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-
-        <el-card class="mt">
-          <template #header>候选题库双验证（不得直入 fixed）</template>
-          <el-table :data="candidates" stripe>
-            <el-table-column prop="id" label="ID" min-width="140" />
-            <el-table-column prop="category" label="类" width="110" />
-            <el-table-column prop="status" label="状态" width="110" />
-            <el-table-column label="操作" width="120">
-              <template #default="{ row }">
-                <el-button
-                  v-if="userStore.hasPermission('task:edit')"
-                  link
-                  type="primary"
-                  size="small"
-                  @click="validateCand(row)"
-                >双验证</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-
-      <el-col :span="10">
-        <el-card>
-          <template #header>专家复核队列</template>
-          <el-table :data="reviews" stripe max-height="360">
-            <el-table-column prop="id" label="单号" width="90" />
-            <el-table-column prop="sample_id" label="样本" min-width="110" show-overflow-tooltip />
-            <el-table-column prop="status" label="状态" width="90">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.status === 'pending' ? 'warning' : 'success'">{{ reviewStatusCn(row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="100">
-              <template #default="{ row }">
-                <el-button
-                  v-if="row.status === 'pending' && userStore.hasPermission('task:edit')"
-                  link
-                  type="primary"
-                  size="small"
-                  @click="openReview(row)"
-                >复核</el-button>
-                <el-button v-else link size="small" @click="openReview(row)">查看</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-
-        <el-card class="mt">
-          <template #header>试评结果</template>
-          <pre class="schema">{{ scoreResult ? JSON.stringify(scoreResult, null, 2) : '在「试评」中输入候选输出后查看' }}</pre>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-drawer v-model="setDrawer" :title="`样本集 ${setCategory} / ${setType === 'fixed' ? '固定集' : '探索集'}`" size="560px">
-      <el-alert
-        :type="setType === 'explore' ? 'warning' : 'info'"
-        :closable="false"
-        :title="setType === 'explore' ? '探索集仅供诊断，不得进入固定榜单比较。' : '固定集用于正式可比评测。'"
-        style="margin-bottom: 12px"
-      />
-      <pre class="schema">{{ JSON.stringify(setSamples, null, 2) }}</pre>
-    </el-drawer>
-
-    <el-drawer v-model="reviewDrawer" title="专家复核" size="480px">
-      <template v-if="activeReview">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="单号">{{ activeReview.id }}</el-descriptions-item>
-          <el-descriptions-item label="类别">{{ activeReview.category }}</el-descriptions-item>
-          <el-descriptions-item label="样本">{{ activeReview.sample_id }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ reviewStatusCn(activeReview.status) }}</el-descriptions-item>
-        </el-descriptions>
-        <h4>候选输出</h4>
-        <pre class="schema">{{ activeReview.prediction || '（空）' }}</pre>
-        <h4>备注</h4>
-        <p class="note">{{ activeReview.note || '—' }}</p>
-        <template v-if="activeReview.status === 'pending' && userStore.hasPermission('task:edit')">
-          <el-form label-width="88px" class="mt">
-            <el-form-item label="人工标签" required>
-              <el-select v-model="reviewForm.expert_label" style="width: 100%">
-                <el-option label="通过" value="approved" />
-                <el-option label="驳回" value="rejected" />
-                <el-option label="需补证" value="needs_evidence" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="理由">
-              <el-input v-model="reviewForm.note" type="textarea" rows="3" placeholder="填写判断依据；驳回/补证时必填" />
-            </el-form-item>
-            <el-button type="primary" :loading="resolving" @click="submitReview">提交复核</el-button>
-          </el-form>
-        </template>
-        <template v-else-if="activeReview.expert_label">
-          <h4>已裁定</h4>
-          <p>{{ activeReview.expert_label }} · {{ activeReview.note || '无备注' }}</p>
-        </template>
-      </template>
-    </el-drawer>
-
-    <el-dialog v-model="tryDialog" title="试评" width="560px">
-      <el-form label-width="88px">
-        <el-form-item label="类别">{{ tryForm.category }}</el-form-item>
-        <el-form-item label="样本">
-          <el-select v-model="tryForm.sample_id" filterable style="width: 100%" @change="onTrySample">
-            <el-option v-for="s in trySamples" :key="s.id" :label="s.id" :value="s.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="候选输出">
-          <el-input v-model="tryForm.prediction" type="textarea" rows="4" placeholder="输入实际模型输出，勿默认填入 good 示例" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="tryDialog = false">取消</el-button>
-        <el-button type="primary" :loading="scoring" @click="submitTryScore">评分</el-button>
-      </template>
+    <PageAsyncState v-if="loadError" state="error" :errorMessage="loadError"/>
+    <el-card v-loading="loading">
+      <el-tabs v-model="tab">
+        <el-tab-pane label="发起安全评测" name="create">
+          <el-alert class="intro-note" type="info" :closable="false" title="安全专项权重随任务冻结保存" description="此处配置安全协议内各指标的综合占比；通用任务创建按模板或默认配置运行，未提供专项权重编辑。当前基准与裁判覆盖文本输入、文本输出及输出元数据；多模态模型在此仅评估文本能力。" show-icon/>
+          <el-row :gutter="24">
+            <el-col :xs="24" :lg="12">
+              <h3 class="section-title">评测配置</h3>
+              <el-form label-width="120px">
+                <el-form-item label="任务名称"><el-input v-model="form.name"/></el-form-item>
+                <el-form-item label="安全基准"><el-select v-model="form.dataset_id" filterable @change="applyScenario"><el-option v-for="d in workbench.datasets" :key="d.id" :value="d.id" :label="`${d.name} · ${datasetStatusText(d.status)}`"/></el-select></el-form-item>
+                <el-form-item label="被测模型"><el-select v-model="form.model_id" filterable><el-option v-for="m in models" :key="m.id" :value="m.id" :label="m.name"/></el-select></el-form-item>
+                <el-form-item label="裁判模型"><el-select v-model="form.judge_model_id" clearable filterable placeholder="不选则使用规则评分"><el-option v-for="m in models" :key="m.id" :value="m.id" :label="m.name"/></el-select></el-form-item>
+                <el-form-item label="场景权重"><el-select v-model="form.scenario" @change="applyScenario"><el-option label="通用均衡" value="general"/><el-option label="知识问答 · 侧重幻觉" value="knowledge"/><el-option label="公共服务 · 侧重风险与对齐" value="public_service"/></el-select></el-form-item>
+                <el-form-item label="基准用途"><el-radio-group v-model="form.set_type"><el-radio value="fixed">固定比较</el-radio><el-radio value="explore">探索诊断</el-radio></el-radio-group></el-form-item>
+                <el-form-item label="难度自适应"><el-switch v-model="form.adaptive"/></el-form-item>
+                <el-form-item label="最多追问轮数"><el-input-number v-model="form.max_turns" :min="1" :max="3"/></el-form-item>
+                <el-form-item label="多轮结论"><el-select v-model="form.turn_aggregation"><el-option label="安全边界 · 采用最低分" value="worst"/><el-option label="综合表现 · 采用平均分" value="mean"/></el-select></el-form-item>
+                <el-form-item label="情境对照"><el-checkbox v-model="form.perspective_evaluation">执行题目中的文化与观点情境</el-checkbox></el-form-item>
+                <el-form-item v-if="form.judge_model_id" label="规则评分占比"><el-input-number v-model="form.rule_weight" :min="0" :max="100" :step="1"/><span class="suffix">%</span><span class="muted">模型裁判 {{ 100-form.rule_weight }}%</span></el-form-item>
+                <el-form-item><el-checkbox v-model="form.trial_run">仅试跑，不进入正式榜单</el-checkbox></el-form-item>
+                <el-form-item><el-button v-if="userStore.hasPermission('safety:create') && userStore.hasPermission('task:create')" type="primary" :loading="saving" @click="createTask">创建安全任务</el-button></el-form-item>
+              </el-form>
+              <p class="muted">创建后到任务管理提交、审核或执行。安全结论与任务详情使用同一条任务记录。</p>
+            </el-col>
+            <el-col :xs="24" :lg="12">
+              <div class="section-heading"><h3 class="section-title">指标权重</h3><el-tag :type="weightsValid?'success':'warning'">合计 {{ weightTotal }}%</el-tag></div>
+              <div class="toolbar"><el-button v-if="userStore.hasPermission('safety:create')" size="small" @click="applyScenario">恢复场景默认</el-button><el-button v-if="userStore.hasPermission('safety:create')" size="small" @click="normalizeWeights">按比例调整至100%</el-button></div>
+              <el-table :data="weightRows" stripe size="small" max-height="610">
+                <el-table-column prop="category" label="类别" width="100"/><el-table-column prop="label" label="指标" min-width="130"/>
+                <el-table-column label="权重" width="180"><template #default="{row}"><el-input-number v-model="weights[row.key]" :aria-label="`${row.label}权重`" :min="0" :max="100" :precision="2" :step=".1" size="small"/><span class="suffix">%</span></template></el-table-column>
+              </el-table>
+              <p class="muted">合计须为100%，零权重指标不参与综合分。仅显示所选基准包含的指标；未选择基准时显示全部指标。</p>
+            </el-col>
+          </el-row>
+        </el-tab-pane>
+        <el-tab-pane label="基准与证据" name="benchmark">
+          <el-alert class="intro-note" type="info" :closable="false" show-icon title="先准备草稿，再保存并发布" description="从空白新增、加载已有基准修订，或选择下方模板起步。题目编辑仅保存在当前草稿中，保存后还需完成质检与发布。"/><div class="toolbar"><el-button v-if="userStore.hasPermission('safety:create') && userStore.hasPermission('dataset:create')" type="primary" @click="newBenchmark">从空白新增</el-button><el-select v-model="existingBenchmarkId" filterable clearable placeholder="选择已有安全基准" style="width:300px"><el-option v-for="d in workbench.datasets" :key="d.id" :value="d.id" :label="d.name"/></el-select><el-button v-if="userStore.hasPermission('safety:view') && userStore.hasPermission('dataset:view')" :disabled="!existingBenchmarkId"  :loading="benchmarkLoading" @click="loadExistingBenchmark">加载为修订草稿</el-button></div>
+          <div class="toolbar"><el-radio-group v-model="templateCategory" size="small"><el-radio-button value="all">全部模板</el-radio-button><el-radio-button v-for="(label,key) in workbench.categories" :key="key" :value="key">{{ label }}</el-radio-button></el-radio-group></div>
+          <el-collapse><el-collapse-item title="从模板开始 · 展开选择并预览题目" name="templates"><el-row :gutter="16" class="template-list">
+            <el-col v-for="item in filteredTemplates" :key="item.id" :xs="24" :sm="12" :xl="8">
+              <el-card shadow="never" :class="['template-card',{selected:selectedTemplate===item.id}]">
+                <div class="section-heading"><b>{{ item.name }}</b><el-tag size="small" type="info">{{ item.sample_count }}题</el-tag></div><p class="muted">{{ item.description }}</p>
+                <el-button v-if="userStore.hasPermission('safety:view')" :type="selectedTemplate===item.id?'primary':'default'" plain size="small" :loading="benchmarkLoading" @click="loadTemplate(item.id)">{{ selectedTemplate===item.id?'重新加载':'使用模板' }}</el-button>
+              </el-card>
+            </el-col>
+          </el-row></el-collapse-item></el-collapse>
+          <el-empty v-if="!benchmarkDraft" description="尚未创建草稿，选择上方任一方式开始。"/>
+          <template v-if="benchmarkDraft">
+            <div class="section-heading"><h3 class="section-title">基准草稿 · 题目与证据</h3><span class="muted">共 {{ templateRows.length }} 题</span></div>
+            <el-form label-width="100px"><el-form-item label="数据集名称"><el-input v-model="benchmarkName" placeholder="填写基准数据集名称" maxlength="200"/></el-form-item></el-form>
+            <p class="muted">{{ benchmarkSource }}</p>
+            <div class="toolbar"><el-button v-if="userStore.hasPermission('safety:create')" type="primary" plain @click="editSample()">新增题目</el-button><el-tag v-if="sourceBenchmarkId" type="info">修订基准 #{{ sourceBenchmarkId }}，保存时生成新版本</el-tag></div>
+            <el-table :data="templateRows" stripe row-key="safety.id">
+              <el-table-column type="expand"><template #default="{row}"><el-descriptions :column="1" border class="evidence" size="small"><el-descriptions-item label="评分依据">{{ row.safety.rubric }}</el-descriptions-item><el-descriptions-item v-if="row.safety.stance" label="立场准则">{{ row.safety.stance }}</el-descriptions-item><el-descriptions-item v-if="row.safety.evidence?.length" label="参考证据"><p v-for="e in row.safety.evidence" :key="e.doc_id">{{ e.text }}</p></el-descriptions-item><el-descriptions-item v-if="row.safety.expected_metadata" label="标识要求">{{ JSON.stringify(row.safety.expected_metadata) }}</el-descriptions-item><el-descriptions-item label="追问配置">进阶 {{ row.safety.probes?.hard?.length || 0 }} 条 / 引导 {{ row.safety.probes?.easy?.length || 0 }} 条</el-descriptions-item></el-descriptions></template></el-table-column>
+              <el-table-column label="题号" type="index" width="65"/><el-table-column prop="data_label" label="指标" width="150"/><el-table-column prop="input" label="评测问题" min-width="300" show-overflow-tooltip/><el-table-column prop="answer" label="参考答案" width="150" show-overflow-tooltip/>
+              <el-table-column label="操作" width="130"><template #default="{row,$index}"><el-button v-if="userStore.hasPermission('safety:create')" link type="primary" @click="editSample(row,$index)">编辑</el-button><el-button v-if="userStore.hasPermission('safety:create')" link type="danger" @click="templateRows.splice($index,1)">移除</el-button></template></el-table-column>
+            </el-table>
+            <div class="toolbar benchmark-actions"><el-button v-if="userStore.hasPermission('safety:create') && userStore.hasPermission('dataset:create') && userStore.hasPermission('dataset:edit')" type="primary" :loading="saving" :disabled="!templateRows.length" @click="importBenchmark()">保存为新基准</el-button><el-button v-if="sourceBenchmarkId && userStore.hasPermission('safety:create') && userStore.hasPermission('dataset:edit')" :loading="saving" :disabled="!templateRows.length" @click="importBenchmark(sourceBenchmarkId)">保存基准新版本</el-button><el-button v-if="userStore.hasPermission('safety:create')" @click="openJsonEditor">高级JSON编辑</el-button><el-button v-if="userStore.hasPermission('dataset:list')" @click="router.push('/datasets')">数据集质检与发布</el-button></div>
+            <p class="muted">导入后请完成数据集质检与发布。展开题目可查看证据、立场准则和标识要求。</p>
+          </template>
+        </el-tab-pane>
+        <el-tab-pane label="安全结论与专家复核" name="results">
+          <el-alert type="info" :closable="false" title="专家复核：确认自动结论是否可靠，影响入榜资格；人工金标：独立给参考分，检查裁判一致性。两者都不覆盖原始模型评分。"/>
+          <div class="toolbar assessment-toolbar"><el-select v-model="taskId" filterable placeholder="选择安全任务" class="task-select" @change="loadAssessment"><el-option v-for="t in workbench.tasks" :key="t.id" :value="t.id" :label="`#${t.id} ${t.name} · ${taskStatusText(t.status)} ${t.progress}%${t.configured?'':' · 旧协议'}`"/></el-select><el-button v-if="userStore.hasPermission('safety:view') && taskId" @click="loadAssessment">刷新结论</el-button><el-button v-if="userStore.hasPermission('task:view') && taskId" @click="router.push('/tasks/'+taskId)">任务详情与报告</el-button></div>
+          <template v-if="assessment">
+            <el-alert :closable="false" :type="assessment.leaderboard_eligible?'success':'warning'" :title="`${assessment.name} · ${taskStatusText(assessment.status)} · ${assessment.leaderboard_eligible?'满足实测入榜条件':'尚不满足实测入榜条件'} · 待复核 ${assessment.pending_reviews} / 驳回 ${assessment.rejected_reviews}`"/>
+            <div class="summary"><div><span>加权综合分</span><b>{{ pct(assessment.score) }}</b></div><div><span>总合格率</span><b>{{ pct(assessment.pass_rate) }}</b></div><div><span>总拒答率</span><b>{{ pct(assessment.refusal_rate) }}</b></div><div><span>已测维度</span><b>{{ assessment.coverage }} / {{ assessment.expected_dimensions }}</b></div></div>
+            <h3 class="section-title">安全指标热力图</h3><div class="heat"><div v-for="(cell,key) in assessment.dimensions" :key="key" :style="heatStyle(cell.score)"><span>{{ cell.label }}</span><b>{{ pct(cell.score) }}</b><small>{{ cell.count }} 个样本</small></div></div>
+            <p class="muted">{{ assessment.limitations }}</p>
+            <el-collapse v-if="assessment.measurement_scope" class="mt"><el-collapse-item title="需求覆盖与测量边界"><el-table :data="assessment.measurement_scope.checks" stripe><el-table-column prop="title" label="检查项" width="180"/><el-table-column prop="status" label="实际状态" width="140"/><el-table-column prop="detail" label="范围与不足" min-width="300"/></el-table></el-collapse-item></el-collapse>
+            <el-table :data="assessment.results" row-key="id" stripe>
+              <el-table-column type="expand"><template #default="{row}"><div class="evidence">
+                <h4>原始输入与输出</h4><p>{{ row.input }}</p><pre>{{ row.output }}</pre>
+                <el-descriptions :column="1" border size="small"><el-descriptions-item label="评分依据">{{ row.metrics.rubric || '无专项依据' }}</el-descriptions-item><el-descriptions-item v-if="row.metrics.stance" label="立场准则">{{ row.metrics.stance }}</el-descriptions-item><el-descriptions-item label="结论融合">{{ row.metrics.fusion?.turn_aggregation==='worst'?'最低分：任一轮或情境失守会保留在结论中':'平均分：反映各轮综合表现' }}</el-descriptions-item><el-descriptions-item label="安全边界">{{ row.metrics.boundary_failures==null?'旧记录未统计':row.metrics.boundary_failures>0?`${row.metrics.boundary_failures}个轮次或情境未达标`:'本次已测轮次和情境未触发不达标' }}</el-descriptions-item><el-descriptions-item v-if="row.metrics.evidence?.length" label="参考证据"><p v-for="e in row.metrics.evidence" :key="e.doc_id">{{ e.doc_id }}：{{ e.text }}</p></el-descriptions-item></el-descriptions>
+                <h4>每轮实际测量</h4><el-table :data="row.metrics.turns || []" stripe size="small"><el-table-column prop="turn" label="轮次" width="65"/><el-table-column label="难度" width="85"><template #default="{row:turn}">{{ turn.difficulty==='hard'?'进阶':turn.difficulty==='easy'?'引导':'基础' }}</template></el-table-column><el-table-column prop="prompt" label="实际问题" min-width="200" show-overflow-tooltip/><el-table-column prop="output" label="模型输出" min-width="220" show-overflow-tooltip/><el-table-column label="得分" width="90"><template #default="{row:turn}">{{ pct(turn.score) }}</template></el-table-column><el-table-column label="裁判依据" min-width="220"><template #default="{row:turn}">{{ turn.metrics?.judge_reason || turn.metrics?.reason }}</template></el-table-column></el-table>
+                <template v-if="row.metrics.perspectives?.length"><h4>独立文化与观点情境</h4><el-table :data="row.metrics.perspectives" stripe size="small"><el-table-column prop="label" label="情境" width="150"/><el-table-column prop="context" label="情境背景" min-width="200"/><el-table-column prop="output" label="独立输出" min-width="220" show-overflow-tooltip/><el-table-column label="得分" width="90"><template #default="{row:context}">{{ pct(context.score) }}</template></el-table-column><el-table-column label="裁判依据" min-width="220"><template #default="{row:context}">{{ context.metrics?.judge_reason || context.metrics?.reason }}</template></el-table-column></el-table></template>
+                <p>{{ row.error }}</p><p v-if="row.review">专家复核：{{ reviewText(row.review.label) }} · {{ row.review.note }} · 复核人 {{ row.review.reviewer_name || '用户已注销' }}</p><el-collapse><el-collapse-item title="完整原始评分记录"><pre>{{ JSON.stringify(row.metrics,null,2) }}</pre></el-collapse-item></el-collapse>
+              </div></template></el-table-column>
+              <el-table-column prop="item_no" label="题号" width="70"/><el-table-column label="指标" min-width="140"><template #default="{row}">{{ workbench.dimensions[row.metrics.dimension] || '未测量' }}</template></el-table-column><el-table-column label="得分" width="90"><template #default="{row}">{{ pct(row.score) }}</template></el-table-column><el-table-column label="评分状态" width="110"><template #default="{row}">{{ scoreStatusText(row.score_status) }}</template></el-table-column>
+              <el-table-column label="复核" width="110"><template #default="{row}"><el-tag size="small" :type="row.review?.label==='approved'?'success':row.review?.label==='rejected'?'danger':'info'">{{ row.review?reviewText(row.review.label):(row.metrics.needs_review?'待复核':'未提交') }}</el-tag></template></el-table-column>
+              <el-table-column label="操作" width="225"><template #default="{row}"><el-button v-if="userStore.hasPermission('safety:review')" link type="primary" :disabled="!terminal" @click="openReview(row)">专家复核</el-button><el-button v-if="userStore.hasPermission('safety:edit') && row.score_status==='scored'" link type="primary" @click="openGold(row)">{{ hasGold(row.id)?'修改金标':'设置金标' }}</el-button><el-tag v-if="hasGold(row.id)" type="success" size="small">已设置</el-tag></template></el-table-column>
+            </el-table>
+            <el-divider/>
+            <div class="section-heading"><h3 class="section-title">裁判一致性校准（人工金标）</h3><el-tag>已设置 {{ gold.length }} 题</el-tag></div>
+            <el-steps :active="gold.length<2?0:!calibrationNote.trim()?1:2" simple class="intro-note"><el-step title="选择至少两题并独立评分"/><el-step title="填写金标来源与依据"/><el-step title="保存一致性校准"/></el-steps>
+            <p class="muted">在上方结果表逐题设置金标。50% 为合格分界；校准只衡量所选样本的裁判一致性，不修改模型原始分数。</p><el-empty v-if="!gold.length" :image-size="60" description="还没有金标，请从上方已评分样本开始设置。"/>
+            <el-table v-if="gold.length" :data="gold" stripe><el-table-column prop="item_no" label="题号" width="80"/><el-table-column prop="label" label="指标"/><el-table-column label="人工金标得分" width="160"><template #default="{row}">{{ row.score }}%</template></el-table-column><el-table-column label="操作" width="160"><template #default="{row}"><el-button v-if="userStore.hasPermission('safety:edit')" link type="primary" @click="openGold(assessment.results.find(r=>r.id===row.result_id))">修改</el-button><el-button v-if="userStore.hasPermission('safety:edit')" link type="danger" @click="gold=gold.filter(g=>g.result_id!==row.result_id)">移除</el-button></template></el-table-column></el-table>
+            <el-form label-position="top" class="mt"><el-form-item label="金标来源与判断依据" required><el-input v-model="calibrationNote" type="textarea" :rows="3" maxlength="5000" show-word-limit placeholder="说明由谁依据什么标准标注，引用参考证据，并描述分歧处理方法"/></el-form-item></el-form><el-button v-if="userStore.hasPermission('safety:edit')" class="mt" :disabled="gold.length<2 || !calibrationNote.trim()" :loading="calibrating" @click="calibrate">保存校准记录</el-button>
+            <el-collapse class="mt"><el-collapse-item title="复核与校准历史"><el-table :data="recordRows" stripe><el-table-column prop="kind" label="记录类型" width="100"/><el-table-column prop="conclusion" label="结论" min-width="240"/><el-table-column prop="note" label="判断依据" min-width="220"/><el-table-column prop="reviewer_name" label="操作人" min-width="120"/><el-table-column prop="time" label="时间" width="185"/></el-table></el-collapse-item></el-collapse>
+          </template><el-empty v-else description="选择安全任务查看结论和复核记录。"/>
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+    <el-dialog v-model="reviewDialog" title="专家复核 · 核对结论与证据" width="min(960px,95vw)">
+      <template v-if="reviewRow">
+        <el-alert type="info" :closable="false" show-icon title="复核自动结论的可靠性" description="认可不等于模型合格；驳回或需补证会阻止入榜。复核保留原始评分。"/>
+        <div class="review-meta"><el-tag>第 {{ reviewRow.item_no }} 题</el-tag><b>{{ workbench.dimensions[reviewRow.metrics.dimension] || '未测量' }}</b><span>自动得分 {{ pct(reviewRow.score) }} · {{ scoreStatusText(reviewRow.score_status) }}</span></div>
+        <div class="review-grid"><section class="review-panel"><h4>评测问题</h4><p>{{ reviewRow.input }}</p><h4>模型实际输出</h4><pre>{{ reviewRow.output || '无输出' }}</pre></section><section class="review-panel"><h4>评分依据</h4><p>{{ reviewRow.metrics.rubric || '未提供专项评分依据' }}</p><template v-if="reviewRow.metrics.stance"><h4>立场准则</h4><p>{{ reviewRow.metrics.stance }}</p></template><h4>参考证据</h4><p v-for="(e,index) in reviewRow.metrics.evidence || []" :key="index"><b>{{ e.doc_id }}</b>：{{ e.text }}</p><p v-if="!reviewRow.metrics.evidence?.length" class="muted">当前记录无参考证据，必要时选择需补证。</p></section></div>
+        <el-collapse><el-collapse-item title="查看每轮实际输出与裁判依据"><section v-for="turn in reviewRow.metrics.turns || []" :key="turn.turn" class="review-panel"><b>第 {{ turn.turn }} 轮 · {{ pct(turn.score) }}</b><p>{{ turn.prompt }}</p><pre>{{ turn.output }}</pre><p>{{ turn.metrics?.judge_reason || turn.metrics?.reason }}</p></section></el-collapse-item></el-collapse>
+        <el-form label-position="top" class="mt"><el-form-item label="复核结论" required><el-radio-group v-model="reviewForm.label"><el-radio value="approved">认可自动结论</el-radio><el-radio value="rejected">驳回结论</el-radio><el-radio value="needs_evidence">需补充证据</el-radio></el-radio-group></el-form-item><el-form-item label="判断依据" required><el-input v-model="reviewForm.note" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="引用具体输出和证据，说明认可、驳回的理由，或需要补充什么证据"/></el-form-item></el-form>
+      </template><template #footer><el-button @click="reviewDialog=false">取消</el-button><el-button v-if="userStore.hasPermission('safety:review')" type="primary" :loading="reviewSaving" :disabled="!reviewForm.note.trim()" @click="submitReview">保存复核结论</el-button></template>
     </el-dialog>
+    <el-dialog v-model="goldDialog" title="设置人工金标" width="min(640px,95vw)"><template v-if="goldRow"><p>第 {{ goldRow.item_no }} 题 · {{ workbench.dimensions[goldRow.metrics.dimension] }}</p><section class="review-panel"><h4>评测问题</h4><p>{{ goldRow.input }}</p><h4>模型输出</h4><pre>{{ goldRow.output }}</pre><h4>评分依据</h4><p>{{ goldRow.metrics.rubric }}</p><p v-for="(e,index) in goldRow.metrics.evidence || []" :key="index">{{ e.doc_id }}：{{ e.text }}</p></section><el-form class="gold-score-form" label-position="top"><el-form-item label="人工评分（0–100）" required><el-input-number class="gold-score-input" v-model="goldScore" :min="0" :max="100" :precision="1" :step="1" placeholder="请输入分数"/><span class="suffix">%</span></el-form-item></el-form><p class="muted">根据证据独立判断。确认后加入本次校准清单，原始模型评分不变。</p></template><template #footer><el-button @click="goldDialog=false">取消</el-button><el-button v-if="userStore.hasPermission('safety:edit')" type="primary" @click="confirmGold">确认金标</el-button></template></el-dialog>
+    <el-dialog v-model="jsonDialog" title="编辑题目与证据" width="min(1000px,95vw)"><p class="muted">编辑问题、参考答案或证据时，请同时核对评分锚点和追问准则。</p><el-input v-model="benchmarkJson" type="textarea" :rows="22"/><template #footer><el-button @click="jsonDialog=false">取消</el-button><el-button v-if="userStore.hasPermission('safety:create')" type="primary" @click="applyJson">应用修改</el-button></template></el-dialog>
+    <SafetySampleEditor v-model="sampleDialog" :sample="editingSample" :dimensions="workbench.dimensions" @save="saveSample"/>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { safetyApi } from '@/api'
+import { useRouter, useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { safetyApi, tasksApi, datasetsApi, modelsApi } from '@/api'
 import { useUserStore } from '@/stores/user'
-import EmptyState from '@/components/EmptyState.vue'
 import PageAsyncState from '@/components/PageAsyncState.vue'
-import { deriveAsyncState } from '@/utils/asyncState.js'
+import SafetySampleEditor from '@/components/SafetySampleEditor.vue'
+import { percentageWeights, validPercentages, reviewText, taskStatusText, scoreStatusText, datasetStatusText } from '@/utils/safetyWorkbench.js'
 
-const userStore = useUserStore()
-const loading = ref(false)
-const loadError = ref('')
-const createdOnce = ref(false)
-const calLoading = ref(false)
-const categories = ref([])
-const reviews = ref([])
-const candidates = ref([])
-const scoreResult = ref(null)
-const setDrawer = ref(false)
-const setCategory = ref('')
-const setType = ref('fixed')
-const setSamples = ref([])
+const benchmarkLoading=ref(false), reviewSaving=ref(false), savedDraft=ref('')
+const draftSnapshot=()=>JSON.stringify([benchmarkName.value,templateRows.value])
+async function allowReplaceDraft(){if(!benchmarkDraft.value||draftSnapshot()===savedDraft.value)return true;try{await ElMessageBox.confirm('当前草稿尚未保存，继续会替换草稿内容。','替换基准草稿',{confirmButtonText:'替换草稿',cancelButtonText:'保留草稿',type:'warning'});return true}catch{return false}}
+const router=useRouter(), route=useRoute(), userStore=useUserStore()
+const workbench=ref({categories:{},dimensions:{},tasks:[],datasets:[]}), models=ref([]), loading=ref(false), saving=ref(false), loadError=ref(''), tab=ref('create'), weights=ref({})
+const form=ref({name:'安全可信评测',dataset_id:null,model_id:null,judge_model_id:null,scenario:'general',set_type:'fixed',adaptive:true,max_turns:3,rule_weight:50,turn_aggregation:'worst',perspective_evaluation:true,trial_run:false})
+const templates=ref([]), templateCategory=ref('all'), selectedTemplate=ref(''), templateRows=ref([]), benchmarkName=ref(''), benchmarkSource=ref(''), benchmarkJson=ref(''), jsonDialog=ref(false)
+const benchmarkDraft=ref(false),existingBenchmarkId=ref(null),sourceBenchmarkId=ref(null),sampleDialog=ref(false),editingSample=ref(null),editingIndex=ref(null)
+const taskId=ref(null), loadedTaskId=ref(null), assessment=ref(null), records=ref([]), gold=ref([]), calibrationNote=ref(''), calibrating=ref(false)
+const reviewDialog=ref(false), reviewRow=ref(null), reviewForm=ref({label:'approved',note:''}), goldDialog=ref(false), goldRow=ref(null), goldScore=ref(null)
+const pct=v=>v==null?'缺测':`${(v*100).toFixed(1)}%`
+const activeDimensions=computed(()=>workbench.value.datasets.find(d=>d.id===form.value.dataset_id)?.dimensions || Object.keys(workbench.value.dimensions))
+const weightRows=computed(()=>activeDimensions.value.map(key=>({key,label:workbench.value.dimensions[key],category:workbench.value.categories[key.split('.')[0]]})))
+const weightTotal=computed(()=>(Object.values(weights.value).reduce((sum,v)=>sum+(Number(v)||0),0)).toFixed(2))
+const weightsValid=computed(()=>validPercentages(weights.value))
+const filteredTemplates=computed(()=>templates.value.filter(t=>templateCategory.value==='all'||t.category===templateCategory.value))
+const terminal=computed(()=>['success','failed','partial_failed','cancelled'].includes(assessment.value?.status))
+const recordRows=computed(()=>records.value.map(r=>({...r,kind:r.kind==='review'?'专家复核':'金标校准',conclusion:r.kind==='review'?reviewText(r.payload.label):`一致率 ${pct(r.payload.agreement)}，平均分差 ${pct(r.payload.mean_absolute_error)}`,note:r.payload.note,time:new Date(r.created_at).toLocaleString('zh-CN')})))
 
-const reviewDrawer = ref(false)
-const activeReview = ref(null)
-const resolving = ref(false)
-const reviewForm = ref({ expert_label: 'approved', note: '' })
-
-const tryDialog = ref(false)
-const trySamples = ref([])
-const scoring = ref(false)
-const tryForm = ref({ category: '', sample_id: '', prediction: '' })
-
-function reviewStatusCn(s) {
-  return ({ pending: '待复核', resolved: '已复核', closed: '已关闭' }[s] || s)
-}
-
-const pageState = computed(() => deriveAsyncState({
-  loading: loading.value && !createdOnce.value,
-  error: loadError.value,
-  forbidden: false,
-  items: categories.value,
-  createdOnce: createdOnce.value,
-}))
-
-function loadErr(e, fallback) {
-  const d = e?.response?.data
-  const msg = d?.message || d?.detail || e?.message
-  return typeof msg === 'string' && msg ? msg : fallback
-}
-
-async function loadAll() {
-  loading.value = true
-  loadError.value = ''
-  try {
-    const [c, r, cand] = await Promise.all([
-      safetyApi.categories(),
-      safetyApi.reviews(),
-      safetyApi.candidates(),
-    ])
-    categories.value = c.items || []
-    reviews.value = r.items || []
-    candidates.value = cand.items || []
-    createdOnce.value = true
-  } catch (e) {
-    loadError.value = loadErr(e, '安全评测加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function runCalibrate() {
-  calLoading.value = true
-  try {
-    const res = await safetyApi.calibrate()
-    if (res.ok) ElMessage.success(`校准通过，最低一致率 ${(res.min_agreement * 100).toFixed(1)}%`)
-    else ElMessage.warning('校准未全部达标')
-    await loadAll()
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '校准失败')
-  } finally {
-    calLoading.value = false
-  }
-}
-
-async function openSet(category, type) {
-  const res = await safetyApi.getSet(category, { set_type: type })
-  setCategory.value = category
-  setType.value = type
-  setSamples.value = res.samples || []
-  setDrawer.value = true
-}
-
-function openReview(row) {
-  activeReview.value = row
-  reviewForm.value = { expert_label: 'approved', note: '' }
-  reviewDrawer.value = true
-}
-
-async function submitReview() {
-  if (!reviewForm.value.expert_label) {
-    ElMessage.warning('请选择人工标签')
-    return
-  }
-  if (reviewForm.value.expert_label !== 'approved' && !(reviewForm.value.note || '').trim()) {
-    ElMessage.warning('驳回或需补证时请填写理由')
-    return
-  }
-  resolving.value = true
-  try {
-    await safetyApi.resolveReview(activeReview.value.id, {
-      expert_label: reviewForm.value.expert_label,
-      note: reviewForm.value.note,
-    })
-    ElMessage.success('已提交复核')
-    reviewDrawer.value = false
-    await loadAll()
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '复核失败')
-  } finally {
-    resolving.value = false
-  }
-}
-
-async function openTryScore(row) {
-  const set = await safetyApi.getSet(row.category, { set_type: 'fixed' })
-  trySamples.value = set.samples || []
-  tryForm.value = {
-    category: row.category,
-    sample_id: trySamples.value[0]?.id || '',
-    prediction: '',
-  }
-  tryDialog.value = true
-}
-
-function onTrySample() {
-  tryForm.value.prediction = ''
-}
-
-async function submitTryScore() {
-  if (!(tryForm.value.prediction || '').trim()) {
-    ElMessage.warning('请输入候选输出')
-    return
-  }
-  scoring.value = true
-  try {
-    scoreResult.value = await safetyApi.score({
-      category: tryForm.value.category,
-      sample_id: tryForm.value.sample_id,
-      prediction: tryForm.value.prediction,
-    })
-    tryDialog.value = false
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '试评失败')
-  } finally {
-    scoring.value = false
-  }
-}
-
-async function validateCand(row) {
-  const res = await safetyApi.validateCandidate(row.id)
-  if (res.ok) ElMessage.success('双验证通过（仍非 fixed）')
-  else ElMessage.warning('双验证未通过')
-  await loadAll()
-}
-
-onMounted(loadAll)
+function report(e){loadError.value=String(e?.response?.data?.detail||e?.message||'请求失败');ElMessage.error(loadError.value)}
+async function load(){loading.value=true;loadError.value='';try{const [w,m,b]=await Promise.all([safetyApi.workbench(),userStore.hasPermission('model:list')?modelsApi.list({page_size:200}):Promise.resolve({items:[]}),safetyApi.benchmarkTemplate()]);workbench.value=w;models.value=m.items||[];templates.value=b.templates||[];if(!Object.keys(weights.value).length)applyScenario()}catch(e){report(e)}finally{loading.value=false}}
+function applyScenario(){weights.value=percentageWeights(Object.fromEntries(activeDimensions.value.map(k=>[k,form.value.scenario==='knowledge'&&k.startsWith('hallucination.')?2:form.value.scenario==='public_service'&&(k.startsWith('alignment.')||k.startsWith('risk.'))?2:1])))}
+function normalizeWeights(){const normalized=percentageWeights(weights.value);if(!Object.keys(normalized).length){ElMessage.warning('请至少填写一项大于0的权重');return}weights.value=normalized;ElMessage.success('权重已按比例调整至100%')}
+async function createTask(){if(!form.value.dataset_id||!form.value.model_id){ElMessage.warning('请选择安全基准和被测模型');return}if(!weightsValid.value){ElMessage.warning('指标权重合计必须为100%');return}saving.value=true;try{const f=form.value;const t=await tasksApi.create({name:f.name,dataset_id:f.dataset_id,model_id:f.model_id,task_type:'security',scene:'chat',judge_resource_id:'builtin/safety_protocol',trial_run:f.trial_run,safety_config:{protocol:workbench.value.protocol,set_type:f.set_type,scenario:f.scenario,adaptive:f.adaptive,max_turns:f.max_turns,turn_aggregation:f.turn_aggregation,perspective_evaluation:f.perspective_evaluation,judge_model_id:f.judge_model_id||null,rule_weight:f.judge_model_id?f.rule_weight/100:1,dimension_weights:Object.fromEntries(Object.entries(weights.value).map(([k,v])=>[k,v/100]))}});await load();taskId.value=t.id;tab.value='results';await loadAssessment();ElMessage.success(`已创建任务 #${t.id}，请到任务管理执行`)}catch(e){report(e)}finally{saving.value=false}}
+async function loadTemplate(id){if(benchmarkLoading.value||!await allowReplaceDraft())return;benchmarkLoading.value=true;try{const b=await safetyApi.benchmarkTemplate({template_id:id});selectedTemplate.value=b.id;benchmarkDraft.value=true;sourceBenchmarkId.value=null;templateRows.value=b.samples;benchmarkName.value=`${b.name}-${new Date().toISOString().slice(0,10)}`;benchmarkSource.value=b.source;savedDraft.value=draftSnapshot();ElMessage.success(`已加载${b.samples.length}道题目`)}catch(e){report(e)}finally{benchmarkLoading.value=false}}
+function openJsonEditor(){benchmarkJson.value=JSON.stringify(templateRows.value,null,2);jsonDialog.value=true}
+function applyJson(){try{const rows=JSON.parse(benchmarkJson.value);if(!Array.isArray(rows)||!rows.length||rows.some(r=>!r.input||!r.safety?.rubric||!workbench.value.dimensions[r.safety?.dimension]))throw new Error('请填写非空题目数组，每题包含问题、有效指标和评分依据');templateRows.value=rows;jsonDialog.value=false;ElMessage.success('题目与证据已更新')}catch(e){ElMessage.error(e.message)}}
+async function newBenchmark(){if(benchmarkLoading.value||!await allowReplaceDraft())return;benchmarkDraft.value=true;selectedTemplate.value='';sourceBenchmarkId.value=null;templateRows.value=[];benchmarkName.value='自定义安全基准';benchmarkSource.value='自定义问题、证据和评分准则。';savedDraft.value=draftSnapshot()}
+function editSample(row=null,index=null){editingSample.value=row;editingIndex.value=index;sampleDialog.value=true}
+function saveSample(row){if(editingIndex.value===null)templateRows.value.push(row);else templateRows.value.splice(editingIndex.value,1,row);ElMessage.success('题目已加入基准草稿，保存基准后生效')}
+async function loadExistingBenchmark(){if(benchmarkLoading.value||!await allowReplaceDraft())return;benchmarkLoading.value=true;try{const b=await safetyApi.benchmark(existingBenchmarkId.value);sourceBenchmarkId.value=b.id;benchmarkDraft.value=true;selectedTemplate.value='';templateRows.value=b.samples;benchmarkName.value=b.name;benchmarkSource.value=`修订已有基准，原始数据版本 #${b.version_id} 保留。`;savedDraft.value=draftSnapshot();ElMessage.success(`已加载${b.samples.length}道题目，可新增或编辑后保存新版本`)}catch(e){report(e)}finally{benchmarkLoading.value=false}}
+async function importBenchmark(existingId=null){if(!benchmarkName.value.trim()||!templateRows.value.length){ElMessage.warning('请填写数据集名称并至少新增一道题目');return}saving.value=true;try{await safetyApi.validateBenchmark({samples:templateRows.value});const d=existingId?{id:existingId}:await datasetsApi.create({name:benchmarkName.value.trim(),task_type:'chat',tags:['safety','safety-protocol-v2'],description:benchmarkSource.value});const data=new FormData();data.append('file',new Blob([JSON.stringify(templateRows.value)],{type:'application/json'}),'safety-benchmark.json');data.append('version_desc',existingId?'安全基准题目与证据修订':'新建安全基准');await datasetsApi.importFile(d.id,data);sourceBenchmarkId.value=d.id;savedDraft.value=draftSnapshot();await load();form.value.dataset_id=d.id;applyScenario();ElMessage.success(existingId?'已保存基准新版本，请重新质检并发布':'已保存新基准，请完成数据集质检与发布')}catch(e){report(e)}finally{saving.value=false}}
+async function loadAssessment(){const requested=taskId.value;try{const [a,r]=await Promise.all([safetyApi.assessment(requested),safetyApi.records(requested)]);if(taskId.value!==requested)return;if(loadedTaskId.value!==requested){gold.value=[];calibrationNote.value=''}else{gold.value=gold.value.filter(g=>a.results.some(row=>row.id===g.result_id&&row.evidence_hash===g.evidence_hash))}loadedTaskId.value=requested;loadError.value='';assessment.value=a;records.value=r.items||[]}catch(e){assessment.value=null;report(e)}}
+function heatStyle(v){return v==null?{}:{background:`hsl(${Math.round(v*120)} 42% 92%)`,borderColor:`hsl(${Math.round(v*120)} 42% 68%)`}}
+function openReview(row){reviewRow.value=row;reviewForm.value={label:row.review?.label||'approved',note:row.review?.note||''};reviewDialog.value=true}
+async function submitReview(){if(reviewSaving.value)return;reviewSaving.value=true;try{await safetyApi.reviewResult(taskId.value,{result_id:reviewRow.value.id,evidence_hash:reviewRow.value.evidence_hash,...reviewForm.value});reviewDialog.value=false;await loadAssessment();ElMessage.success('复核已保存，原始评分保留')}catch(e){report(e)}finally{reviewSaving.value=false}}
+function hasGold(id){return gold.value.some(g=>g.result_id===id)}
+function openGold(row){goldRow.value=row;goldScore.value=gold.value.find(g=>g.result_id===row.id)?.score??null;goldDialog.value=true}
+function confirmGold(){if(typeof goldScore.value!=='number'||!Number.isFinite(goldScore.value)||goldScore.value<0||goldScore.value>100){ElMessage.warning('请填写0至100%的人工评分');return}const row=goldRow.value;const value={result_id:row.id,evidence_hash:row.evidence_hash,item_no:row.item_no,label:workbench.value.dimensions[row.metrics.dimension],score:goldScore.value};gold.value=[...gold.value.filter(g=>g.result_id!==row.id),value].sort((a,b)=>a.item_no-b.item_no);goldDialog.value=false;ElMessage.success(`第${row.item_no}题金标已设置，已选${gold.value.length}题`)}
+async function calibrate(){calibrating.value=true;try{const r=await safetyApi.calibration(taskId.value,{samples:gold.value.map(g=>({result_id:g.result_id,evidence_hash:g.evidence_hash,score:g.score/100})),note:calibrationNote.value});ElMessage.success(`校准记录已保存，一致率 ${pct(r.agreement)}，平均分差 ${pct(r.mean_absolute_error)}`);records.value=(await safetyApi.records(taskId.value)).items}catch(e){report(e)}finally{calibrating.value=false}}
+onMounted(async()=>{await load();const id=Number(route.query.task_id);if(Number.isInteger(id)&&id>0){taskId.value=id;tab.value='results';await loadAssessment()}})
 </script>
 
 <style scoped>
-.mt { margin-top: 16px; }
-.schema { background: var(--el-fill-color-light); padding: 8px; font-size: 12px; overflow: auto; max-height: 420px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-.note { color: var(--el-text-color-secondary); font-size: 13px; }
-h4 { margin: 16px 0 8px; font-size: 14px; }
+/* Flex gap owns button spacing; Element Plus also adds sibling margins by default. */
+.toolbar :deep(.el-button + .el-button){margin-left:0}
+.toolbar :deep(.el-button){flex-shrink:0;white-space:nowrap}
+.toolbar.benchmark-actions{margin-top:20px;padding-top:16px;border-top:1px solid var(--el-border-color-lighter);row-gap:12px}
+.toolbar.assessment-toolbar{margin-top:20px}
+.gold-score-form{margin-top:24px}
+.gold-score-input{width:240px;max-width:calc(100% - 36px)}
+.gold-score-form :deep(.el-form-item__content){flex-wrap:nowrap}
+
+.intro-note{margin-bottom:20px}.review-meta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:20px 0}.review-meta span{color:var(--el-text-color-secondary)}.review-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-bottom:16px}.review-panel{padding:18px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-lighter);overflow-wrap:anywhere}.review-panel h4{margin:0 0 10px;font-size:13px;color:var(--el-text-color-secondary)}.review-panel h4:not(:first-child){margin-top:20px}.review-panel p{white-space:pre-wrap;line-height:1.7}.review-panel pre{max-height:280px;margin:0}@media(max-width:700px){.review-grid{grid-template-columns:1fr}}
+
+.section-title{font-size:15px;font-weight:600;margin:16px 0;color:var(--el-text-color-primary)}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.muted{color:var(--el-text-color-secondary);font-size:13px;line-height:1.7}.suffix{margin:0 10px 0 6px;color:var(--el-text-color-secondary)}.el-select{width:100%}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px}.task-select{width:450px;max-width:100%}.template-list>.el-col{margin-bottom:16px}.template-card{height:100%}.template-card.selected{border-color:var(--el-color-primary)}.template-card p{min-height:44px;margin:12px 0}.mt{margin-top:16px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:20px 0}.summary>div{padding:16px;background:var(--el-fill-color-light);border-radius:4px}.summary span{display:block;color:var(--el-text-color-secondary);font-size:13px}.summary b{display:block;font-size:23px;font-weight:600;margin-top:10px}.heat{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px}.heat>div{padding:14px;border:1px solid var(--el-border-color);border-radius:4px;background:var(--el-fill-color-lighter)}.heat span,.heat small,.heat b{display:block}.heat b{font-size:21px;margin:10px 0}.heat small{color:var(--el-text-color-secondary)}.evidence{padding:16px 24px}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;font-size:12px;line-height:1.6}@media(max-width:900px){.summary{grid-template-columns:repeat(2,1fr)}.task-select{width:100%}.section-heading{flex-wrap:wrap}}
 </style>

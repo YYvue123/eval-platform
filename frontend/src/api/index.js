@@ -143,6 +143,14 @@ export const qualityApi = {
 }
 
 export const safetyApi = {
+  workbench: () => request.get('/safety/workbench'),
+  benchmarkTemplate: (params) => request.get('/safety/benchmark-template', { params }),
+  validateBenchmark: (data) => request.post('/safety/benchmarks/validate', data),
+  benchmark: (id) => request.get(`/safety/benchmarks/${id}`),
+  assessment: (id) => request.get(`/safety/assessments/${id}`),
+  reviewResult: (id, data) => request.post(`/safety/assessments/${id}/reviews`, data),
+  calibration: (id, data) => request.post(`/safety/assessments/${id}/calibrations`, data),
+  records: (id) => request.get(`/safety/assessments/${id}/records`),
   categories: () => request.get('/safety/categories'),
   getSet: (category, params) => request.get(`/safety/sets/${encodeURIComponent(category)}`, { params }),
   score: (data) => request.post('/safety/score', data),

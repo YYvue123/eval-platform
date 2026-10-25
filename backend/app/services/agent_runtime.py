@@ -342,6 +342,7 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
     schemas["get_resource_inventory"] = {"type": "object", "properties": {}, "additionalProperties": False}
     schemas["get_task_evidence"] = {"type": "object", "properties": {"max_samples": {"type": "integer", "minimum": 1, "maximum": 50}}, "additionalProperties": False}
     schemas["request_task_execution"] = {"type": "object", "properties": {}, "additionalProperties": False}
+    from app.services.safety_protocol import SafetyConfig
     schemas["propose_resources"] = {
         "type": "object",
         "properties": {
@@ -351,6 +352,7 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
             "trial_run": {"type": "boolean"},
             "token_budget": {"type": "integer", "minimum": 0},
             "scene": {"type": "string"},
+            "safety_config": SafetyConfig.model_json_schema(),
         },
         "additionalProperties": False,
     }
@@ -375,6 +377,9 @@ async def _bound_tools(db: AsyncSession, run: AgentRun) -> tuple[dict, str, dict
         "通过 get_task_status 查询实际状态，只有任务真实完成才可声称完成评测。"
         "也可以调用 search_knowledge 或 infer_dims。信息足够时直接回复。"
         "不得读取系统凭证；外部调用只走已授权工具。"
+        "安全可信评测必须通过propose_resources提交safety_config，选择有safety_dimensions的基准，"
+        "使用builtin/safety_protocol；配置覆盖指标权重、场景、追问和难度策略、融合方式及可选裁判模型。"
+        "结果以get_task_evidence.safety_assessment为准；专家复核与人工金标只能由人完成。"
     )
     note = f"{profile.get('system_prompt') or ''}\n\n{binding}".strip()
     from app.services.agent_context import resource_inventory

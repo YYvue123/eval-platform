@@ -37,6 +37,7 @@ def _admin_permissions():
 
 
 RESEARCHER_PERMISSIONS = [
+    "safety:view", "safety:create", "safety:edit", "safety:review",
     # Service credentials, tenant membership and tariff administration are not
     # granted to internal researchers; external customers use their own role.
     "dashboard:view",
@@ -54,6 +55,7 @@ RESEARCHER_PERMISSIONS = [
 ]
 
 VIEWER_PERMISSIONS = [
+    "safety:view",
     # Read-only service access; no external-client management permissions.
     "dashboard:view",
     "notification:view_mine",

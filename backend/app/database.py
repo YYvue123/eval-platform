@@ -89,6 +89,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         for table, col, sql in [
+            ("eval_tasks", "safety_config_json", "ALTER TABLE eval_tasks ADD COLUMN safety_config_json TEXT DEFAULT '{}'"),
             ("users", "phone", "ALTER TABLE users ADD COLUMN phone VARCHAR(20) DEFAULT ''"),
             ("users", "email", "ALTER TABLE users ADD COLUMN email VARCHAR(255) DEFAULT ''"),
             ("users", "role", "ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'user'"),

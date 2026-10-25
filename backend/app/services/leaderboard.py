@@ -31,6 +31,9 @@ def is_formal_eligible(task: EvalTask) -> tuple[bool, str]:
         return False, "simulation"
     if task.status != "success":
         return False, f"status:{task.status}"
+    safety_config = getattr(task, "safety_config_json", "")
+    if isinstance(safety_config, str) and loads(safety_config, {}).get("set_type") == "explore":
+        return False, "safety_exploration"
     return True, ""
 
 
@@ -43,6 +46,12 @@ async def task_has_score_errors(db: AsyncSession, task_id: int) -> bool:
     task = await db.get(EvalTask, task_id)
     if not task or not task.total or len(rows) != task.total:
         return True
+    if task.task_type == "security":
+        if task.judge_resource_id != "builtin/safety_protocol":
+            return True
+        from app.services.safety_assessments import assessment_payload
+        if not (await assessment_payload(db, task))["leaderboard_eligible"]:
+            return True
     for score_status, execution_status, simulation in rows:
         ss = (score_status or "").lower()
         es = (execution_status or "").lower()
@@ -97,6 +106,9 @@ def cohort_id_of(task: EvalTask) -> str:
         str(getattr(task, "prompt_version_id", "") or ""),
         str(getattr(task, "prompt_id", "") or ""),
     ])
+    safety_config = getattr(task, "safety_config_json", "")
+    if isinstance(safety_config, str) and safety_config not in {"", "{}"}:
+        raw += "|" + json.dumps(loads(safety_config, {}), sort_keys=True)
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     return f"c-{digest}"
 

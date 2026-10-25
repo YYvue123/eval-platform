@@ -121,11 +121,13 @@ async def list_judge_options(db: AsyncSession, actor) -> list[dict]:
     return items
 
 
-async def invoke_judge(db: AsyncSession, *, actor, judge_id: str, prediction: str, reference: str, task_id: int | None):
+async def invoke_judge(db: AsyncSession, *, actor, judge_id: str, prediction: str, reference: str, task_id: int | None, sample: dict | None = None):
     from app.services.tool_gateway import invoke_tool, response_result
 
     parsed = parse_mcp_judge(judge_id)
     body = {"prediction": prediction, "reference": reference, "pattern": reference}
+    if sample is not None:
+        body["sample"] = sample
     if parsed:
         parent, tool_name = parsed
         envelope = await invoke_tool(

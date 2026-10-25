@@ -125,15 +125,15 @@ def mark_failure(model: EvalModel) -> None:
         model.health_status = "abnormal"
 
 
-async def invoke_model(model: EvalModel, prompt: str) -> dict:
+async def invoke_model(model: EvalModel, prompt: str, *, messages: list[dict] | None = None) -> dict:
     blocked = circuit_blocked(model)
     if blocked:
         raise RuntimeError(blocked)
     async with _semaphore(model):
-        return await _invoke_once(model, prompt)
+        return await _invoke_once(model, prompt, messages=messages)
 
 
-async def _invoke_once(model: EvalModel, prompt: str) -> dict:
+async def _invoke_once(model: EvalModel, prompt: str, *, messages: list[dict] | None = None) -> dict:
     started = time.perf_counter()
     url = _chat_url(model.api_url)
     if not url:
@@ -146,6 +146,8 @@ async def _invoke_once(model: EvalModel, prompt: str) -> dict:
         else:
             headers["Authorization"] = f"Bearer {model.api_key}"
     body = build_request_body(model, prompt)
+    if messages is not None:
+        body["messages"] = messages
     timeout = httpx.Timeout(model.timeout or 60)
     last_error = None
     retries = max(model.retry_count or 0, 0) + 1

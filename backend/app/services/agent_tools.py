@@ -73,6 +73,14 @@ async def retrieve_templates(db: AsyncSession, scene: str = "", industry: str = 
 
 async def validate_eval_config(db: AsyncSession, plan: dict, user) -> list[str]:
     errors = []
+    from app.services.safety_protocol import SafetyConfig
+    if plan.get("safety_config"):
+        try:
+            SafetyConfig.model_validate(plan["safety_config"])
+        except ValueError as exc:
+            errors.append(f"安全配置无效: {exc}")
+    elif plan.get("task_type") == "security" or plan.get("judge_resource_id") == "builtin/safety_protocol":
+        errors.append("安全评测缺少安全专项配置，请通过 propose_resources 设置 safety_config")
     ds_id = plan.get("dataset_id")
     model_id = plan.get("model_id")
     ds = await db.get(Dataset, ds_id) if ds_id else None

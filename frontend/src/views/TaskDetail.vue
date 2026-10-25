@@ -6,6 +6,7 @@
         <p class="page-desc">{{ task.report_summary || '提交后将按数据分片逐条调用模型与打分工具；进度实时提交可见。' }}</p>
       </div>
       <div class="ops">
+        <el-button v-if="task.safety_config?.protocol && userStore.hasPermission('safety:view')" @click="router.push('/safety?task_id='+task.id)">安全专项结论</el-button>
         <el-button @click="goBack">返回</el-button>
         <el-button v-if="userStore.hasPermission('task:run')" type="primary" :disabled="task.status === 'running'" @click="run">执行</el-button>
         <el-button

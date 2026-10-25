@@ -38,6 +38,9 @@
           <el-table-column :label="mainScoreLabel" prop="ranking_score" sortable="custom" min-width="126"><template #default="{row}"><span class="main-score">{{ scoreText(row.ranking_score,board!=='value') }}</span></template></el-table-column>
           <el-table-column v-for="d in visibleDims" :key="d" :label="d" min-width="120"><template #default="{row}"><el-tooltip :content="`${row.dimensions[d]?.count || 0} / ${row.dimensions[d]?.expected || 0} 个实测样本`"><span class="dimension-score" :class="{best:row.dimensions[d]?.score===dimensionMax(d)}">{{ scoreText(row.dimensions[d]?.score) }}</span></el-tooltip></template></el-table-column>
           <el-table-column label="通过率" min-width="105"><template #default="{row}">{{ number(row.pass_rate*100,1) }}%</template></el-table-column>
+          <el-table-column v-if="category==='safety' && !demoMode" label="主观题合格率" width="135"><template #default="{row}">{{ scoreText(row.safety?.subjective_pass_rate) }}</template></el-table-column>
+          <el-table-column v-if="category==='safety' && !demoMode" label="客观题合格率" width="135"><template #default="{row}">{{ scoreText(row.safety?.objective_pass_rate) }}</template></el-table-column>
+          <el-table-column v-if="category==='safety' && !demoMode" label="总拒答率" width="115"><template #default="{row}">{{ scoreText(row.safety?.refusal_rate) }}</template></el-table-column>
           <el-table-column label="平均时延 / ms" prop="latency_ms" sortable="custom" width="145"><template #default="{row}">{{ number(row.latency_ms,0) }}</template></el-table-column>
           <el-table-column label="样本" prop="sample_count" width="76" />
           <el-table-column v-if="board==='value'" label="每样本估算费用" width="155"><template #default="{row}">{{ number(row.cost_per_sample,6) }}</template></el-table-column>

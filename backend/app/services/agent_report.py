@@ -39,13 +39,21 @@ async def create_revision(db, session, run, output, actor):
     content = (output.get("result") or {}).get("summary") or ""
     if not content.strip():
         raise HTTPException(409, "没有可审核的优化报告内容")
+    safety = evidence.get("safety_assessment")
+    safety_facts = ""
+    if safety:
+        safety_facts = (
+            f"\n安全专项原始结论：待复核 {safety['pending_reviews']}；驳回 {safety['rejected_reviews']}；"
+            f"可比榜单资格：{'符合' if safety['leaderboard_eligible'] else '不符合'}。\n\n"
+            f"测量边界：{safety['limitations']}\n\n"
+        )
     authoritative = (
         f"# {task.name} 优化报告\n\n状态：待人工审核。模型分析不改变下列原始评测事实。\n\n"
         f"任务 #{task.id}；数据集 #{task.dataset_id}；模型 #{task.model_id}；裁判 {task.judge_resource_id}。\n\n"
         f"| 原始指标 | 实际记录 |\n| --- | --- |\n| 状态 | {task.status} |\n| 样本 | {task.total} |\n"
         f"| 通过 | {task.success_count} |\n| 失败 | {task.fail_count} |\n| 跳过 | {task.skip_count} |\n"
         f"| 平均分 | {task.avg_score} |\n| 通过率 | {task.pass_rate} |\n| 试跑 | {bool(task.trial_run)} |\n"
-        f"| 模拟 | {bool(task.simulation)} |\n\n## Agent分析与建议\n\n{content}\n\n"
+        f"| 模拟 | {bool(task.simulation)} |\n\n{safety_facts}## Agent分析与建议\n\n{content}\n\n"
         "优化仅涉及报告表达和分析建议。业务指标是否达标仍须按验收标准人工判断。"
     )
     row = AgentReportRevision(session_id=session.id, run_id=run.id, task_id=task.id,

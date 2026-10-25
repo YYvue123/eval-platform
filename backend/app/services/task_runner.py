@@ -200,6 +200,9 @@ async def _run(
     res = await db.scalar(select(BaseResource).where(BaseResource.resource_id == lookup_id))
     if res:
         task.tool_version = res.version or ""
+    if judge_id == "builtin/safety_protocol":
+        from app.services.safety_protocol import EXECUTION_REVISION
+        task.tool_version = f"{res.version if res else '2.0.0'}/{EXECUTION_REVISION}"
     done_rows = (await db.execute(select(EvalResult).where(EvalResult.task_id == task.id))).scalars().all()
     done_nos = {r.item_no for r in done_rows}
     scores = [float(r.score or 0) for r in done_rows if (r.score_status or "") == "scored"]
@@ -291,6 +294,10 @@ async def _run(
         tokens = 0
         finish_reason = ""
         try:
+            if judge_id == "builtin/safety_protocol":
+                # Safety turns may take minutes. Never hold SQLite's write lock
+                # across the remote model request; only call logs are committed.
+                await db.commit()
             invoked = await invoke_model(call_model, prompt)
             output = invoked["output"]
             latency = invoked["latency_ms"]
@@ -351,14 +358,17 @@ async def _run(
                 )
             from app.services.judge_options import invoke_judge
 
-            judged = await invoke_judge(
-                db,
-                actor=actor,
-                judge_id=judge_id,
-                prediction=output,
-                reference=item.reference_answer or "",
-                task_id=task.id,
-            )
+            if judge_id == "builtin/safety_protocol":
+                from app.services.safety_execution import evaluate_sample
+                judged, extra_tokens, extra_latency = await evaluate_sample(db, task, item, call_model, prompt, output, tokens_used)
+                tokens_used += extra_tokens
+                latency += extra_latency
+            else:
+                judged = await invoke_judge(
+                    db, actor=actor, judge_id=judge_id, prediction=output,
+                    reference=item.reference_answer or "", task_id=task.id,
+                    sample=loads(item.extended_content, {}).get("safety"),
+                )
             # ResourceCallLog 已由网关写入
         except Exception as exc:
             judged = {"score": 0, "passed": False, "metrics": {}}
@@ -367,6 +377,11 @@ async def _run(
             judge_error_n += 1
             await emit_event(db, task.id, "tool_failed", {"stage": "judge", "item_no": item.item_no})
 
+        if judge_id == "builtin/safety_protocol":
+            valid, cancelled = await fencing_still_valid(db, task.id, token)
+            if not valid or cancelled:
+                await db.rollback()
+                return
         score = float(judged.get("score") or 0)
         passed = bool(judged.get("passed"))
         sim = bool(getattr(task, "simulation", False)) or bool(judged.get("demo_only"))

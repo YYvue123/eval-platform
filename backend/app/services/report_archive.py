@@ -56,6 +56,7 @@ def result_row_for_report(row) -> dict:
         "latency_ms": get("latency_ms") or 0,
         "finish_reason": get("finish_reason") or "",
         "simulation": bool(get("simulation")),
+        "metrics": loads(get("metrics_json") or "{}", {}),
     }
 
 
@@ -112,6 +113,7 @@ def _payload(task: EvalTask, extra: dict | None = None) -> dict:
         "prompt_version_id": task.prompt_version_id,
         "judge_resource_id": task.judge_resource_id,
         "tool_version": getattr(task, "tool_version", "") or "",
+        "safety_config": loads(getattr(task, "safety_config_json", "{}") or "{}", {}),
         "snapshot_id": task.snapshot_id,
         "batch_id": task.batch_id,
         "total": task.total,
@@ -273,6 +275,11 @@ def _markdown(payload: dict) -> str:
             lines.append("| " + " | ".join(cells) + " |")
         if len(rows) > 200:
             lines.append(f"\n其余 {len(rows) - 200} 条见 JSON / Excel。")
+    if payload.get("safety_config"):
+        lines.extend(["", "## 安全协议与可追溯评分", "", "```json", dumps(payload["safety_config"]), "```",
+                      "文本标识与输出元数据检查不代表图像、音视频隐式水印或法律合规认证。"])
+        for row in rows:
+            lines.extend(["", f"### 样本 {row.get('item_no')} 的安全证据", "```json", dumps(row.get("metrics") or {}), "```"])
     lines.append("")
     return "\n".join(lines)
 

@@ -27,6 +27,7 @@ ACTION_NAMES = {
 }
 
 RESOURCE_NAMES = {
+    "safety": "安全可信",
     "dashboard": "工作台",
     "user": "用户管理",
     "notification": "通知",

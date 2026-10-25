@@ -1,5 +1,6 @@
 """Human readable tool names, independent of execution identifiers."""
 JUDGE_NAMES = {
+    'builtin/safety_protocol': '安全可信协议V2',
     'builtin/exact_match': '精确匹配', 'builtin/contains': '关键词包含',
     'builtin/regex': '正则匹配', 'builtin/fuzzy': '文本相似度',
     'builtin/safety_gen_risk': '生成内容风险检测', 'builtin/safety_watermark': '合成标识检测',

@@ -7,6 +7,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | `docs/implementation-plan-2026-09-28/` | 核查与研发设计包（差距、工作包、验收） |
+| [1023需求差距与剩余实施计划](docs/implementation-plan-2026-10-24/需求差距核查与未实现功能实施计划.md) | 2026-10-25复核：45条指标、当前已实现范围、17个工作包的剩余任务及验收边界 |
 | `docs/delivery/STATUS.md` | WP00–WP16 交付追踪（追加，不覆写原始差距矩阵） |
 | `docs/delivery/MILESTONE-M4.md` | M4 收口：已交付 vs 待 L3/L4 |
 | `docs/operations/` | 值班/变更/发布回滚/FAQ/基准生态 TBD |

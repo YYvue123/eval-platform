@@ -76,10 +76,12 @@ async def run_agent_subgraph(db, session, actor, spec, delegation, instruction):
         "requirement", "goal_spec", "scene", "industry", "dataset_id", "dataset_version_id",
         "model_id", "model_version_id", "judge_resource_id", "trial_run", "token_budget",
         "resource_gaps", "validation_errors", "clarifications",
+        "safety_config",
     )}
     prompt = ROLE_PROMPTS.get(spec["role"], "") + "\n" + (spec.get("system_prompt") or spec.get("description") or spec["name"]) + (
         "\n只分析并给出证据，不修改计划、不创建或恢复任务，不委派其他 Agent。"
         "不得把配置提示词当作分析结果。"
+        "安全任务按安全专项实证分析实际覆盖与风险；待复核、驳回和需补证不得视作可入榜，专家复核与人工金标只能由人完成。"
     ) + "\n绑定技能：" + dumps(skill_instructions) + "\n会话计划：" + dumps(context_plan) + "\n任务实证：" + dumps(evidence_context)
     if not session.task_id or spec["role"] in {"plan_analyst", "param_advisor"}:
         prompt += "\n平台授权资源：" + dumps(await resource_inventory(db, actor))

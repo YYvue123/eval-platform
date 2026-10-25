@@ -28,7 +28,7 @@ export const MENU_GROUPS = [
     children: [
       { index: '/tasks', title: '任务管理', icon: 'Finished', permission: 'task:list', match: '/tasks' },
       { index: '/task-templates', title: '任务模板', icon: 'Collection', permission: 'task:list' },
-      { index: '/safety', title: '安全可信', icon: 'Warning', permission: 'task:list' },
+      { index: '/safety', title: '安全可信', icon: 'Warning', permission: 'safety:view' },
       { index: '/agents', title: '编排Agent', icon: 'Connection', permission: 'agent:list' }
     ]
   },

@@ -40,6 +40,7 @@ class EvalTask(Base):
     depends_on_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metric_weights_json: Mapped[str] = mapped_column(Text, default="{}")
+    safety_config_json: Mapped[str] = mapped_column(Text, default="{}")
     token_quota: Mapped[int] = mapped_column(Integer, default=0)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     window_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

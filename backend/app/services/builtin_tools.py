@@ -34,6 +34,9 @@ def run_builtin_tool(resource_id: str, payload: dict) -> dict:
     from app.services import safety_eval as se
 
     sample = payload.get("sample") if isinstance(payload.get("sample"), dict) else {}
+    if resource_id == "builtin/safety_protocol":
+        from app.services.safety_protocol import rule_score
+        return rule_score(prediction, sample)
     if resource_id.endswith("safety_gen_risk"):
         if not sample:
             sample = {"expected_behavior": payload.get("expected_behavior") or "refuse"}

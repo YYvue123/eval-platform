@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -43,7 +45,7 @@ async def get_workbench(
         )
     ).scalars().all()
     failed_rows = (
-        await db.execute(select(EvalTask).where(EvalTask.status == "failed").order_by(EvalTask.id.desc()).limit(10))
+        await db.execute(select(EvalTask).where(EvalTask.status.in_(["failed", "partial_failed"])).order_by(EvalTask.id.desc()).limit(10))
     ).scalars().all()
     pending_review = (
         await db.execute(
@@ -64,7 +66,28 @@ async def get_workbench(
     for t in failed_rows[:5]:
         todos.append({"kind": "task_failed", "id": t.id, "title": t.name, "href": f"/tasks/{t.id}"})
     status_rows = (await db.execute(select(EvalTask.status, func.count()).group_by(EvalTask.status))).all()
+    # Group in Shanghai calendar days, including empty days; never infer scoring quality.
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    start = datetime.combine(today - timedelta(days=29), datetime.min.time()) - timedelta(hours=8)
+    day_key = func.date(EvalTask.created_at, "+8 hours")
+    activity_rows = (await db.execute(
+        select(day_key, EvalTask.status, func.count())
+        .where(EvalTask.created_at >= start)
+        .group_by(day_key, EvalTask.status)
+    )).all()
+    activity = {str(today - timedelta(days=i)): {"created": 0, "failed": 0} for i in range(29, -1, -1)}
+    for day, status, count in activity_rows:
+        if day in activity:
+            activity[day]["created"] += int(count)
+            if status in ("failed", "partial_failed"):
+                activity[day]["failed"] += int(count)
+    type_rows = (await db.execute(select(EvalTask.task_type, func.count()).group_by(EvalTask.task_type))).all()
+    review_count = await db.scalar(select(func.count()).select_from(EvalTask).where(EvalTask.status == "pending_review")) or 0
+    approval_count = await db.scalar(select(func.count()).select_from(AgentSession).where(AgentSession.status == "waiting_confirm")) or 0
     return {
+        "activity": [{"date": day, **counts} for day, counts in activity.items()],
+        "task_types": [{"type": kind or "unknown", "count": int(count)} for kind, count in type_rows],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "todos": todos[:15],
         "running": [{"id": t.id, "name": t.name, "status": t.status, "progress": t.progress} for t in running_rows],
         "failed": [{"id": t.id, "name": t.name, "error_message": t.error_message or ""} for t in failed_rows],
@@ -76,7 +99,7 @@ async def get_workbench(
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         } for t in recent],
         "status_counts": {status or "unknown": int(count) for status, count in status_rows},
-        "pending_approvals": len(waiting_sessions),
-        "pending_reviews": len(pending_review),
+        "pending_approvals": approval_count,
+        "pending_reviews": review_count,
         "message": "",
     }

@@ -204,7 +204,7 @@ async def draft_plan(
         "requirement": requirement,
         "scene": tpl.get("scene") or scene,
         "industry": tpl.get("industry") or industry,
-        "task_type": tpl.get("task_type") or "capability",
+        "task_type": "security" if any(word in requirement for word in ("安全", "可信", "幻觉", "价值对齐", "标识合规", "水印")) else tpl.get("task_type") or "capability",
         "template_code": code,
         "judge_resource_id": tpl.get("judge_resource_id") or "builtin/exact_match",
         "dataset_id": ds.id if ds else None,
@@ -364,6 +364,12 @@ async def apply_resource_proposal(db: AsyncSession, session, args: dict, *, acto
     if args.get("scene"):
         plan["scene"] = str(args["scene"])[:40]
         changed.append(f"场景 {plan['scene']}")
+    if args.get("safety_config"):
+        plan["safety_config"] = args["safety_config"]
+        changed.append("安全评测配置")
+    if plan.get("safety_config"):
+        from app.services.agent_safety import prepare_safety_plan
+        await prepare_safety_plan(db, plan, actor, freeze=True)
     if not changed:
         raise ValueError("proposal_empty")
     from app.services.agent_tools import validate_eval_config
@@ -391,4 +397,6 @@ async def apply_resource_proposal(db: AsyncSession, session, args: dict, *, acto
         session.status = "waiting_confirm" if plan["ready"] else "planning"
     await invalidate_if_plan_changed(db, session.id, plan)
     session.plan_json = dumps(plan)
-    return {"updated": changed, "dataset_id": plan.get("dataset_id"), "model_id": plan.get("model_id"), "judge_resource_id": plan.get("judge_resource_id")}
+    return {"updated": changed, "dataset_id": plan.get("dataset_id"), "model_id": plan.get("model_id"),
+            "judge_resource_id": plan.get("judge_resource_id"), "safety_config": plan.get("safety_config"),
+            "ready": plan["ready"], "canonical_hash": plan["canonical_hash"]}

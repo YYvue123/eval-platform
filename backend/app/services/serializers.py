@@ -158,6 +158,7 @@ def task_out(t):
         "priority": getattr(t, "priority", 5) or 5,
         "depends_on_id": getattr(t, "depends_on_id", None),
         "metric_weights": loads(getattr(t, "metric_weights_json", None) or "{}", {}),
+        "safety_config": loads(getattr(t, "safety_config_json", None) or "{}", {}),
         "token_quota": getattr(t, "token_quota", 0) or 0,
         "tokens_used": getattr(t, "tokens_used", 0) or 0,
         "skip_count": getattr(t, "skip_count", 0) or 0,

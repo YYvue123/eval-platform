@@ -9,6 +9,8 @@ from app.models import User
 from app.services import safety_eval as se
 
 router = APIRouter()
+from app.api.safety_workbench import router as workbench_router
+router.include_router(workbench_router)
 
 
 @router.get("/categories")

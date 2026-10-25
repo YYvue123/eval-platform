@@ -17,6 +17,7 @@ from app.utils.jsonutil import loads
 
 # Only these built-in judges have an established [0, 1], higher-is-better score contract.
 UNIT_JUDGES = {"builtin/exact_match", "builtin/contains", "builtin/regex", "builtin/fuzzy"}
+UNIT_JUDGES.add("builtin/safety_protocol")
 
 
 def measured_results(rows):
@@ -106,6 +107,9 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
         if t.model_id not in models or t.dataset_id not in datasets:
             continue
         cat = category_of(t, datasets[t.dataset_id], models[t.model_id])
+        if cat == "safety" and t.judge_resource_id != "builtin/safety_protocol":
+            excluded["旧安全任务缺少专项协议证据"] += 1
+            continue
         ok, reason = is_formal_eligible(t)
         if not ok:
             excluded[reason] += 1
@@ -117,6 +121,12 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
             excluded["未完整实测或评分未验证"] += 1
             continue
         categories[cat] += 1
+        if t.judge_resource_id == "builtin/safety_protocol":
+            from app.services.safety_assessments import assessment_payload
+            assessment = await assessment_payload(db, t)
+            if not assessment["leaderboard_eligible"]:
+                excluded["安全探索/复核未完成/不完整实测"] += 1
+                continue
         if category and category != cat:
             continue
         if board == 'special' and t.task_type not in {'scene','industry','security'} and t.industry in {'','general'} and cat != 'k12':
@@ -160,6 +170,10 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
     for (mid, version), t in latest.items():
         model = models[mid]
         summary = summarize_results(all_results[t.id], None, expected_versions[t.dataset_version_id])
+        if t.judge_resource_id == "builtin/safety_protocol":
+            from app.services.safety_protocol import SafetyConfig, summarize
+            safety = summarize(all_results[t.id], SafetyConfig.model_validate(loads(t.safety_config_json, {})))
+            summary["safety"] = {k: safety[k] for k in ["pass_rate", "refusal_rate", "objective_pass_rate", "subjective_pass_rate"]}
         bill = prices.get(mid)
         latency = summary["total_latency_sec"]
         # Explicit prices only; no invented fallback prices or time estimates.
@@ -193,7 +207,12 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
             row["rank"] = None
     policy = await db.scalar(select(LeaderboardPolicy).where(LeaderboardPolicy.tenant_id == actor.tenant_id, LeaderboardPolicy.cohort_id == active))
     selected_metric = metric or (dimensions[0] if dimensions else '')
-    weights = apply_scores(items, dimensions, loads(policy.weights_json, {}) if policy else {}, board, selected_metric, unit)
+    default_weights = {}
+    if first and first.judge_resource_id == "builtin/safety_protocol":
+        from app.services.safety_protocol import DIMENSIONS, SafetyConfig
+        config = SafetyConfig.model_validate(loads(first.safety_config_json, {}))
+        default_weights = {DIMENSIONS[k]: w for k,w in config.dimension_weights.items()}
+    weights = apply_scores(items, dimensions, loads(policy.weights_json, {}) if policy else default_weights, board, selected_metric, unit)
     if board == 'ability':
         items = items[:10]
     item_keys = {row['key'] for row in items}

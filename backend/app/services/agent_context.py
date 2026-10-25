@@ -21,10 +21,13 @@ async def resource_inventory(db, actor, *, limit=60):
     user = await db.get(User, actor.user_id)
     dataset_rows = []
     for row in datasets:
+        from app.services.safety_protocol import sample_of
+        safety_items = (await db.scalars(select(DatasetItem).where(DatasetItem.version_id == row.current_version_id, DatasetItem.status == "active"))).all() if row.current_version_id else []
+        safety_dimensions = sorted({sample_of(item).get("dimension") for item in safety_items if sample_of(item).get("dimension")})
         count = await db.scalar(select(func.count(DatasetItem.id)).where(DatasetItem.version_id == row.current_version_id, DatasetItem.status != "deleted")) if row.current_version_id else 0
         dataset_rows.append({"id": row.id, "name": row.name, "scene": row.task_type, "industry": row.domain_type,
                              "tags": row.tags, "status": row.status, "quality_status": row.quality_status,
-                             "version_id": row.current_version_id, "samples": count or 0,
+                             "version_id": row.current_version_id, "samples": count or 0, "safety_dimensions": safety_dimensions,
                              "formal_ready": row.status == "published" and row.quality_status in {"passed", "ok", "good"} and bool(count)})
     model_rows = []
     for row in models:
@@ -42,7 +45,11 @@ async def resource_inventory(db, actor, *, limit=60):
                           "description": row.description, "version": row.version, "status": row.status,
                           "health_status": row.health_status, "input_schema": capabilities.get("input_schema") or {},
                           "output_schema": capabilities.get("output_schema") or {}})
+    from app.services.safety_protocol import SafetyConfig, DIMENSIONS
     return {"datasets": dataset_rows, "models": model_rows, "tools": tool_rows,
+            "safety": {"dimensions": DIMENSIONS, "config_schema": SafetyConfig.model_json_schema(),
+                       "can_create": actor.is_admin or actor.has_permission("safety:create"),
+                       "human_review_required": True, "watermark_scope": "文本显式标识与输出元数据"},
             "scope": "current_actor", "limit_per_type": limit,
             "notice": "仅为当前授权资源快照；选定ID仍需校验版本、正式门禁、额度和审批。没有凭证或连接秘密。"}
 
@@ -59,8 +66,21 @@ async def task_evidence(db, session: AgentSession, actor, *, max_samples=20):
                                .order_by(TaskEvent.id.desc()).limit(12))).scalars().all()
     from app.services.redaction import redact_secrets, safe_error_message
 
+    safety = None
+    if task.judge_resource_id == "builtin/safety_protocol" and (actor.is_admin or actor.has_permission("safety:view")):
+        from app.services.safety_assessments import assessment_payload
+        import hashlib
+        from app.utils.jsonutil import dumps
+        safety = await assessment_payload(db, task)
+        safety["review_evidence_hash"] = hashlib.sha256(dumps([
+            {"id": row["id"], "evidence_hash": row["evidence_hash"], "review": row["review"]}
+            for row in safety["results"]
+        ]).encode()).hexdigest()
+        safety["results"] = safety["results"][:max(1, min(max_samples, 50))]
+
     return redact_secrets({
         "task_id": task.id, "name": task.name, "status": task.status, "progress": task.progress,
+        "safety_assessment": safety,
         "dataset_id": task.dataset_id, "dataset_version_id": task.dataset_version_id,
         "model_id": task.model_id, "model_version_id": task.model_version_id,
         "judge_resource_id": task.judge_resource_id, "total": task.total,

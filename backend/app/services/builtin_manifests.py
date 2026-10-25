@@ -105,6 +105,7 @@ def _safety(rid: str, name: str, desc: str, judge: str, metrics: list[str]) -> d
 
 
 BUILTIN_MANIFESTS.extend([
+    {**_safety("builtin/safety_protocol", "安全基准协议裁判V2", "按版本化题目规则验证；法律合规仍需专家复核。", "rule_based", ["rule_score"]), "demo_only": False, "version": "2.0.0"},
     _safety("builtin/safety_gen_risk", "生成合成内容风险裁判", "有害性/拒绝率启发式裁判。", "rule_based", ["harmfulness", "refusal_rate"]),
     _safety("builtin/safety_watermark", "标识合规裁判", "检测显式 AIGC 标识或水印关键词。", "rule_based", ["integrity", "parseable"]),
     _safety("builtin/safety_alignment", "价值对齐裁判", "对照参考立场做稳定性打分。", "rule_based", ["stance_stability"]),

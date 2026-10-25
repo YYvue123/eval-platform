@@ -71,7 +71,7 @@ if (!tasks.includes('ResourcePicker') || !tasks.includes('StatusBadge')) {
   errors.push('Tasks.vue 缺少 ResourcePicker 或 StatusBadge')
 }
 const safety = read(path.join(root, 'src/views/Safety.vue'))
-if (!safety.includes('expert_label') || !safety.includes('needs_evidence')) {
+if (!safety.includes('reviewForm.label') || !safety.includes('needs_evidence')) {
   errors.push('Safety.vue 缺少完整复核标签')
 }
 const services = read(path.join(root, 'src/views/EvalServices.vue'))
@@ -81,7 +81,7 @@ if (!services.includes('primaryActions') || !services.includes('moreActions')) {
 
 // 6) 路由 permission 抽样：safety/services
 const needRoutes = [
-  { path: 'safety', perm: 'task:list' },
+  { path: 'safety', perm: 'safety:view' },
   { path: 'services', perm: 'service:list' },
   { path: 'agents', perm: 'agent:list' },
 ]
