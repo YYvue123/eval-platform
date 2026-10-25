@@ -2,25 +2,25 @@
   <main class="board-page">
     <header class="board-header">
       <div><div class="kicker">FLAGSHIP MODEL EVALUATION</div><h1>大模型榜单<span>以真实评测，发现适合的模型</span></h1></div>
-      <div class="header-actions"><el-switch v-model="demoMode" active-text="模拟演示" inactive-text="真实评测" @change="changeDataMode" /><span class="update-time">{{ latestTime }}</span><el-button v-if="user.hasPermission('leaderboard:view')" :loading="loading" @click="load">刷新</el-button><el-button v-if="canManage && !demoMode" @click="manage('publications')">榜单管理</el-button></div>
+      <div class="header-actions"><span class="update-time">{{ latestTime }}</span><el-button v-if="user.hasPermission('leaderboard:view')" :loading="loading" @click="load">刷新</el-button><el-button v-if="canManage" @click="manage('publications')">榜单管理</el-button></div>
     </header>
 
-    <el-alert v-if="demoMode" title="模拟演示数据：模型、分数、时延、费用和趋势均为虚构，不是正式评测结果。" type="warning" :closable="false" show-icon class="demo-notice" /><nav class="category-grid" aria-label="榜单分类">
-      <button v-permission="'leaderboard:view'" v-for="c in categories" :key="c.id" class="category" :class="{active:category===c.id}" :disabled="Boolean(c.id) && !data.categories?.[c.id]" @click="setCategory(c.id)"><span class="category-icon">{{ c.icon }}</span><span><b>{{ c.name }}</b><small>{{ c.id ? data.categories?.[c.id] ? `${data.categories[c.id]} ${demoMode?'个示例':'次实测'}` : '暂无正式结果' : `${data.overview?.models || 0} 个模型配置` }}</small></span></button>
+    <nav class="category-grid" aria-label="榜单分类">
+      <button v-permission="'leaderboard:view'" v-for="c in categories" :key="c.id" class="category" :class="{active:category===c.id}" :disabled="Boolean(c.id) && !data.categories?.[c.id]" @click="setCategory(c.id)"><span class="category-icon">{{ c.icon }}</span><span><b>{{ c.name }}</b><small>{{ c.id ? data.categories?.[c.id] ? `${data.categories[c.id]} 次实测` : '暂无正式结果' : `${data.overview?.models || 0} 个模型配置` }}</small></span></button>
     </nav>
 
     <section class="leaderboard-shell">
-      <div class="board-nav"><nav aria-label="榜单类型"><button v-permission="'leaderboard:view'" v-for="b in boards" :key="b.id" :class="{active:board===b.id}" @click="switchBoard(b.id)">{{ b.name }}<em v-if="b.id==='ability'">TOP 10</em></button></nav><el-button v-if="user.hasPermission('leaderboard:edit')" link :disabled="isSnapshot || demoMode" @click="manage('weights')">综合权重设置</el-button></div>
+      <div class="board-nav"><nav aria-label="榜单类型"><button v-permission="'leaderboard:view'" v-for="b in boards" :key="b.id" :class="{active:board===b.id}" @click="switchBoard(b.id)">{{ b.name }}<em v-if="b.id==='ability'">TOP 10</em></button></nav><el-button v-if="user.hasPermission('leaderboard:edit')" link :disabled="isSnapshot" @click="manage('weights')">综合权重设置</el-button></div>
 
-      <div class="protocol-row"><span class="filter-label">评测套件</span><el-select v-model="cohort" filterable class="protocol-select" placeholder="选择可比较的评测套件" :disabled="isSnapshot || demoMode" @change="changeCohort"><el-option v-for="c in data.cohorts || []" :key="c.id" :value="c.id" :label="`${datasetLabel(c.dataset_name || c.label)} · ${judgeLabel(c.judge,c.judge_name)} · ${c.count} 个配置`" /></el-select><span class="filter-label period-label">评测期数</span><el-select v-model="publicationId" :disabled="demoMode" class="period-select" @change="load"><el-option label="实时结果" value="live" /><el-option v-for="p in publications" :key="p.id" :label="`${p.title}${p.status==='withdrawn'?' · 已撤回':''}`" :value="p.id" :disabled="p.status==='withdrawn'&&!user.hasPermission('leaderboard:publish')" /></el-select><el-tag :type="isSnapshot?'success':'info'" effect="plain" size="small">{{ demoMode?'模拟演示':isSnapshot?'已冻结快照':'实时评测' }}</el-tag></div>
+      <div class="protocol-row"><span class="filter-label">评测套件</span><el-select v-model="cohort" filterable class="protocol-select" placeholder="选择可比较的评测套件" :disabled="isSnapshot" @change="changeCohort"><el-option v-for="c in data.cohorts || []" :key="c.id" :value="c.id" :label="`${datasetLabel(c.dataset_name || c.label)} · ${judgeLabel(c.judge,c.judge_name)} · ${c.count} 个配置`" /></el-select><span class="filter-label period-label">评测期数</span><el-select v-model="publicationId" class="period-select" @change="load"><el-option label="实时结果" value="live" /><el-option v-for="p in publications" :key="p.id" :label="`${p.title}${p.status==='withdrawn'?' · 已撤回':''}`" :value="p.id" :disabled="p.status==='withdrawn'&&!user.hasPermission('leaderboard:publish')" /></el-select><el-tag :type="isSnapshot?'success':'info'" effect="plain" size="small">{{ isSnapshot?'已冻结快照':'实时评测' }}</el-tag></div>
 
       <div class="filter-row" :class="{locked:isSnapshot}">
-        <el-select v-model="modelIds" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="全部模型" aria-label="模型筛选" :disabled="isSnapshot || demoMode" @change="changeModels"><el-option v-for="m in data.model_options || []" :key="m.id" :label="m.name" :value="m.id" /></el-select>
-        <el-select v-model="versionId" clearable placeholder="全部版本" aria-label="模型版本筛选" :disabled="isSnapshot || demoMode" @change="load"><el-option v-for="v in versions" :key="v.id" :label="`${v.code} · ${modelName(v.model_id)}`" :value="v.id" /></el-select>
-        <el-select v-model="industry" clearable filterable placeholder="全部行业" aria-label="行业筛选" :disabled="isSnapshot || demoMode" @change="resetProtocol"><el-option v-for="i in data.industries || []" :key="i.value" :value="i.value" :label="i.label" /></el-select>
-        <el-select v-model="scene" clearable placeholder="全部场景" aria-label="场景筛选" :disabled="isSnapshot || demoMode" @change="resetProtocol"><el-option v-for="s in data.scenes || []" :key="s.value" :value="s.value" :label="s.label" /></el-select>
-        <el-date-picker v-model="dateRange" type="datetimerange" start-placeholder="评测开始" end-placeholder="评测结束" range-separator="至" :disabled="isSnapshot || demoMode" @change="load" />
-        <el-button v-if="user.hasPermission('leaderboard:view')" link :disabled="isSnapshot || demoMode" @click="clearFilters">重置</el-button>
+        <el-select v-model="modelIds" multiple collapse-tags collapse-tags-tooltip clearable filterable placeholder="全部模型" aria-label="模型筛选" :disabled="isSnapshot" @change="changeModels"><el-option v-for="m in data.model_options || []" :key="m.id" :label="m.name" :value="m.id" /></el-select>
+        <el-select v-model="versionId" clearable placeholder="全部版本" aria-label="模型版本筛选" :disabled="isSnapshot" @change="load"><el-option v-for="v in versions" :key="v.id" :label="`${v.code} · ${modelName(v.model_id)}`" :value="v.id" /></el-select>
+        <el-select v-model="industry" clearable filterable placeholder="全部行业" aria-label="行业筛选" :disabled="isSnapshot" @change="resetProtocol"><el-option v-for="i in data.industries || []" :key="i.value" :value="i.value" :label="i.label" /></el-select>
+        <el-select v-model="scene" clearable placeholder="全部场景" aria-label="场景筛选" :disabled="isSnapshot" @change="resetProtocol"><el-option v-for="s in data.scenes || []" :key="s.value" :value="s.value" :label="s.label" /></el-select>
+        <el-date-picker v-model="dateRange" type="datetimerange" start-placeholder="评测开始" end-placeholder="评测结束" range-separator="至" :disabled="isSnapshot" @change="load" />
+        <el-button v-if="user.hasPermission('leaderboard:view')" link :disabled="isSnapshot" @click="clearFilters">重置</el-button>
       </div>
 
       <div v-if="error" class="error-banner"><span>{{ error }}</span><el-button v-if="user.hasPermission('leaderboard:view')" link @click="load">重试</el-button></div>
@@ -38,9 +38,9 @@
           <el-table-column :label="mainScoreLabel" prop="ranking_score" sortable="custom" min-width="126"><template #default="{row}"><span class="main-score">{{ scoreText(row.ranking_score,board!=='value') }}</span></template></el-table-column>
           <el-table-column v-for="d in visibleDims" :key="d" :label="d" min-width="120"><template #default="{row}"><el-tooltip :content="`${row.dimensions[d]?.count || 0} / ${row.dimensions[d]?.expected || 0} 个实测样本`"><span class="dimension-score" :class="{best:row.dimensions[d]?.score===dimensionMax(d)}">{{ scoreText(row.dimensions[d]?.score) }}</span></el-tooltip></template></el-table-column>
           <el-table-column label="通过率" min-width="105"><template #default="{row}">{{ number(row.pass_rate*100,1) }}%</template></el-table-column>
-          <el-table-column v-if="category==='safety' && !demoMode" label="主观题合格率" width="135"><template #default="{row}">{{ scoreText(row.safety?.subjective_pass_rate) }}</template></el-table-column>
-          <el-table-column v-if="category==='safety' && !demoMode" label="客观题合格率" width="135"><template #default="{row}">{{ scoreText(row.safety?.objective_pass_rate) }}</template></el-table-column>
-          <el-table-column v-if="category==='safety' && !demoMode" label="总拒答率" width="115"><template #default="{row}">{{ scoreText(row.safety?.refusal_rate) }}</template></el-table-column>
+          <el-table-column v-if="category==='safety'" label="主观题合格率" width="135"><template #default="{row}">{{ scoreText(row.safety?.subjective_pass_rate) }}</template></el-table-column>
+          <el-table-column v-if="category==='safety'" label="客观题合格率" width="135"><template #default="{row}">{{ scoreText(row.safety?.objective_pass_rate) }}</template></el-table-column>
+          <el-table-column v-if="category==='safety'" label="总拒答率" width="115"><template #default="{row}">{{ scoreText(row.safety?.refusal_rate) }}</template></el-table-column>
           <el-table-column label="平均时延 / ms" prop="latency_ms" sortable="custom" width="145"><template #default="{row}">{{ number(row.latency_ms,0) }}</template></el-table-column>
           <el-table-column label="样本" prop="sample_count" width="76" />
           <el-table-column v-if="board==='value'" label="每样本估算费用" width="155"><template #default="{row}">{{ number(row.cost_per_sample,6) }}</template></el-table-column>
@@ -49,7 +49,7 @@
         <div v-else-if="viewMode==='cards'" class="model-cards"><article v-for="r in filtered" :key="r.key" class="model-card" :class="{selected:selectedKeys.includes(r.key)}"><div class="card-top"><span class="rank-number top">{{ r.rank==null?'—':`#${r.rank}` }}</span><el-checkbox :model-value="selectedKeys.includes(r.key)" :aria-label="`对比 ${r.model_name}`" @change="toggle(r)">加入对比</el-checkbox></div><el-button v-if="user.hasPermission('leaderboard:view')" link class="model-link" @click="showDetail(r)">{{ r.model_name }}</el-button><p>{{ r.company || '机构未标注' }} · {{ r.version }}</p><div class="card-score"><strong>{{ scoreText(r.ranking_score,board!=='value') }}</strong><span>{{ mainScoreLabel }}</span></div><div v-for="d in visibleDims.slice(0,6)" :key="d" class="card-dimension"><span>{{ d }}</span><div class="mini-track"><i :style="{width:`${data.scale?(r.dimensions[d]?.score||0)*100:0}%`}" /></div><b>{{ scoreText(r.dimensions[d]?.score) }}</b></div><footer>{{ r.sample_count }} 个样本 · {{ number(r.latency_ms,0) }} ms</footer></article><div v-if="!filtered.length" class="empty-state">暂无符合条件的模型</div></div>
         <el-table v-else :data="profileRows" stripe class="rank-table"><el-table-column fixed prop="model_name" label="模型配置" min-width="240" /><el-table-column v-for="c in data.cohorts || []" :key="c.id" :label="datasetLabel(c.dataset_name || c.label)" min-width="230"><template #default="{row}"><el-button v-if="row.cells[c.id] && user.hasPermission('leaderboard:view')" link @click="cohort=c.id;viewMode='table';publicationId='live';load()">{{ number(row.cells[c.id].score,3) }}<span class="cell-protocol">{{ judgeLabel(c.judge,c.judge_name) }} · {{ row.cells[c.id].samples }} 样本</span></el-button><span v-else class="unmeasured">— 未测</span></template></el-table-column></el-table>
       </div>
-      <footer class="table-footer"><span><i class="live-dot" />{{ demoMode?'模拟展示 · 不参与正式评测与发布':data.scale?'已知评分尺度 · 分数以百分制展示，原始结果不变':'未知评分尺度 · 仅展示原始分，不混合排名' }}</span><span>{{ data.overview?.runs || 0 }} 次真实完整运行 · {{ data.excluded_total || 0 }} 次未纳入</span></footer>
+      <footer class="table-footer"><span><i class="live-dot" />{{ data.scale?'已知评分尺度 · 分数以百分制展示，原始结果不变':'未知评分尺度 · 仅展示原始分，不混合排名' }}</span><span>{{ data.overview?.runs || 0 }} 次真实完整运行 · {{ data.excluded_total || 0 }} 次未纳入</span></footer>
     </section>
 
     <section ref="comparePanel" class="comparison-panel">
@@ -57,7 +57,7 @@
       <div class="chart-tabs" role="tablist" aria-label="对比图表"><button v-permission="'leaderboard:view'" v-for="t in chartTabs" :key="t.id" role="tab" :aria-selected="chartTab===t.id" :class="{active:chartTab===t.id}" @click="chartTab=t.id">{{ t.name }}</button></div>
       <div class="comparison-legend"><button v-permission="'leaderboard:view'" v-for="(r,i) in chosen" :key="r.key" :class="{muted:hiddenKeys.includes(r.key)}" @click="toggleLegend(r.key)"><i :style="{background:colors[i]}" />{{ r.model_name }}<b>{{ scoreText(r.score) }}</b></button><span v-if="chosen.length" class="legend-hint">点击切换显示</span></div>
       <div class="chart-stage"><LeaderboardChart v-if="activeOption && chosen.length" :key="chartTab" ref="chartRef" :option="activeOption" :height="chartTab==='heat'?`${Math.max(390,chartRows.length*65+120)}px`:'410px'" :label="`模型对比-${chartTabs.find(t=>t.id===chartTab)?.name}`" /><div v-else class="empty-state"><span>◎</span><h3>{{ chosen.length?'当前维度不足以绘制此图':'选择模型，开始比较' }}</h3><p>{{ chosen.length?'雷达图需要至少三个共同完整维度，以及已确认的分数尺度。可切换条形图查看。':'在表格或模型卡片中勾选最多五个配置，图表会实时更新。' }}</p></div></div>
-      <div class="comparison-details" v-if="chosen.length"><div class="comparison-note"><b>{{ demoMode?'合成示例 · 用于展示图表交互':chartNotes[chartTab] }}</b><p>{{ protocolCaption }}</p></div><el-select v-model="visibleDims" multiple collapse-tags placeholder="对比维度" aria-label="对比维度"><el-option v-for="d in data.dimensions || []" :key="d" :label="d" :value="d" /></el-select></div>
+      <div class="comparison-details" v-if="chosen.length"><div class="comparison-note"><b>{{ chartNotes[chartTab] }}</b><p>{{ protocolCaption }}</p></div><el-select v-model="visibleDims" multiple collapse-tags placeholder="对比维度" aria-label="对比维度"><el-option v-for="d in data.dimensions || []" :key="d" :label="d" :value="d" /></el-select></div>
     </section>
 
     <section class="method-panel"><el-collapse><el-collapse-item title="评测口径与榜单说明" name="method"><p>{{ data.rules }}</p><p>综合分按当前维度权重加权；单项榜按选定指标展示前十；专项榜仅纳入专项任务；性价比为综合原始分除以每样本估算费用，不等于供应商实际账单。</p><p>各能力来自评测集标签，不同套件不能直接横比。公开榜单必须经过正式发布。小样本与同源演示配置均不代表通用能力认证。</p><p>异常排除：{{ exclusionText }}。{{ hasAliases?'带演示标签的条目使用同一底层模型，名称仅代表接入配置。':'' }}</p></el-collapse-item></el-collapse></section>
@@ -82,7 +82,6 @@ import LeaderboardGovernance from '@/components/LeaderboardGovernance.vue'
 import { barOption, colors, csvCell, heatOption, number, radarOption, scatterOption, trendOption } from '@/utils/leaderboardChartsV2'
 const user=useUserStore(),route=useRoute(),router=useRouter()
 const data=ref({}),error=ref(''),loading=ref(false),cohort=ref(String(route.query.cohort || '')),board=ref(String(route.query.board || 'overall')),category=ref(String(route.query.category ?? 'language'))
-const demoMode=ref(route.query.demo==='1')
 const metric=ref(''),industry=ref(''),scene=ref(''),modelIds=ref([]),versionId=ref(null),dateRange=ref([]),search=ref(''),source=ref(''),visibleDims=ref([]),sort=ref(null),viewMode=ref('table')
 const publications=ref([]),publicationId=ref(route.query.release?Number(route.query.release):'live'),snapshotInfo=ref({}),detail=ref(null),governance=ref(null),selectedKeys=ref([]),hiddenKeys=ref([]),chartTab=ref('radar'),chartRef=ref(null),comparePanel=ref(null),fullscreen=ref(false)
 const boards=[{id:'overall',name:'综合得分榜'},{id:'ability',name:'单项能力榜'},{id:'special',name:'专项评测榜'},{id:'value',name:'性价比榜'}]
@@ -119,25 +118,23 @@ function manage(tab,taskId=null){governance.value?.open(tab,taskId)}
 function changeCohort(){metric.value='';load()}
 function resetProtocol(){cohort.value='';metric.value='';load()}
 function changeModels(){if(versionId.value&&!versions.value.some(v=>v.id===versionId.value))versionId.value=null;load()}
-function showDetail(row){if(demoMode.value){ElMessage.info('模拟模型没有真实任务证据');return}detail.value=row}
-function changeDataMode(){category.value=demoMode.value?'vision':'language';publicationId.value='live';clearFilters()}
+function showDetail(row){detail.value=row}
 function clearFilters(){metric.value='';industry.value='';scene.value='';modelIds.value=[];versionId.value=null;dateRange.value=[];search.value='';source.value='';cohort.value='';load()}
 function setCategory(value){category.value=value;publicationId.value='live';clearFilters()}
-function switchBoard(value){board.value=value;publicationId.value='live';sort.value=null;if(value==='special'&&!demoMode.value){cohort.value='';category.value=''}load()}
+function switchBoard(value){board.value=value;publicationId.value='live';sort.value=null;if(value==='special'){cohort.value='';category.value=''}load()}
 function openSnapshot(id){publicationId.value=id;load()}
 async function load(){const id=++generation;loading.value=true;error.value='';try{
   const old=data.value.cohort_id
   let result
-  if(demoMode.value){result=await leaderboardApi.demo({category:category.value || 'vision',board:board.value,metric:metric.value})}
-  else if(isSnapshot.value){const release=await leaderboardApi.publication(publicationId.value);if(id!==generation)return;snapshotInfo.value=release;result=release.payload;board.value=result.board;category.value=result.category || '';const saved=result.filter_context || {};industry.value=saved.industry || '';scene.value=saved.scene || '';modelIds.value=saved.model_ids || [];versionId.value=saved.version_id || null;dateRange.value=saved.since || saved.as_of?[saved.since?new Date(`${saved.since}Z`):null,saved.as_of?new Date(`${saved.as_of}Z`):null]:[]}
+  if(isSnapshot.value){const release=await leaderboardApi.publication(publicationId.value);if(id!==generation)return;snapshotInfo.value=release;result=release.payload;board.value=result.board;category.value=result.category || '';const saved=result.filter_context || {};industry.value=saved.industry || '';scene.value=saved.scene || '';modelIds.value=saved.model_ids || [];versionId.value=saved.version_id || null;dateRange.value=saved.since || saved.as_of?[saved.since?new Date(`${saved.since}Z`):null,saved.as_of?new Date(`${saved.as_of}Z`):null]:[]}
   else {const q={...context.value,cohort_id:cohort.value,model_ids:modelIds.value.join(',')};result=await leaderboardApi.insights(q)}
   if(id!==generation)return
   data.value=result;cohort.value=result.cohort_id;metric.value=result.metric || '';visibleDims.value=visibleDims.value.filter(d=>result.dimensions?.includes(d));if(!visibleDims.value.length)visibleDims.value=[...(result.dimensions || [])]
   selectedKeys.value=old!==result.cohort_id || !old?result.items.slice(0,2).map(r=>r.key):selectedKeys.value.filter(k=>result.items.some(r=>r.key===k));hiddenKeys.value=[]
-  const periods=demoMode.value?[]:(await leaderboardApi.publications({cohort_id:result.cohort_id})).items
+  const periods=(await leaderboardApi.publications({cohort_id:result.cohort_id})).items
   if(id!==generation)return
   publications.value=periods
-  await router.replace({query:{...(demoMode.value?{demo:1}:{}),board:board.value,category:category.value,...(cohort.value?{cohort:cohort.value}:{}),...(isSnapshot.value?{release:publicationId.value}:{})}})
+  await router.replace({query:{board:board.value,category:category.value,...(cohort.value?{cohort:cohort.value}:{}),...(isSnapshot.value?{release:publicationId.value}:{})}})
 }catch(e){if(id===generation){error.value=e.response?.data?.detail || e.message;data.value={...data.value,items:[],history:[]};selectedKeys.value=[]}}finally{if(id===generation)loading.value=false}}
 function exportCsv(){const dims=visibleDims.value,headers=['模型','模型版本','排名',mainScoreLabel.value,...dims,'样本数','实测均延ms','Token','来源任务','比较组'];let rows=filtered.value.map(r=>[r.model_name,r.version,r.rank,scoreText(r.ranking_score,board.value!=='value'),...dims.map(d=>scoreText(r.dimensions[d]?.score)),r.sample_count,r.latency_ms,r.tokens,r.task_id,data.value.cohort_id]);if(viewMode.value==='profiles'){headers.splice(0,headers.length,'模型配置',...(data.value.cohorts||[]).map(c=>c.label));rows=profileRows.value.map(r=>[r.model_name,...(data.value.cohorts||[]).map(c=>r.cells[c.id]?.score)])}const url=URL.createObjectURL(new Blob(['\uFEFF'+[headers,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`leaderboard-${data.value.cohort_id}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 watch(chartTab,async()=>{await nextTick();chartRef.value?.resize()})

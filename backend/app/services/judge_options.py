@@ -1,6 +1,8 @@
 """打分候选：Tool、带 score 的 Skill，以及 MCP 目录中的工具。"""
 from __future__ import annotations
 
+import math
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,10 +51,14 @@ def unwrap_judge(raw) -> dict:
         break
     if not isinstance(current, dict) or ("score" not in current and "passed" not in current):
         raise RuntimeError("打分结果缺少 score 或 passed")
+    if current.get("score") is None and not isinstance(current.get("passed"), bool):
+        raise RuntimeError("打分结果没有实际分数或布尔passed，禁止将媒体检查当作评分")
     if current.get("score") is None:
         score = 1.0 if current.get("passed") else 0.0
     else:
         score = float(current.get("score"))
+    if not math.isfinite(score):
+        raise RuntimeError("打分结果不是有限数值")
     passed = bool(current["passed"]) if "passed" in current else score >= 1.0
     metrics = current.get("metrics") if isinstance(current.get("metrics"), dict) else {}
     return {"score": score, "passed": passed, "metrics": metrics}
@@ -72,6 +78,8 @@ async def list_judge_options(db: AsyncSession, actor) -> list[dict]:
     ).scalars().all()
     items: list[dict] = []
     for row in rows:
+        if row.resource_id == "builtin/media_inspect":
+            continue
         manifest = loads(row.manifest_json, {})
         if row.resource_type == "tool":
             items.append(
@@ -153,4 +161,7 @@ async def invoke_judge(db: AsyncSession, *, actor, judge_id: str, prediction: st
     if (envelope.get("body") or {}).get("status") == "error":
         message = ((envelope.get("body") or {}).get("error") or {}).get("message") or "judge failed"
         raise RuntimeError(message)
-    return unwrap_judge(response_result(envelope))
+    result = unwrap_judge(response_result(envelope))
+    if sample and sample.get("media"):
+        result["metrics"]["judge_media_scope"] = "output_text_rules" if judge_id.startswith("builtin/") else "media_payload_forwarded"
+    return result

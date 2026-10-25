@@ -31,7 +31,7 @@
         <template #empty>
           <EmptyState type="task" action-text="创建任务" :show-action="userStore.hasPermission('task:create')" @action="openCreate" />
         </template>
-        <el-table-column prop="name" label="名称" min-width="160">
+        <el-table-column prop="name" label="名称" min-width="160" fixed="left">
           <template #default="{ row }">
             <el-tooltip :visible="nameTipId === row.id" :content="row.name" placement="top" :show-after="0">
               <button
@@ -46,6 +46,13 @@
             </el-tooltip>
           </template>
         </el-table-column>
+        <el-table-column label="进度" width="140">
+          <template #default="{ row }">
+            <el-progress :percentage="row.progress || 0" :stroke-width="8" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="175"><template #default="{row}">{{ displayTime(row.created_at) }}</template></el-table-column>
+        <el-table-column prop="creator_name" label="创建人" width="110" show-overflow-tooltip />
         <el-table-column prop="task_type" label="类型" width="100" />
         <el-table-column prop="model_name" label="被测模型" min-width="180" show-overflow-tooltip />
         <el-table-column prop="dataset_name" label="数据集" min-width="190" show-overflow-tooltip />
@@ -59,16 +66,12 @@
             <span v-if="row.attempt" class="muted"> ·#{{ row.attempt }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="进度" width="140">
-          <template #default="{ row }">
-            <el-progress :percentage="row.progress || 0" :stroke-width="8" />
-          </template>
-        </el-table-column>
         <el-table-column prop="pass_rate" label="通过率" width="90">
           <template #default="{ row }">{{ formatRate(row.pass_rate) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
+            <el-button v-if="userStore.hasPermission('task:view')" link type="primary" size="small" @click="$router.push(`/tasks/${row.id}`)">详情</el-button>
             <el-button v-if="userStore.hasPermission('task:edit') && row.status === 'draft'" link type="primary" size="small" @click="submitReview(row)">提交审核</el-button>
             <el-button v-if="userStore.hasPermission('task:audit') && row.status === 'pending_review'" link type="primary" size="small" @click="audit(row, true)">通过</el-button>
             <el-button v-if="userStore.hasPermission('task:run') && !['running'].includes(row.status)" link type="primary" size="small" @click="run(row)">执行</el-button>
@@ -166,6 +169,7 @@
 </template>
 
 <script setup>
+const displayTime=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?value:`${value}Z`).toLocaleString('zh-CN',{hour12:false}):'—'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

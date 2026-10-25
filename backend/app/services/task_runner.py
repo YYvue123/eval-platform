@@ -30,6 +30,7 @@ from app.models import (
 from app.services.metrics import observe_eval_done
 from app.services.model_access import get_access_for_version, model_call_view
 from app.services.model_client import invoke_model
+from app.services.multimodal import validate_compatibility, messages_for, measurement, request_options
 from app.services.prompt_render import MissingRequiredVariable, render_prompt
 from app.services.report_archive import result_row_for_report, write_task_report
 from app.services.builtin_tools import run_builtin_tool
@@ -122,7 +123,7 @@ async def _run(
         )
     ).scalars().all()
     version = await db.get(DatasetVersion, version_id)
-    snapshot_src = f"{version_id}:{(version.checksum if version else '')}:{len(items)}"
+    snapshot_src = f"{version_id}:{((version.content_checksum or version.checksum) if version else '')}:{len(items)}"
     task.snapshot_id = hashlib.sha256(snapshot_src.encode()).hexdigest()[:16]
     task.total = len(items)
 
@@ -293,13 +294,17 @@ async def _run(
         latency = 0
         tokens = 0
         finish_reason = ""
+        media = []
+        output_audio = None
         try:
             if judge_id == "builtin/safety_protocol":
                 # Safety turns may take minutes. Never hold SQLite's write lock
                 # across the remote model request; only call logs are committed.
                 await db.commit()
-            invoked = await invoke_model(call_model, prompt)
+            media = validate_compatibility(call_model, item)
+            invoked = await invoke_model(call_model, prompt, messages=messages_for(prompt, media), **request_options(item)) if media or request_options(item) else await invoke_model(call_model, prompt)
             output = invoked["output"]
+            output_audio = invoked.get("output_audio")
             latency = invoked["latency_ms"]
             tokens = invoked["tokens"]
             finish_reason = invoked.get("finish_reason") or "stop"
@@ -329,6 +334,7 @@ async def _run(
                 input_content=item.input_content,
                 reference_answer=item.reference_answer,
                 error_message=err[:2000],
+                metrics_json=dumps(measurement(media)),
                 execution_status="model_failed",
                 score_status="skipped",
                 simulation=bool(getattr(task, "simulation", False)),
@@ -360,14 +366,14 @@ async def _run(
 
             if judge_id == "builtin/safety_protocol":
                 from app.services.safety_execution import evaluate_sample
-                judged, extra_tokens, extra_latency = await evaluate_sample(db, task, item, call_model, prompt, output, tokens_used)
+                judged, extra_tokens, extra_latency = await evaluate_sample(db, task, item, call_model, prompt, output, tokens_used, first_audio=output_audio)
                 tokens_used += extra_tokens
                 latency += extra_latency
             else:
                 judged = await invoke_judge(
                     db, actor=actor, judge_id=judge_id, prediction=output,
                     reference=item.reference_answer or "", task_id=task.id,
-                    sample=loads(item.extended_content, {}).get("safety"),
+                    sample={**(loads(item.extended_content, {}).get("safety") or {}), "question": prompt, "media": media, "output_audio": output_audio},
                 )
             # ResourceCallLog 已由网关写入
         except Exception as exc:
@@ -405,7 +411,7 @@ async def _run(
             reference_answer=item.reference_answer,
             score=score,
             passed=passed if not judge_failed else False,
-            metrics_json=dumps(judged.get("metrics") or {}),
+            metrics_json=dumps({**(judged.get("metrics") or {}), **measurement(media, output_audio)}),
             error_message=err,
             latency_ms=latency,
             finish_reason=finish_reason,
@@ -489,7 +495,7 @@ async def _run(
     ))
     await emit_event(db, task.id, task.status, {"pass_rate": task.pass_rate, "simulation": bool(getattr(task, "simulation", False))})
     observe_eval_done()
-    checksum = version.checksum if version else ""
+    checksum = (version.content_checksum or version.checksum) if version else ""
     existing_lin = await db.scalar(select(EvalLineage).where(EvalLineage.task_id == task.id))
     if not existing_lin:
         db.add(EvalLineage(

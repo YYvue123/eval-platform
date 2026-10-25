@@ -173,6 +173,7 @@ def task_out(t):
         "attempt": getattr(t, "attempt", 0) or 0,
         "started_at": iso(t.started_at),
         "finished_at": iso(t.finished_at),
+        "creator_id": t.creator_id,
         "created_at": iso(t.created_at),
     }
 

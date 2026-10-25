@@ -100,6 +100,7 @@
           <el-descriptions-item label="类型">{{ detail.resource_type }}</el-descriptions-item>
           <el-descriptions-item label="版本">{{ detail.version }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ detail.status }} / {{ detail.health_status }}</el-descriptions-item>
+          <el-descriptions-item label="输入模态">{{ detail.manifest?.capabilities?.input_modalities?.join('、') || '未声明（不能据此认定媒体语义能力）' }}</el-descriptions-item>
           <el-descriptions-item label="内置">{{ detail.builtin ? '是（只读）' : '否' }}</el-descriptions-item>
           <el-descriptions-item label="说明">{{ detail.description || '—' }}</el-descriptions-item>
         </el-descriptions>
@@ -248,6 +249,7 @@
         <el-form-item label="版本">
           <el-input v-model="wizard.version" />
         </el-form-item>
+        <el-form-item label="输入模态"><el-select v-model="wizard.inputModalities" multiple @change="invalidateChecks"><el-option v-for="m in ['text','image','audio','video']" :key="m" :label="m" :value="m"/></el-select><small>仅声明工具可接收的原始媒体；不代表已测通过。参数中使用media数组。</small></el-form-item>
         <el-form-item label="调用方式">
           <el-select v-model="wizard.call_mode" style="width: 200px">
             <el-option label="sync" value="sync" />
@@ -677,7 +679,7 @@ const registering = ref(false)
 const checking = ref(false)
 const checkLog = ref('')
 const checks = ref({ schema: false, connect: null })
-const wizard = ref(emptyWizard())
+const wizard = ref({...emptyWizard(), inputModalities:['text']})
 const stdioAliases = ref([])
 const skillToolOptions = ref([])
 const skillToolsLoading = ref(false)
@@ -1005,7 +1007,7 @@ function onTrialClosed() {
 }
 
 function openWizard() {
-  wizard.value = emptyWizard()
+  wizard.value = {...emptyWizard(), inputModalities:['text']}
   wizardStep.value = 0
   checks.value = { schema: false, connect: null }
   checkLog.value = ''
@@ -1027,6 +1029,7 @@ function openEditSkill(row) {
   const [ns, ...rest] = String(row.resource_id || '').split('/')
   const chain = Array.isArray(skill.chain) ? skill.chain : []
   const next = emptyWizard()
+  next.inputModalities = mf.capabilities?.input_modalities || ['text']
   next.kind = 'skill'
   next.editing = true
   next.ns = ns || 'demo'
@@ -1080,7 +1083,13 @@ function wizardContext() {
 }
 
 function buildManifest() {
-  return composeManifest(wizardContext())
+  const manifest=composeManifest(wizardContext())
+  manifest.capabilities.input_modalities=wizard.value.inputModalities || ['text']
+  if(manifest.capabilities.input_modalities.some(m=>m!=='text')){
+    manifest.capabilities.input_schema.properties ||= {}
+    manifest.capabilities.input_schema.properties.media={type:'array',maxItems:8,items:{type:'object'}}
+  }
+  return manifest
 }
 
 function redactManifest(mf) {

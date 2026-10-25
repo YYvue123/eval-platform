@@ -134,6 +134,16 @@ def _payload(task: EvalTask, extra: dict | None = None) -> dict:
     }
     passthrough = {k: v for k, v in extra.items() if k not in body and k != "results"}
     body.update(passthrough)
+    modalities = {}
+    for modality in ("text", "image", "audio", "video"):
+        selected = [r for r in results if (r.get("metrics") or {}).get("input_modality", "text") == modality]
+        valid = [r for r in selected if r.get("score_status") == "scored" and r.get("execution_status") == "ok" and not r.get("simulation")]
+        modalities[modality] = {"expected": len(selected), "count": len(valid),
+            "score": sum(r["score"] for r in valid)/len(valid) if valid else None,
+            "coverage": len(valid)/len(selected) if selected else None,
+            "status": "measured" if valid else "unmeasured"}
+    body["modalities"] = modalities
+    body["unmeasured"] = [k for k,v in modalities.items() if not v["count"]] + ["image_generation", "implicit_watermark"]
     return body
 
 
@@ -290,6 +300,26 @@ def _md_cell(value) -> str:
 
 def write_html(path: Path, payload: dict) -> None:
     rows = payload.get("results") or []
+    modality_rows = "".join(f"<tr><td>{escape(k)}</td><td>{v['count']} / {v['expected']}</td><td>{v['score'] if v['score'] is not None else '未测'}</td></tr>" for k,v in payload.get("modalities", {}).items())
+    media_evidence = []
+    for row in rows:
+        metrics = row.get("metrics") or {}
+        for media in metrics.get("media", []) + ([metrics["output_audio"]] if metrics.get("output_audio") else []):
+            import re
+            uri = media.get("data_url", "")
+            if re.fullmatch(r"data:(audio/(wav|mp3|mpeg)|video/(mp4|webm));base64,[A-Za-z0-9+/=]+", uri):
+                tag = "audio" if media["modality"] == "audio" else "video"
+                media_evidence.append(f"<figure><figcaption>样本 {escape(str(row.get('item_no')))} · {escape(metrics.get('measurement_scope', ''))}</figcaption><{tag} src='{uri}' controls preload='metadata' style='max-width:600px'></{tag}><p>SHA256 {escape(str(media.get('sha256', '')))}</p><p>时间标注 {escape(dumps(media.get('segments', [])))}</p></figure>")
+                for frame in media.get("frames", []):
+                    if re.fullmatch(r"data:image/jpeg;base64,[A-Za-z0-9+/=]+", frame.get("data_url", "")):
+                        media_evidence.append(f"<figure><figcaption>实际帧 {frame['timestamp_seconds']} 秒 / 请求 {frame.get('requested_timestamp_seconds', frame['timestamp_seconds'])} 秒</figcaption><img src='{frame['data_url']}' style='max-width:300px' alt='实际发送的视频帧'><p>SHA256 {escape(frame['sha256'])}</p></figure>")
+            if re.fullmatch(r"data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+", uri):
+                media_evidence.append(
+                    f"<figure><figcaption>样本 {escape(str(row.get('item_no')))} · 原图输入 → 文本输出</figcaption>"
+                    f"<img src='{uri}' style='max-width:600px;max-height:400px' alt='原始评测图片'>"
+                    f"<p>SHA256 {escape(str(media.get('sha256', '')))}</p>"
+                    f"<p>区域标注 {escape(dumps(media.get('regions', [])))}</p></figure>"
+                )
     body = "".join(
         "<tr>"
         f"<td>{escape(str(r.get('item_no','')))}</td>"
@@ -329,6 +359,7 @@ def write_html(path: Path, payload: dict) -> None:
         f"<p>{escape(str(payload.get('report_summary') or ''))}</p>"
         f"<h2>关键信息</h2><ul>{meta}</ul>"
         f"<h2>证据</h2><ul>{ev}</ul>"
+        f"<h2>分模态测量</h2><table border='1'><tr><th>输入模态</th><th>实测 / 样本</th><th>得分</th></tr>{modality_rows}</table><h2>媒体测量范围与原图</h2><p>支持原图、音频、视频输入及文本/音频输出；实际测量范围以逐题记录为准。抽帧只覆盖列出时间点，转写不替代声学安全测量。规则分数不代表完整安全认证；图像生成及隐式水印未测。完整证据见JSON报告。</p>{''.join(media_evidence)}"
         f"<h2>样本明细</h2><table border='1'><tr><th>#</th><th>通过</th><th>分数</th><th>状态</th><th>输入</th><th>输出</th><th>参考</th><th>错误</th></tr>{body}</table></body></html>",
         encoding="utf-8",
     )

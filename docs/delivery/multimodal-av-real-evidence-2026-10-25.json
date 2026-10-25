@@ -1,0 +1,729 @@
+{
+  "kind": "real_development_measurement",
+  "backup": "E:\\eval-platform\\backend\\backups\\before-video-20261025-105522.db",
+  "scope": "实际MP4解码→时间戳抽帧→DeepSeek原图请求→文本输出；无音轨小样本，不代表原生音画联合或连续视频测量。",
+  "audio_validation": "本轮按用户要求不执行真实音频验收；仅隔离合同测试。",
+  "tasks": [
+    {
+      "task_id": 50,
+      "dataset_id": 51,
+      "via": "task_api",
+      "status": "success",
+      "progress": 100,
+      "creator_name": "admin",
+      "created_at": "2026-10-25T02:55:24.274687",
+      "trial_run": false,
+      "simulation": false,
+      "total": 2,
+      "results": [
+        {
+          "id": 443,
+          "item_no": 1,
+          "model_output": "red,blue",
+          "score": 1.0,
+          "score_status": "scored",
+          "execution_status": "ok",
+          "simulation": false,
+          "error_message": "",
+          "media": [
+            {
+              "modality": "video",
+              "processing": "sampled_frames",
+              "has_audio": false,
+              "frames": [
+                {
+                  "requested": 0,
+                  "actual": 0.0,
+                  "sha256": "efafae789684f3c9ef7222b7fac06fac5187bac04828b6676c1ab7a259189ead"
+                },
+                {
+                  "requested": 1.5,
+                  "actual": 1.0,
+                  "sha256": "f9ce5b21220bee36be6225fc489bdfb0ac4bce639a5932fcf7734ff40539f677"
+                }
+              ]
+            }
+          ],
+          "judge_score": null,
+          "needs_review": null
+        },
+        {
+          "id": 444,
+          "item_no": 2,
+          "model_output": "blue",
+          "score": 1.0,
+          "score_status": "scored",
+          "execution_status": "ok",
+          "simulation": false,
+          "error_message": "",
+          "media": [
+            {
+              "modality": "video",
+              "processing": "sampled_frames",
+              "has_audio": false,
+              "frames": [
+                {
+                  "requested": 0,
+                  "actual": 0.0,
+                  "sha256": "efafae789684f3c9ef7222b7fac06fac5187bac04828b6676c1ab7a259189ead"
+                },
+                {
+                  "requested": 1.5,
+                  "actual": 1.0,
+                  "sha256": "f9ce5b21220bee36be6225fc489bdfb0ac4bce639a5932fcf7734ff40539f677"
+                }
+              ]
+            }
+          ],
+          "judge_score": null,
+          "needs_review": null
+        }
+      ],
+      "report": {
+        "job_id": 8,
+        "status": "ready",
+        "error_message": "",
+        "formats": {
+          "json": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.json",
+            "error": ""
+          },
+          "md": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.md",
+            "error": ""
+          },
+          "html": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.html",
+            "error": ""
+          },
+          "csv": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.csv",
+            "error": ""
+          },
+          "xlsx": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.xlsx",
+            "error": ""
+          },
+          "docx": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.docx",
+            "error": ""
+          },
+          "pdf": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-50.pdf",
+            "error": ""
+          }
+        },
+        "evidence": [
+          {
+            "evidence_id": "ev-50-summary",
+            "claim": "任务汇总通过率与平均分",
+            "pass_rate": 1.0,
+            "avg_score": 1.0,
+            "result_ref": "task:50"
+          },
+          {
+            "evidence_id": "ev-50-r443",
+            "claim": "样本评分",
+            "score": 1.0,
+            "passed": true,
+            "result_ref": "result:443"
+          },
+          {
+            "evidence_id": "ev-50-r444",
+            "claim": "样本评分",
+            "score": 1.0,
+            "passed": true,
+            "result_ref": "result:444"
+          }
+        ],
+        "report_path": "uploads\\reports\\task-50.json"
+      },
+      "report_modalities": {
+        "text": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "image": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "audio": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "video": {
+          "expected": 2,
+          "count": 2,
+          "score": 1.0,
+          "coverage": 1.0,
+          "status": "measured"
+        }
+      }
+    },
+    {
+      "task_id": 51,
+      "dataset_id": 52,
+      "via": "task_api",
+      "status": "success",
+      "progress": 100,
+      "creator_name": "admin",
+      "created_at": "2026-10-25T02:55:24.947370",
+      "trial_run": false,
+      "simulation": false,
+      "total": 2,
+      "results": [
+        {
+          "id": 447,
+          "item_no": 1,
+          "model_output": "red,blue",
+          "score": 1.0,
+          "score_status": "scored",
+          "execution_status": "ok",
+          "simulation": false,
+          "error_message": "",
+          "media": [
+            {
+              "modality": "video",
+              "processing": "sampled_frames",
+              "has_audio": false,
+              "frames": [
+                {
+                  "requested": 0,
+                  "actual": 0.0,
+                  "sha256": "efafae789684f3c9ef7222b7fac06fac5187bac04828b6676c1ab7a259189ead"
+                },
+                {
+                  "requested": 1.5,
+                  "actual": 1.0,
+                  "sha256": "f9ce5b21220bee36be6225fc489bdfb0ac4bce639a5932fcf7734ff40539f677"
+                }
+              ]
+            }
+          ],
+          "judge_score": 1,
+          "needs_review": false
+        },
+        {
+          "id": 448,
+          "item_no": 2,
+          "model_output": "red,blue",
+          "score": 1.0,
+          "score_status": "scored",
+          "execution_status": "ok",
+          "simulation": false,
+          "error_message": "",
+          "media": [
+            {
+              "modality": "video",
+              "processing": "sampled_frames",
+              "has_audio": false,
+              "frames": [
+                {
+                  "requested": 0,
+                  "actual": 0.0,
+                  "sha256": "ce003059953e4219d10f1f795f8bde662d78130c248ec8f4a73e552419bb5fbd"
+                },
+                {
+                  "requested": 1.5,
+                  "actual": 1.0,
+                  "sha256": "89af6295cc004bbc742f8f39799fc140bfdcc3f351a948fefad998c4dd995f07"
+                }
+              ]
+            }
+          ],
+          "judge_score": 1,
+          "needs_review": false
+        }
+      ],
+      "report": {
+        "job_id": 9,
+        "status": "ready",
+        "error_message": "",
+        "formats": {
+          "json": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.json",
+            "error": ""
+          },
+          "md": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.md",
+            "error": ""
+          },
+          "html": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.html",
+            "error": ""
+          },
+          "csv": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.csv",
+            "error": ""
+          },
+          "xlsx": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.xlsx",
+            "error": ""
+          },
+          "docx": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.docx",
+            "error": ""
+          },
+          "pdf": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-51.pdf",
+            "error": ""
+          }
+        },
+        "evidence": [
+          {
+            "evidence_id": "ev-51-summary",
+            "claim": "任务汇总通过率与平均分",
+            "pass_rate": 1.0,
+            "avg_score": 1.0,
+            "result_ref": "task:51"
+          },
+          {
+            "evidence_id": "ev-51-r447",
+            "claim": "样本评分",
+            "score": 1.0,
+            "passed": true,
+            "result_ref": "result:447"
+          },
+          {
+            "evidence_id": "ev-51-r448",
+            "claim": "样本评分",
+            "score": 1.0,
+            "passed": true,
+            "result_ref": "result:448"
+          }
+        ],
+        "report_path": "uploads\\reports\\task-51.json"
+      },
+      "report_modalities": {
+        "text": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "image": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "audio": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "video": {
+          "expected": 2,
+          "count": 2,
+          "score": 1.0,
+          "coverage": 1.0,
+          "status": "measured"
+        }
+      }
+    },
+    {
+      "task_id": 52,
+      "dataset_id": 51,
+      "via": "agent_approval",
+      "status": "success",
+      "progress": 100,
+      "creator_name": "admin",
+      "created_at": "2026-10-25T02:55:27.597726",
+      "trial_run": false,
+      "simulation": false,
+      "total": 2,
+      "results": [
+        {
+          "id": 445,
+          "item_no": 1,
+          "model_output": "red,blue",
+          "score": 1.0,
+          "score_status": "scored",
+          "execution_status": "ok",
+          "simulation": false,
+          "error_message": "",
+          "media": [
+            {
+              "modality": "video",
+              "processing": "sampled_frames",
+              "has_audio": false,
+              "frames": [
+                {
+                  "requested": 0,
+                  "actual": 0.0,
+                  "sha256": "efafae789684f3c9ef7222b7fac06fac5187bac04828b6676c1ab7a259189ead"
+                },
+                {
+                  "requested": 1.5,
+                  "actual": 1.0,
+                  "sha256": "f9ce5b21220bee36be6225fc489bdfb0ac4bce639a5932fcf7734ff40539f677"
+                }
+              ]
+            }
+          ],
+          "judge_score": null,
+          "needs_review": null
+        },
+        {
+          "id": 446,
+          "item_no": 2,
+          "model_output": "blue",
+          "score": 1.0,
+          "score_status": "scored",
+          "execution_status": "ok",
+          "simulation": false,
+          "error_message": "",
+          "media": [
+            {
+              "modality": "video",
+              "processing": "sampled_frames",
+              "has_audio": false,
+              "frames": [
+                {
+                  "requested": 0,
+                  "actual": 0.0,
+                  "sha256": "efafae789684f3c9ef7222b7fac06fac5187bac04828b6676c1ab7a259189ead"
+                },
+                {
+                  "requested": 1.5,
+                  "actual": 1.0,
+                  "sha256": "f9ce5b21220bee36be6225fc489bdfb0ac4bce639a5932fcf7734ff40539f677"
+                }
+              ]
+            }
+          ],
+          "judge_score": null,
+          "needs_review": null
+        }
+      ],
+      "report": {
+        "job_id": 10,
+        "status": "ready",
+        "error_message": "",
+        "formats": {
+          "json": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.json",
+            "error": ""
+          },
+          "md": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.md",
+            "error": ""
+          },
+          "html": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.html",
+            "error": ""
+          },
+          "csv": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.csv",
+            "error": ""
+          },
+          "xlsx": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.xlsx",
+            "error": ""
+          },
+          "docx": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.docx",
+            "error": ""
+          },
+          "pdf": {
+            "status": "ready",
+            "path": "uploads\\reports\\task-52.pdf",
+            "error": ""
+          }
+        },
+        "evidence": [
+          {
+            "evidence_id": "ev-52-summary",
+            "claim": "任务汇总通过率与平均分",
+            "pass_rate": 1.0,
+            "avg_score": 1.0,
+            "result_ref": "task:52"
+          },
+          {
+            "evidence_id": "ev-52-r445",
+            "claim": "样本评分",
+            "score": 1.0,
+            "passed": true,
+            "result_ref": "result:445"
+          },
+          {
+            "evidence_id": "ev-52-r446",
+            "claim": "样本评分",
+            "score": 1.0,
+            "passed": true,
+            "result_ref": "result:446"
+          }
+        ],
+        "report_path": "uploads\\reports\\task-52.json"
+      },
+      "report_modalities": {
+        "text": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "image": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "audio": {
+          "expected": 0,
+          "count": 0,
+          "score": null,
+          "coverage": null,
+          "status": "unmeasured"
+        },
+        "video": {
+          "expected": 2,
+          "count": 2,
+          "score": 1.0,
+          "coverage": 1.0,
+          "status": "measured"
+        }
+      }
+    }
+  ],
+  "tool_inspection": {
+    "header": {
+      "message_id": "97fd5a17-0c2d-447b-b863-057db057c8c9",
+      "message_type": "response",
+      "version": "1.3",
+      "timestamp": "2026-10-25T02:55:26.269885+00:00",
+      "source": "builtin/media_inspect",
+      "destination": "platform",
+      "correlation_id": "video-inspect-1792896926164545000",
+      "priority": "normal",
+      "ttl": 300,
+      "tenant_id": "1",
+      "profile": "platform-v0.6.1/envelope-1.3",
+      "status": "ok"
+    },
+    "trace": {
+      "trace_id": "1d7a076c1fb34826a5b3bd730b825c80",
+      "span_id": "0085e168af1b49d8",
+      "parent_span_id": "903fa8e9ab7d4c48",
+      "traceparent": "00-1d7a076c1fb34826a5b3bd730b825c80-0085e168af1b49d8-01",
+      "parent_trace_id": "903fa8e9ab7d4c48"
+    },
+    "auth": {
+      "caller_id": "gateway"
+    },
+    "body": {
+      "status": "success",
+      "result": {
+        "media": [
+          {
+            "modality": "video",
+            "name": "hand-authored-temporal.mp4",
+            "video_mode": "frames",
+            "frame_timestamps": [
+              0.0,
+              1.0
+            ],
+            "segments": [
+              {
+                "start": 0,
+                "end": 1,
+                "label": "红色方块"
+              },
+              {
+                "start": 1,
+                "end": 2,
+                "label": "蓝色方块"
+              }
+            ],
+            "sha256": "98f02dfb5d81fb9867bcf55f2c8064449cf66fc2fec44f27085d2c2154af3699",
+            "regions": [],
+            "duration_seconds": 2.0,
+            "has_audio": false,
+            "has_video": true,
+            "processing": "sampled_frames"
+          }
+        ],
+        "measurement_scope": "媒体格式、时长、音轨、校验和及抽帧；不进行内容安全评分"
+      },
+      "metadata": {}
+    },
+    "correlation_id": "video-inspect-1792896926164545000"
+  },
+  "agent": {
+    "session_id": 22,
+    "plan": {
+      "name": "编排:验证视频抽帧时序评测",
+      "requirement": "验证视频抽帧时序评测",
+      "scene": "video",
+      "industry": "general",
+      "task_type": "scene",
+      "template_code": "scene.video",
+      "judge_resource_id": "builtin/exact_match",
+      "dataset_id": 51,
+      "dataset_version_id": 60,
+      "model_id": 14,
+      "model_version_id": 19,
+      "trial_run": false,
+      "token_budget": 10000,
+      "need_confirm": true,
+      "resource_gaps": [],
+      "goal_spec": {
+        "schema_version": "1.0",
+        "requirement": "验证视频抽帧时序评测",
+        "scene": "video",
+        "industry": "general",
+        "objective": "验证视频抽帧时序评测",
+        "token_budget": 10000,
+        "success_criteria": [
+          "plan_ready",
+          "approval_consumed_once"
+        ]
+      },
+      "clarifications": [],
+      "media_summary": {
+        "input_modalities": {
+          "video": 2
+        },
+        "output_modalities": [
+          "text"
+        ],
+        "processing": [
+          "sampled_frames"
+        ],
+        "dataset_content_checksum": "f7eddb125e70247d3ebdaac7807bcc08417a73be6194c41b792f79d8b44174a9",
+        "notice": "抽帧只覆盖列出的时间点；Agent资源编排不等同于规划模型直接理解原始媒体。"
+      },
+      "validation_errors": [],
+      "knowledge": [],
+      "templates": [
+        {
+          "code": "scene.video",
+          "name": "场景·视频生成",
+          "scene": "video",
+          "industry": "general",
+          "judge_resource_id": "builtin/fuzzy"
+        }
+      ],
+      "canonical_hash": "b8f6c319adce4138782aaf6fd40f3eacaf8cc647a5fdf37c3ced0b046309f797",
+      "ready": true,
+      "capabilities": {
+        "subagent_roles": [
+          "monitor",
+          "diagnose"
+        ],
+        "skill_codes": [
+          "draft_report"
+        ],
+        "mcp_resource_ids": []
+      }
+    },
+    "task_id": 52,
+    "verification_run": {
+      "id": 38,
+      "status": "paused_budget",
+      "tools": [
+        "get_resource_inventory",
+        "get_task_evidence"
+      ],
+      "final": null,
+      "completion": {
+        "kind": "pending",
+        "objective_verified": false
+      }
+    },
+    "continued_verification_run": {
+      "id": 39,
+      "status": "success",
+      "tokens_used": 3449,
+      "completion": {
+        "kind": "evaluation_completed",
+        "objective_verified": true,
+        "verification_scope": "evaluation_execution",
+        "measured_results": 2,
+        "task_id": 52,
+        "task_status": "success",
+        "report_available": true,
+        "trial_run": false,
+        "success_count": 2,
+        "fail_count": 0
+      },
+      "error_message": "",
+      "final": "评测任务 #52 状态：success；目标核验：通过。\n实际任务状态：success；目标核验：通过。\n\nmonitor（记录 #78，success）：## 结论（基于 task_id 52 实际快照与逐样本证据）\n\n**状态：终态成功（success），非排队/非运行中**\n- 事件链完整可核验：359 `created`（via=agent_approval，plan_hash b8f6c319…f797）→ 360 `queued`（priority 5, attempt 0）→ 361 `claimed`（owner LAPTOP-VM5UAVGU:29624…，fencing_token 1887086245）→ 362 `running`（同 token，attempt 0）→ 363 `success`（pass_rate 1.0, simulation=false）。\n- 进度 100%；trial_run=false、simulation=false，属**正式执行**，非试跑/模拟。\n- 会话成功判据对应情况：`plan_ready` 有事件 359 的 plan_hash 支撑；`approval_consumed_once` 有 359 单次 agent_approval 创建记录支撑。\n\n**逐样本（2/2 成功，失败 0，跳过 0，裁判失败 0）**\n| result_id | item_no | 执行/评分状态 | 分数 | 通过 |\n|---|---|---|---|---|\n| 445 | 1 | ok / scored | 1.0 | 是 |\n| 446 | 2 | ok / scored | 1.0 | 是 |\n\n- 两样本输入同一媒体 `hand-authored-temporal.mp4`（sha256 98f02dfb…3699，video_mode=frames，frame_timestamps [0.0, 1.0]，segments 红色方块 0–1s / 蓝色方块 1–2s，duration 2.0s，无音轨，processing=sampled_frames），measurement_scope=\"视频抽帧（非连续画面）输入→文本输出\"。\n- 445 输出 `red,"
+    }
+  },
+  "verification": {
+    "isolated_regression": {
+      "passed": 138,
+      "failed": 0,
+      "log": "backend/logs/multimodal-av-final-tests.log"
+    },
+    "audio_live_validation": "not_run_user_requested",
+    "native_audio_video_live_validation": "not_run_no_endpoint",
+    "video_live_validation": "passed_silent_video_sampled_frames_only",
+    "manual": "V1.9 Markdown updated; Word structure checked, visual render unavailable missing LibreOffice",
+    "browser": {
+      "video_duration": 2,
+      "seek_target": 1,
+      "seek_actual": 1,
+      "frame_pts": [
+        0,
+        1
+      ],
+      "requested_frame_times": [
+        0,
+        1.5
+      ],
+      "task_creator_and_creation_time": "verified"
+    },
+    "targeted_followup_tests": 32
+  },
+  "leaderboard": {
+    "video": {
+      "cohort_id": "c-e24af013f070a982",
+      "task_ids": [
+        52
+      ]
+    },
+    "safety": {
+      "cohort_id": "c-e373c51d8fafc5fd",
+      "task_ids": [
+        51
+      ]
+    }
+  }
+}

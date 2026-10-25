@@ -12,6 +12,7 @@ from app.models import EvalModel, ModelAccessConfig, ModelVersion
 from app.utils.jsonutil import dumps, loads
 
 ACCESS_FIELD_NAMES = (
+    "support_modal",
     "api_url",
     "request_method",
     "auth_type",
@@ -34,6 +35,7 @@ def assert_channel_allowed(channel_type: str) -> None:
 
 def _auth_blob(m: EvalModel) -> str:
     return dumps({
+        "support_modal": m.support_modal,
         "auth_type": m.auth_type,
         "has_key": bool(m.api_key),
         "api_key": m.api_key or "",
@@ -111,6 +113,7 @@ def model_call_view(model: EvalModel, cfg: ModelAccessConfig | None) -> Any:
     return SimpleNamespace(
         id=model.id,
         name=model.name,
+        support_modal=auth.get("support_modal", "text"),
         api_url=cfg.api_url or "",
         request_method=cfg.request_method or "POST",
         auth_type=cfg.auth_type or model.auth_type,

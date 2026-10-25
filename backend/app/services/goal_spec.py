@@ -57,6 +57,7 @@ def plan_fingerprint_fields(plan: dict) -> dict[str, Any]:
         "template_code": plan.get("template_code"),
         "judge_resource_id": plan.get("judge_resource_id"),
         **({"safety_config": plan["safety_config"]} if plan.get("safety_config") else {}),
+        **({"media_summary": plan["media_summary"]} if plan.get("media_summary") else {}),
         "dataset_id": plan.get("dataset_id"),
         "dataset_version_id": plan.get("dataset_version_id"),
         "model_id": plan.get("model_id"),

@@ -96,6 +96,12 @@ async def validate_eval_config(db: AsyncSession, plan: dict, user) -> list[str]:
         errors.append("被测模型不可用")
     elif not plan.get("trial_run") and not (model.api_url or "").strip():
         errors.append("正式执行拒绝无 endpoint 模型")
+    if ds and model:
+        try:
+            from app.services.multimodal import validate_plan_media
+            plan["media_summary"] = await validate_plan_media(db, plan)
+        except ValueError as exc:
+            errors.append(str(exc))
     prompt_id = plan.get("prompt_id")
     if prompt_id and not plan.get("trial_run"):
         from app.models import PromptTemplate

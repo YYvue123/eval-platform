@@ -740,7 +740,8 @@ async def clarify_session(
         active = await db.get(AgentRun, s.active_run_id)
         if active and active.status in {"queued", "running", "waiting"}:
             raise HTTPException(409, "规划分析进行中，请等待后再修改配置")
-    overrides = {}
+    previous = loads(s.plan_json, {})
+    overrides = {key: previous[key] for key in ("dataset_id", "model_id", "scene", "industry", "trial_run", "token_budget") if key in previous}
     if body.dataset_id is not None:
         overrides["dataset_id"] = body.dataset_id
     if body.model_id is not None:
@@ -755,8 +756,7 @@ async def clarify_session(
         overrides["token_budget"] = body.token_budget
     if body.objective:
         overrides["objective"] = body.objective
-    previous = loads(s.plan_json, {})
-    plan = await draft_plan(db, s.requirement, current, objective=body.objective or s.requirement, overrides=overrides)
+    plan = await draft_plan(db, s.requirement, current, objective=body.objective or (previous.get("goal_spec") or {}).get("objective") or s.requirement, overrides=overrides)
     if previous.get("capabilities"):
         plan["capabilities"] = previous["capabilities"]
     requested_judge = (body.judge_resource_id or "").strip()

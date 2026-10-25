@@ -283,10 +283,11 @@ async def list_tasks(
 
 
 async def task_display_rows(db, rows, actor):
+    creators = dict((await db.execute(select(User.id, User.username).where(User.id.in_({t.creator_id for t in rows if t.creator_id})))).all())
     models = {m.id:m for m in (await db.scalars(apply_object_scope(select(EvalModel).where(EvalModel.id.in_([t.model_id for t in rows])), EvalModel, actor))).all()}
     datasets = {d.id:d for d in (await db.scalars(apply_object_scope(select(Dataset).where(Dataset.id.in_([t.dataset_id for t in rows])), Dataset, actor))).all()}
     resources = {r.resource_id:r.name for r in (await db.scalars(apply_object_scope(select(BaseResource).where(BaseResource.resource_id.in_([t.judge_resource_id for t in rows])), BaseResource, actor))).all()}
-    return [{**task_out(t), 'model_name':models[t.model_id].name if t.model_id in models else '不可访问或已删除',
+    return [{**task_out(t), 'creator_name':creators.get(t.creator_id, '系统' if not t.creator_id else '用户已注销'), 'model_name':models[t.model_id].name if t.model_id in models else '不可访问或已删除',
              'dataset_name':datasets[t.dataset_id].name if t.dataset_id in datasets else '不可访问或已删除',
              'judge_name':judge_name(t.judge_resource_id) if t.judge_resource_id.startswith('builtin/') else resources.get(t.judge_resource_id,'不可访问或已删除的工具')} for t in rows]
 
@@ -323,6 +324,26 @@ async def create_task(
             raise HTTPException(400, "提示词不存在或无权访问")
         if not body.trial_run and prompt.status != "published":
             raise HTTPException(400, "正式评测要求提示词已发布，或勾选仅测试(trial_run)")
+    from app.models import DatasetItem, DatasetVersion
+    from app.services.model_access import get_access_for_version, model_call_view
+    from app.services.multimodal import validate_compatibility
+    version_id = body.dataset_version_id or ds.current_version_id
+    version = await db.get(DatasetVersion, version_id) if version_id else None
+    if not version or version.dataset_id != ds.id:
+        raise HTTPException(400, "基准版本不属于所选数据集")
+    selected_model_version = body.model_version_id or model.current_version_id
+    from app.models import ModelVersion
+    if selected_model_version:
+        mv = await db.get(ModelVersion, selected_model_version)
+        if not mv or mv.model_id != model.id:
+            raise HTTPException(400, "模型版本不属于所选模型")
+    view = model_call_view(model, await get_access_for_version(db, model.id, selected_model_version))
+    media_items = (await db.scalars(select(DatasetItem).where(DatasetItem.version_id == version_id, DatasetItem.status == "active"))).all()
+    try:
+        for item in media_items:
+            validate_compatibility(view, item)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     data = body.model_dump()
     weights = data.pop("metric_weights", None)
     safety_config = data.pop("safety_config", None)
@@ -347,6 +368,12 @@ async def create_task(
             judge = await get_visible_or_404(db, EvalModel, body.safety_config.judge_model_id, actor)
             if judge.status in {"deleted", "disabled", "archived"} or not judge.api_url or not await _acl_allows(db, judge.id, current):
                 raise HTTPException(403, "安全裁判模型不可调用")
+            judge_view = model_call_view(judge, await get_access_for_version(db, judge.id, judge.current_version_id))
+            try:
+                for item in media_items:
+                    validate_compatibility(judge_view, item, judge=True)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
             safety_config["judge_version_id"] = judge.current_version_id
         data.update(task_type="security", judge_resource_id="builtin/safety_protocol", template_code="")
         weights = body.safety_config.dimension_weights

@@ -268,6 +268,8 @@ def validate_manifest(manifest: dict) -> list[str]:
     if not isinstance(caps, dict):
         errors.append("capabilities 必填")
     else:
+        if "input_modalities" in caps and (not isinstance(caps["input_modalities"], list) or any(not isinstance(m,str) or m not in {"text","image","audio","video"} for m in caps["input_modalities"])):
+            errors.append("capabilities.input_modalities必须为text/image/audio/video数组")
         if not isinstance(caps.get("input_schema"), dict):
             errors.append("capabilities.input_schema 必填")
         if not isinstance(caps.get("output_schema"), dict):

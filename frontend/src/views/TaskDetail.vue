@@ -5,7 +5,7 @@
         <h2 class="page-title">{{ task.name || '任务详情' }}</h2>
         <p class="page-desc">{{ task.report_summary || '提交后将按数据分片逐条调用模型与打分工具；进度实时提交可见。' }}</p>
       </div>
-      <div class="ops">
+      <div class="ops" aria-label="任务操作">
         <el-button v-if="task.safety_config?.protocol && userStore.hasPermission('safety:view')" @click="router.push('/safety?task_id='+task.id)">安全专项结论</el-button>
         <el-button @click="goBack">返回</el-button>
         <el-button v-if="userStore.hasPermission('task:run')" type="primary" :disabled="task.status === 'running'" @click="run">执行</el-button>
@@ -64,6 +64,9 @@
       <el-col :span="6"><el-card><div class="stat-label">平均分</div><div class="stat-value">{{ task.avg_score == null ? '—' : Number(task.avg_score).toFixed(3) }}</div></el-card></el-col>
     </el-row>
     <el-descriptions :column="3" border class="block">
+      <el-descriptions-item label="创建时间">{{ displayTime(task.created_at) }}</el-descriptions-item>
+      <el-descriptions-item label="创建人">{{ task.creator_name || '—' }}</el-descriptions-item>
+      <el-descriptions-item label="进度"><el-progress :percentage="task.progress || 0" /></el-descriptions-item>
       <el-descriptions-item label="被测模型">{{ task.model_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="数据集">{{ task.dataset_name || '—' }}</el-descriptions-item>
       <el-descriptions-item label="评测工具">{{ task.judge_name || '—' }}</el-descriptions-item>
@@ -106,7 +109,8 @@
     </el-card>
     <el-card>
       <template #header>逐条结果（{{ results.length }}）</template>
-      <el-table :data="results" stripe>
+      <el-table :data="results" stripe row-key="id" :expand-row-keys="expandedResults" @expand-change="(_,rows)=>expandedResults=rows.map(r=>r.id)">
+        <el-table-column type="expand"><template #default="{row}"><p>{{ row.metrics?.measurement_scope }}</p><MediaEvidence :media="row.metrics?.media" /><MediaEvidence v-if="row.metrics?.output_audio" :media="[row.metrics.output_audio]" /><pre>{{ row.error_message }}</pre></template></el-table-column>
         <el-table-column prop="item_no" label="#" width="60" />
         <el-table-column prop="input_content" label="输入" min-width="160" show-overflow-tooltip />
         <el-table-column prop="model_output" label="模型输出" min-width="160" show-overflow-tooltip />
@@ -134,6 +138,8 @@
 </template>
 
 <script setup>
+const displayTime=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?value:`${value}Z`).toLocaleString('zh-CN',{hour12:false}):'—'
+import MediaEvidence from '@/components/MediaEvidence.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -150,6 +156,7 @@ const loadError = ref('')
 const createdOnce = ref(false)
 const task = ref({})
 const results = ref([])
+const expandedResults = ref([])
 const resultsPage = ref(1)
 const resultsPageSize = ref(20)
 const resultsTotal = ref(0)

@@ -17,40 +17,9 @@ from app.services.audit import log_audit, get_client_ip
 from app.services.leaderboard_insights import insights
 from app.services.object_policy import get_visible_or_404, apply_object_scope
 from app.utils.jsonutil import dumps, loads, iso
-from app.models.leaderboard_governance import LeaderboardDemo
-from app.services.leaderboard_demo_data import DIMENSIONS, demo_payload
-from app.services.leaderboard_insights import apply_scores
 
 router = APIRouter()
 
-
-@router.post('/demo/seed')
-async def seed_demo(request: Request, db: AsyncSession = Depends(get_db), actor: ActorContext = Depends(require_actor('leaderboard:edit'))):
-    added=[]
-    for category in DIMENSIONS:
-        row=await db.scalar(select(LeaderboardDemo).where(LeaderboardDemo.tenant_id==actor.tenant_id,LeaderboardDemo.category==category))
-        if not row:
-            db.add(LeaderboardDemo(tenant_id=actor.tenant_id,category=category,payload_json=dumps(demo_payload(category)),creator_id=actor.user_id))
-            added.append(category)
-    await log_audit(db,'leaderboard','edit',user_id=actor.user_id,username=actor.username,tenant_id=str(actor.tenant_id),ip=get_client_ip(request),detail=dumps({'synthetic_demo_added':added,'formal_results_written':False}))
-    await db.commit()
-    return {'added':added,'simulation':True}
-
-
-@router.get('/demo')
-async def get_demo(category: str = 'vision', board: str = 'overall', metric: str = '', db: AsyncSession = Depends(get_db), actor: ActorContext = Depends(require_actor('leaderboard:view'))):
-    if board not in {'overall','ability','special','value'}:
-        raise HTTPException(400,'榜单类型无效')
-    row=await db.scalar(select(LeaderboardDemo).where(LeaderboardDemo.tenant_id==actor.tenant_id,LeaderboardDemo.category==category))
-    if not row:
-        raise HTTPException(404,'该分类尚未配置模拟展示数据')
-    payload=loads(row.payload_json,{})
-    demo_rows=(await db.scalars(select(LeaderboardDemo).where(LeaderboardDemo.tenant_id==actor.tenant_id))).all()
-    payload['categories']={r.category:len(loads(r.payload_json,{}).get('items',[])) for r in demo_rows}
-    payload['overview']={'models':sum(payload['categories'].values()),'runs':0}
-    metric=metric if metric in payload['dimensions'] else payload['dimensions'][0]
-    weights=apply_scores(payload['items'],payload['dimensions'],{},board,metric,True)
-    return {**payload,'board':board,'metric':metric,'weights':weights}
 
 
 def utc(value):

@@ -215,6 +215,22 @@ async def invoke_tool(
         return resp
 
     try:
+        from types import SimpleNamespace
+        from app.services.multimodal import media_of
+        payload = params
+        if r.resource_type == "mcp":
+            payload = ((params.get("params") or {}).get("arguments") or {})
+        sample = payload.get("sample") if isinstance(payload.get("sample"), dict) else {}
+        media = payload.get("media", sample.get("media", []))
+        if media:
+            normalized = media_of(SimpleNamespace(extended_content=dumps({"media": media})))
+            supported = (manifest.get("capabilities") or {}).get("input_modalities")
+            if supported is not None and not {m["modality"] for m in normalized} <= set(supported):
+                raise ValueError("工具未声明所需媒体输入模态")
+            if "media" in payload:
+                payload["media"] = normalized
+            else:
+                sample["media"] = normalized
         if r.resource_type == "skill":
             if _depth >= 1:
                 raise NestedSkillError()

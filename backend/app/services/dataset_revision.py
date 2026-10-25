@@ -24,6 +24,7 @@ def content_checksum_for_items(items: list[DatasetItem] | list[dict]) -> str:
                 "reference_answer": it.get("reference_answer") or "",
                 "expected_output": it.get("expected_output") or "",
                 "status": it.get("status") or "active",
+                "extended_content": it.get("extended_content") or "{}",
             })
         else:
             rows.append({
@@ -32,6 +33,7 @@ def content_checksum_for_items(items: list[DatasetItem] | list[dict]) -> str:
                 "reference_answer": it.reference_answer or "",
                 "expected_output": it.expected_output or "",
                 "status": it.status or "active",
+                "extended_content": it.extended_content or "{}",
             })
     rows.sort(key=lambda x: x["item_no"])
     payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))

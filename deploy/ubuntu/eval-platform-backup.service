@@ -1,0 +1,12 @@
+[Unit]
+Description=Eval Platform encrypted offline snapshot
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/lib/eval-platform/manage.py backup
+ExecStartPost=/usr/bin/python3 /usr/local/lib/eval-platform/manage.py prune --confirm
+# A failed snapshot is visible as a failed unit; do not silently reopen maintenance.
+TimeoutStartSec=2h

@@ -49,6 +49,12 @@ async def create_task_from_plan(
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    from app.services.multimodal import validate_plan_media
+    try:
+        await validate_plan_media(db, plan)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     t = EvalTask(
         name=plan.get("name") or "编排任务",
         task_type="security" if safety else plan.get("task_type") or "capability",

@@ -81,7 +81,7 @@
                 <el-option label="远程加密访问" value="remote_encrypted" />
               </el-select>
             </el-form-item>
-            <el-form-item label="模态"><el-input v-model="form.support_modal" placeholder="text / multimodal" /></el-form-item>
+            <el-form-item label="输入/输出模态"><el-input v-model="form.support_modal" placeholder='{"input":["text","image","audio","video"],"output":["text","audio"]}（按实际能力填写）' /></el-form-item>
             <el-form-item label="场景白名单">
               <el-select v-model="form.scene_white_list" multiple filterable allow-create default-first-option style="width: 100%" placeholder="空表示不限制">
                 <el-option v-for="s in scenes" :key="s" :label="s" :value="s" />

@@ -1,0 +1,10 @@
+{
+  "source_chars": 58337,
+  "main_sections": 31,
+  "subsections": 143,
+  "tables": 30,
+  "paragraphs": 712,
+  "output": "E:\\eval-platform\\docs\\user-manual\\大模型智能评测平台用户使用手册_V1.9.docx",
+  "visual_render": "unavailable_missing_libreoffice",
+  "render_error": "LibreOffice soffice.exe was not found on PATH"
+}

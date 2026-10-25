@@ -168,3 +168,16 @@ BUILTIN_MANIFESTS.extend([
         "interfaces": {"endpoint": "local://builtin/mcp_gateway", "method": "exec", "auth_type": "none"},
     },
 ])
+
+
+BUILTIN_MANIFESTS.append({
+    "spec_version": "0.6.1", "resource_id": "builtin/media_inspect", "resource_type": "tool",
+    "name": "多模态媒体检查", "version": "1.0.0",
+    "description": "校验原图、音频、视频，输出时长、音轨、校验和、抽帧时间；不输出安全评分。",
+    "owner": {"name": "eval-platform", "contact": "platform", "email": "admin@example.com"},
+    "capabilities": {"input_modalities": ["image", "audio", "video"], "media_scope": "metadata_inspection",
+        "input_schema": {"type": "object", "required": ["media"], "properties": {"media": {"type": "array", "maxItems": 8, "items": {"type": "object"}}}},
+        "output_schema": {"type": "object", "properties": {"media": {"type": "array"}, "measurement_scope": {"type": "string"}}},
+        "call_mode": "sync", "idempotent": True, "timeout": 120},
+    "interfaces": {"endpoint": "local://builtin/media_inspect", "method": "exec", "auth_type": "none"},
+})

@@ -47,3 +47,5 @@
 | 2026-09-28 | U4 全站矩阵 | 24 页覆盖表；Dashboard/Tasks/Models/Safety/EvalServices/路由回退重点收口；浏览器 UX not_run | `docs/delivery/frontend-ux/U4.md` |
 | 2026-09-28 | U5 验收交接 | 权限采集+ux-static；隔离回归 63 OK；F/UX/AC 映射诚实标注；浏览器 UX 多数 not_run | `docs/delivery/frontend-ux/U5.md` |
 | 2026-09-28 | UX 烟雾 e2e | Playwright 脚手架；隔离库+Vite；7 passed（登录/工作台/Tasks/Models/Safety/Services/MCP 互斥） | `docs/delivery/frontend-ux/UX-SMOKE.md` |
+
+| 2026-10-25 | 多模态链路 | 原图/音频/视频输入、音频输出、实际PTS抽帧与音轨能力校验；数据、工具、Agent与任务证据共用门禁；视频任务50/51/52真实完成，音频按用户要求未做真实验收 | `docs/delivery/MULTIMODAL.md` |

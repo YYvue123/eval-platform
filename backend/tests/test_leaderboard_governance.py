@@ -183,16 +183,8 @@ class GovernanceApiTests(unittest.TestCase):
         row=next(t for t in c.get('/api/tasks',headers=h,params={'page_size':200}).json()['items'] if t['id']==self.tasks[0])
         self.assertEqual(row['model_name'],task['model_name'])
 
-    def test_synthetic_payload_is_separate_and_cannot_publish(self):
+    def test_synthetic_endpoints_are_removed_and_real_results_remain(self):
         c=self.client;h=self.headers
-        self.assertEqual(c.post('/api/leaderboard/demo/seed',headers=self.viewer).status_code,403)
-        self.assertEqual(c.post('/api/leaderboard/demo/seed',headers=h).status_code,200)
-        self.assertEqual(c.post('/api/leaderboard/demo/seed',headers=h).json()['added'],[])
-        for category in ['vision','video','audio','safety']:
-            payload=c.get('/api/leaderboard/demo',headers=h,params={'category':category}).json()
-            self.assertTrue(payload['simulation']);self.assertEqual(len(payload['items']),3)
-            self.assertEqual(len(payload['dimensions']),6)
-            self.assertTrue(all(r['simulation'] for r in payload['items']))
-            self.assertEqual(c.post('/api/leaderboard/publications',headers=h,json={'cohort_id':payload['cohort_id'],'title':'Should never publish'}).status_code,400)
-        self.assertEqual(c.get('/api/leaderboard/demo',headers=self.other,params={'category':'vision'}).status_code,404)
+        self.assertEqual(c.post('/api/leaderboard/demo/seed',headers=h).status_code,404)
+        self.assertEqual(c.get('/api/leaderboard/demo',headers=h).status_code,404)
         self.assertEqual(len(c.get('/api/leaderboard/insights',headers=h,params={'cohort_id':self.cid}).json()['items']),2)

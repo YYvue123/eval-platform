@@ -62,6 +62,9 @@ class AgentApprovalApiTest(unittest.TestCase):
             headers=self.h,
         )
         self.assertEqual(ds.status_code, 200, ds.text)
+        imported = self.client.post(f"/api/datasets/{ds.json()['id']}/import", headers=self.h,
+            files={"file": ("approval.json", b'[{"input":"isolated approval fixture","reference":"fixture"}]', "application/json")})
+        self.assertEqual(imported.status_code, 200, imported.text)
         mid = self.client.post(
             "/api/models",
             json={"name": f"wp08-m-{uuid.uuid4().hex[:6]}", "api_url": "", "status": "draft"},

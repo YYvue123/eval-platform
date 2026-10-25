@@ -87,7 +87,7 @@ def parse_response(model: EvalModel, data: dict) -> tuple[str, int]:
             data.get("choices", [{}])[0].get("message", {}).get("content")
             if isinstance(data.get("choices"), list) and data.get("choices")
             else None
-        ) or data.get("output") or data.get("text") or ""
+        ) or (data.get("choices", [{}])[0].get("message", {}).get("audio") or {}).get("transcript") or data.get("output") or data.get("text") or ""
     tokens = extract_path(data, token_path)
     try:
         tokens = int(tokens or 0)
@@ -125,15 +125,15 @@ def mark_failure(model: EvalModel) -> None:
         model.health_status = "abnormal"
 
 
-async def invoke_model(model: EvalModel, prompt: str, *, messages: list[dict] | None = None) -> dict:
+async def invoke_model(model: EvalModel, prompt: str, *, messages: list[dict] | None = None, response_modalities: list[str] | None = None, audio: dict | None = None) -> dict:
     blocked = circuit_blocked(model)
     if blocked:
         raise RuntimeError(blocked)
     async with _semaphore(model):
-        return await _invoke_once(model, prompt, messages=messages)
+        return await _invoke_once(model, prompt, messages=messages, response_modalities=response_modalities, audio=audio)
 
 
-async def _invoke_once(model: EvalModel, prompt: str, *, messages: list[dict] | None = None) -> dict:
+async def _invoke_once(model: EvalModel, prompt: str, *, messages: list[dict] | None = None, response_modalities: list[str] | None = None, audio: dict | None = None) -> dict:
     started = time.perf_counter()
     url = _chat_url(model.api_url)
     if not url:
@@ -148,6 +148,9 @@ async def _invoke_once(model: EvalModel, prompt: str, *, messages: list[dict] | 
     body = build_request_body(model, prompt)
     if messages is not None:
         body["messages"] = messages
+    if response_modalities:
+        body["modalities"] = response_modalities
+        body["audio"] = audio
     timeout = httpx.Timeout(model.timeout or 60)
     last_error = None
     retries = max(model.retry_count or 0, 0) + 1
@@ -158,10 +161,24 @@ async def _invoke_once(model: EvalModel, prompt: str, *, messages: list[dict] | 
                 resp.raise_for_status()
                 data = resp.json()
             text, tokens = parse_response(model, data)
+            output_audio = None
+            if response_modalities and "audio" in response_modalities:
+                from types import SimpleNamespace
+                from app.services.multimodal import media_of
+                payload = ((data.get("choices") or [{}])[0].get("message") or {}).get("audio") or {}
+                encoded = payload.get("data")
+                if not encoded:
+                    raise ValueError("请求音频输出但模型没有返回音频，禁止以文本替代")
+                fmt = (audio or {}).get("format", "wav")
+                output_audio = media_of(SimpleNamespace(extended_content=json.dumps({"media": [{"modality": "audio", "name": "model-output."+fmt, "data_url": f"data:audio/{fmt};base64,{encoded}"}]})))[0]
+                output_audio["processing"] = "model_output_audio"
+                if not text:
+                    text = payload.get("transcript") or ""
             mark_success(model)
             observe_model_invoke(True)
             return {
                 "output": str(text),
+                "output_audio": output_audio,
                 "latency_ms": int((time.perf_counter() - started) * 1000),
                 "tokens": tokens,
                 "mock": False,

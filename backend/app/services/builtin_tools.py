@@ -6,6 +6,12 @@ from difflib import SequenceMatcher
 
 
 def run_builtin_tool(resource_id: str, payload: dict) -> dict:
+    if resource_id == "builtin/media_inspect":
+        from types import SimpleNamespace
+        from app.services.multimodal import media_of, media_summary
+        from app.utils.jsonutil import dumps
+        media = media_of(SimpleNamespace(extended_content=dumps({"media": payload.get("media", [])})))
+        return {"media": media_summary(media), "measurement_scope": "媒体格式、时长、音轨、校验和及抽帧；不进行内容安全评分"}
     prediction = str(payload.get("prediction") or payload.get("output") or "")
     reference = str(payload.get("reference") or payload.get("reference_answer") or "")
     pattern = str(payload.get("pattern") or "")

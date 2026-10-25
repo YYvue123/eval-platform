@@ -70,6 +70,7 @@ class AuditBody(BaseModel):
 
 
 class ItemPatch(BaseModel):
+    extended_content: dict | None = None
     input_content: str | None = None
     reference_answer: str | None = None
     expected_output: str | None = None
@@ -491,7 +492,7 @@ async def export_dataset(
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         filename = f"{d.name}.xlsx"
     else:
-        lines = [json.dumps({"input": r.input_content, "reference": r.reference_answer, "label": r.data_label}, ensure_ascii=False) for r in rows]
+        lines = [json.dumps({**loads(r.extended_content, {}), "input": r.input_content, "reference": r.reference_answer, "label": r.data_label}, ensure_ascii=False) for r in rows]
         data = ("\n".join(lines) + "\n").encode("utf-8")
         media = "application/jsonl"
         filename = f"{d.name}.jsonl"
@@ -613,6 +614,18 @@ async def patch_item(
     if not d or d.status == "deleted":
         raise HTTPException(404, "数据集不存在")
     changes = body.model_dump(exclude_unset=True)
+    if "extended_content" in changes:
+        from types import SimpleNamespace
+        from app.services.multimodal import media_of, request_options
+        extra = changes["extended_content"]
+        if not isinstance(extra, dict):
+            raise HTTPException(400, "extended_content必须为对象")
+        try:
+            extra["media"] = media_of(SimpleNamespace(extended_content=dumps(extra)))
+            request_options(SimpleNamespace(extended_content=dumps(extra)))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        changes["extended_content"] = dumps(extra)
     if not changes:
         item = await db.get(DatasetItem, item_id)
         if not item or item.dataset_id != dataset_id:

@@ -63,7 +63,7 @@
       >
         <el-button type="primary">选择文件</el-button>
         <template #tip>
-          <div class="el-upload__tip">支持 Excel / CSV / JSON / JSONL / TXT / ZIP。选择后先确认字段映射再入库。</div>
+          <div class="el-upload__tip">支持 Excel / CSV / JSON / JSONL / TXT / ZIP。图片、音频、视频可在样本展开栏添加；JSON可配置media数组、regions区域、segments时间段和frame_timestamps抽帧时间，随版本冻结。音视频最长120秒。选择后先确认字段映射再入库。</div>
         </template>
       </el-upload>
     </el-card>
@@ -71,6 +71,7 @@
     <el-card class="block">
       <template #header>样本预览</template>
       <el-table :data="items" stripe max-height="420">
+        <el-table-column type="expand"><template #default="{row}"><MediaEvidence :media="row.extended_content?.media" permission="dataset:view" /><el-upload v-if="userStore.hasPermission('dataset:edit')" :auto-upload="false" accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp3,video/mp4,video/webm" :show-file-list="false" :on-change="file=>attachMedia(row,file)"><el-button v-if="userStore.hasPermission('dataset:edit')">添加媒体并创建新版本</el-button></el-upload><template v-if="userStore.hasPermission('dataset:edit')"><el-select v-model="videoMode" aria-label="视频输入方式" style="width:240px;margin:8px"><el-option label="视频抽帧及音轨（需相应能力）" value="frames"/><el-option label="原生视频（需video能力）" value="native"/></el-select><el-select :model-value="row.extended_content?.response_modalities?.includes('audio')?'audio':'text'" aria-label="模型输出模态" style="width:200px" @change="value=>setResponse(row,value)"><el-option label="文本输出" value="text"/><el-option label="文本及音频输出" value="audio"/></el-select></template></template></el-table-column>
         <el-table-column prop="item_no" label="#" width="60" />
         <el-table-column prop="input_content" label="输入" min-width="220" show-overflow-tooltip />
         <el-table-column prop="reference_answer" label="参考答案" min-width="180" show-overflow-tooltip />
@@ -145,6 +146,7 @@
 </template>
 
 <script setup>
+import MediaEvidence from '@/components/MediaEvidence.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -153,6 +155,16 @@ import { useUserStore } from '@/stores/user'
 import PageAsyncState from '@/components/PageAsyncState.vue'
 import { deriveAsyncState } from '@/utils/asyncState.js'
 
+const videoMode=ref('frames')
+async function setResponse(row,value){try{await datasetsApi.patchItem(route.params.id,row.id,{extended_content:{...row.extended_content,response_modalities:value==='audio'?['text','audio']:['text'],audio_output:{voice:'alloy',format:'wav'}}});ElMessage.success('已创建新版本，请重新质检发布');await load()}catch(e){ElMessage.error(e.response?.data?.detail || e.message)}}
+async function attachMedia(row,file){
+  if(file.size>25*1024*1024){ElMessage.warning('媒体不能超过25MB；图片上限10MB');return}
+  try{
+    const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file.raw)})
+    await datasetsApi.patchItem(route.params.id,row.id,{extended_content:{...row.extended_content,media:[...(row.extended_content?.media || []),{modality:file.raw.type.split('/')[0],name:file.name,data_url:dataUrl,regions:[],segments:[],...(file.raw.type.startsWith('video/')?{video_mode:videoMode.value}:{})}]}})
+    ElMessage.success('已创建包含媒体的新版本，请重新质检并发布');await load()
+  }catch(e){ElMessage.error(e.response?.data?.detail || e.message)}
+}
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()

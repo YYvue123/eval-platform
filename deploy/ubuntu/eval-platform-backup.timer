@@ -1,0 +1,11 @@
+[Unit]
+Description=Eval Platform daily backup (02:30 Asia/Shanghai)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Shanghai
+Persistent=false
+RandomizedDelaySec=300
+Unit=eval-platform-backup.service
+
+[Install]
+WantedBy=timers.target

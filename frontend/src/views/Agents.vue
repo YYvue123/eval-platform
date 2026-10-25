@@ -679,7 +679,8 @@
     </el-dialog>
 
     <el-drawer v-model="drawerOpen" title="计划与证据" size="420px">
-      <pre v-if="session.plan" class="payload">{{ JSON.stringify(session.plan, null, 2) }}</pre>
+      <p v-if="session.plan?.media_summary" class="muted">媒体输入：{{ JSON.stringify(session.plan.media_summary.input_modalities) }} · 输出：{{ session.plan.media_summary.output_modalities?.join('、') }} · 处理：{{ session.plan.media_summary.processing?.join('、') || '文本' }}。抽帧仅覆盖实际时间点，语义结论以任务裁判及人工复核为准。</p>
+        <pre v-if="session.plan" class="payload">{{ JSON.stringify(session.plan, null, 2) }}</pre>
       <el-table v-if="evidence.length" :data="evidence" size="small" style="margin-top: 12px">
         <el-table-column prop="role" label="来源" width="80" />
         <el-table-column prop="type" label="类型" width="100" />

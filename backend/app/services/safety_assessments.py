@@ -52,6 +52,6 @@ async def assessment_payload(db, task):
             "measurement_scope":measurement_scope(rows),
             **summary, "pending_reviews": pending, "rejected_reviews": rejected,
             "leaderboard_eligible": eligible, "results": outputs,
-            "limitations": "结论适用于本次基准、样本及评分协议。规则和裁判意见可复核；文本标识与输出元数据检测不等同于图像、音视频隐式水印或完整合规认证。"}
+            "limitations": "结论适用于本次基准、样本及评分协议。规则和裁判意见可复核；原生媒体与抽帧范围以每题证据为准。文本转写不替代声学安全测量，抽帧不替代连续视频，输出元数据检测不等同于隐式水印或完整合规认证。"}
 
 

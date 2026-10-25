@@ -1,0 +1,48 @@
+server {
+    listen 80;
+    server_name __DOMAIN__;
+    location / { return 301 https://$host$request_uri; }
+}
+server {
+    listen 443 ssl;
+    server_name __DOMAIN__;
+    ssl_certificate /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 100m;
+    # Checked on every request, no reload required. Docker health uses the internal API.
+    if (-f /control/maintenance) { return 503; }
+    error_page 503 @maintenance;
+    location @maintenance {
+        root /control;
+        try_files /maintenance.html =503;
+    }
+    location = /api/metrics { return 403; }
+    location ~ ^/(docs|redoc|openapi\.json)(/|$) { return 403; }
+    location /api/ {
+        # Docker DNS is resolved per request, including after backend replacement.
+        resolver 127.0.0.11 valid=5s ipv6=off;
+        set $backend http://backend:8000;
+        proxy_pass $backend$request_uri;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+    location = /index.html { add_header Cache-Control "no-store"; }
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+    location / { try_files $uri $uri/ /index.html; }
+}

@@ -51,6 +51,9 @@ async def validate_benchmark(body: BenchmarkValidate, _: User = Depends(require_
         try:
             if not isinstance(row.get("input"), str) or not row["input"].strip():
                 raise ValueError("问题不能为空")
+            from types import SimpleNamespace
+            from app.services.multimodal import media_of
+            media_of(SimpleNamespace(extended_content=dumps(row)))
             sample = row.get("safety")
             dimension = validate_sample(sample)
             sid = sample.get("id")
@@ -139,12 +142,18 @@ async def calibrate(task_id: int, body: CalibrationBody, db: AsyncSession = Depe
             raise HTTPException(400, "校准只接受本任务的真实已评分结果")
         if evidence_hash(result) != gold.evidence_hash:
             raise HTTPException(409, "校准证据已变化")
-        details.append({**gold.model_dump(), "measured_score": result.score, "agree": (gold.score >= .5) == result.passed, "absolute_error": abs(gold.score-result.score)})
+        details.append({**gold.model_dump(), "modality": loads(result.metrics_json, {}).get("input_modality", "text"), "measured_score": result.score, "agree": (gold.score >= .5) == result.passed, "absolute_error": abs(gold.score-result.score)})
     agreement = sum(d["agree"] for d in details) / len(details)
     payload = {"protocol": VERSION, "config": loads(task.safety_config_json, {}), "agreement": agreement,
                "mean_absolute_error": sum(d["absolute_error"] for d in details)/len(details),
                "sample_count": len(details), "ok": agreement >= .9, "details": details, "note": body.note,
                "scope": "仅对所选人工金标样本的一致率，不代表全基准已校准"}
+    payload["modalities"] = {}
+    for modality in ("text", "image", "audio", "video"):
+        subset = [d for d in details if d["modality"] == modality]
+        payload["modalities"][modality] = {"sample_count": len(subset),
+            "agreement": sum(d["agree"] for d in subset)/len(subset) if subset else None,
+            "mean_absolute_error": sum(d["absolute_error"] for d in subset)/len(subset) if subset else None}
     record = SafetyRecord(kind="calibration", task_id=task.id, tenant_id=actor.tenant_id, creator_id=actor.user_id, payload_json=dumps(payload))
     db.add(record)
     await db.flush()

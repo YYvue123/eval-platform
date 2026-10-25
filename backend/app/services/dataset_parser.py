@@ -89,7 +89,17 @@ def apply_mapping(raw_rows: list[dict], mapping: dict | None) -> list[dict]:
 
 def parse_bytes(filename: str, data: bytes, mapping: dict | None = None) -> list[dict]:
     raw = parse_raw_bytes(filename, data)
-    return apply_mapping(raw, mapping)
+    rows = apply_mapping(raw, mapping)
+    from types import SimpleNamespace
+    from app.services.multimodal import media_of, request_options
+    for row in rows:
+        extra = row["extended_content"]
+        import json
+        request_options(SimpleNamespace(extended_content=json.dumps(extra)))
+        if "media" in extra:
+            import json
+            extra["media"] = media_of(SimpleNamespace(extended_content=json.dumps(extra)))
+    return rows
 
 
 def parse_raw_bytes(filename: str, data: bytes) -> list[dict]:

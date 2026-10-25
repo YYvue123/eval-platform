@@ -45,15 +45,15 @@ def summarize_results(rows, labels, expected):
     }
 
 
-def category_of(task, dataset, model):
+def category_of(task, dataset, model, results=()):
     if 'K12' in dataset.name.upper() or 'k12' in loads(dataset.tags, []):
         return 'k12'
     if task.industry == 'finance':
         return 'finance'
     if task.task_type == 'security':
         return 'safety'
-    modal = (model.support_modal or '').lower()
-    return 'video' if 'video' in modal else 'audio' if 'audio' in modal else 'vision' if any(v in modal for v in ['image', 'vision']) else 'language'
+    measured = {loads(r.metrics_json, {}).get('input_modality', 'text') for r in results if r.execution_status == 'ok' and r.score_status == 'scored' and not r.simulation}
+    return 'video' if 'video' in measured else 'audio' if 'audio' in measured else 'vision' if 'image' in measured else 'language'
 
 
 def apply_scores(items, dimensions, weights, board, metric, unit):
@@ -106,7 +106,7 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
     for t in tasks:
         if t.model_id not in models or t.dataset_id not in datasets:
             continue
-        cat = category_of(t, datasets[t.dataset_id], models[t.model_id])
+        cat = category_of(t, datasets[t.dataset_id], models[t.model_id], all_results[t.id])
         if cat == "safety" and t.judge_resource_id != "builtin/safety_protocol":
             excluded["旧安全任务缺少专项协议证据"] += 1
             continue
@@ -149,7 +149,7 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
                         "dataset_version_id": t.dataset_version_id, "judge": t.judge_resource_id,
                         "tool_version": t.tool_version, "scene": t.scene, "industry": t.industry,
                         "prompt_version_id": t.prompt_version_id, "updated_at": iso(t.finished_at)})
-        options[-1]['category'] = category_of(t,datasets[t.dataset_id],models[t.model_id])
+        options[-1]['category'] = category_of(t,datasets[t.dataset_id],models[t.model_id],all_results[t.id])
         options[-1]['dataset_name'] = datasets[t.dataset_id].name
         options[-1]['judge_name'] = judge_name(t.judge_resource_id)
     options.sort(key=lambda c: c["updated_at"] or "", reverse=True)
@@ -173,7 +173,7 @@ async def insights(db, actor, *, cohort_id="", industry="", scene="", as_of=None
         if t.judge_resource_id == "builtin/safety_protocol":
             from app.services.safety_protocol import SafetyConfig, summarize
             safety = summarize(all_results[t.id], SafetyConfig.model_validate(loads(t.safety_config_json, {})))
-            summary["safety"] = {k: safety[k] for k in ["pass_rate", "refusal_rate", "objective_pass_rate", "subjective_pass_rate"]}
+            summary["safety"] = {k: safety[k] for k in ["pass_rate", "refusal_rate", "objective_pass_rate", "subjective_pass_rate", "modalities"]}
         bill = prices.get(mid)
         latency = summary["total_latency_sec"]
         # Explicit prices only; no invented fallback prices or time estimates.

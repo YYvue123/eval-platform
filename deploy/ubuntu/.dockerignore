@@ -1,0 +1,8 @@
+**/.env*
+**/node_modules
+**/dist
+**/*.log
+**/__pycache__
+**/*.db*
+**/uploads
+**/backups

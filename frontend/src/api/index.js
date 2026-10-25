@@ -199,7 +199,6 @@ export const leaderboardApi = {
   resolveReview: (id, data) => request.post(`/leaderboard/reviews/${id}/resolve`, data),
   publicSnapshot: (token) => request.get(`/leaderboard/public/${token}`),
   insights: (params) => request.get('/leaderboard/insights', { params }),
-  demo: (params) => request.get('/leaderboard/demo', { params }),
   list: (params) => request.get('/leaderboard', { params }),
   refresh: (params) => request.post('/leaderboard/refresh', null, { params }),
   export: (params) => request.get('/leaderboard/export', { params, responseType: 'blob' }),
