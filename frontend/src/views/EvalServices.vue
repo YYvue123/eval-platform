@@ -103,6 +103,7 @@ import ServiceCustomers from '@/components/ServiceCustomers.vue'
 import ServiceRecords from '@/components/ServiceRecords.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { servicePortalApi as api } from '@/api'
+import { randomId } from '@/utils/randomId'
 import { useUserStore } from '@/stores/user'
 const userStore = useUserStore()
 const route = useRoute(), router = useRouter(), initialQuery = readListQuery(route.query)
@@ -165,7 +166,7 @@ function searchCalls() { page.value = 1; writeListQuery(router, { page: 1, page_
 watch([page, pageSize], () => writeListQuery(router, { page: page.value, page_size: pageSize.value, q: callSearch.value }))
 watch(() => route.query, query => { const next = readListQuery(query); if (page.value !== next.page || pageSize.value !== next.page_size || callSearch.value !== next.q) { page.value = next.page; pageSize.value = next.page_size; callSearch.value = next.q; loadWorkspace() } })
 async function open(type, row = null) {
-  kind.value = type; selected.value = row; formError.value = ''; requestKey = crypto.randomUUID(); quotaTenant.value = null; quotaClients.value = []; budgetPreset.value = 10000
+  kind.value = type; selected.value = row; formError.value = ''; requestKey = randomId(); quotaTenant.value = null; quotaClients.value = []; budgetPreset.value = 10000
   form.value = type === 'evaluation' ? { title: '', requirement: '', mode: 'auto', client_id: clients.value.find(c => c.active)?.id, route_id: routes.value.find(r => r.stable_id && r.available !== false)?.id, dataset_id: assets.value.datasets[0]?.id, token_budget: 10000, scene: options.value.scenes[0]?.value || 'qa', judge_resource_id: 'builtin/exact_match' }
     : type === 'traffic' ? { stable_id: row.stable_id, candidate_id: row.candidate_id, gray_percent: row.gray_percent }
     : type === 'grant' ? { tenant_id: row?.id }
